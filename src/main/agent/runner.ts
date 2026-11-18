@@ -30,6 +30,7 @@ export interface AgentRunResult {
 function buildSystemPrompt(maxSteps: number, shellEnabled: boolean): string {
   const s = settingsStore.get()
   const skills = s.agent.skillsEnabled ? skillsPromptSection() : ''
+  const searchOn = s.search.enabled
   return [
     s.llm.systemPrompt,
     '',
@@ -43,6 +44,9 @@ function buildSystemPrompt(maxSteps: number, shellEnabled: boolean): string {
       : '4. Shell 能力未开启：如果确实需要，直接告诉用户「去 设置 → Agent 能力 里开启 Shell」，不要反复尝试。',
     '5. 高风险操作需要用户确认；看到"用户拒绝"就停下并说明，不要绕过。',
     '6. 不要编造工具结果，只根据工具返回汇报。',
+    searchOn
+      ? '7. 遇到时效性问题（今天/最近/最新、新闻、比分、价格、版本、发布会、谁赢了、有没有出新东西）先调 web.search 查，再基于结果回答，并带上来源链接；日常闲聊、情感陪伴、写代码、常识问题不要搜。'
+      : '7. 现在没有联网搜索能力：涉及最新消息时如实说查不到，不要编造。',
     skills ? `\n${skills}` : ''
   ]
     .filter(Boolean)

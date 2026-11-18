@@ -167,14 +167,16 @@ export default function Bubble(): React.ReactElement {
   }, [draft])
 
   const stateText = useMemo(() => {
-    if (state.note && state.phase !== 'idle') return state.note
+    // 状态前的图标：闲聊/思考用 💬，真正在动工具用 💻
+    const icon = state.phase === 'acting' ? '💻 ' : state.phase === 'thinking' ? '💬 ' : ''
+    if (state.note && state.phase !== 'idle') return icon + state.note
     switch (state.phase) {
       case 'acting':
-        return '工作中'
+        return '💻 工作中'
       case 'listening':
         return '正在听…'
       case 'thinking':
-        return '思考中…'
+        return '💬 思考中…'
       case 'speaking':
         return '正在说…'
       default:

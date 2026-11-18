@@ -130,6 +130,14 @@ export default function Settings(): React.ReactElement {
           ))}
         </nav>
         <div className="sidebar__foot">
+          <button
+            className="nav__item theme-toggle"
+            onClick={() => patch({ ui: { theme: s.ui.theme === 'dark' ? 'light' : 'dark' } }, true)}
+            title="切换亮色 / 暗色"
+          >
+            <span className="theme-toggle__icon">{s.ui.theme === 'dark' ? '☀' : '☾'}</span>
+            {s.ui.theme === 'dark' ? '亮色模式' : '暗色模式'}
+          </button>
           <button className="nav__item" onClick={() => window.bwu.settings.openDataDir()}>
             <Icon d="M1.6 4.2h4.6l1.2 1.6h7v6.6H1.6z" />
             数据目录

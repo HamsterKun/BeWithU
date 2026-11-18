@@ -478,6 +478,31 @@ $d = "$env:USERPROFILE\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies"
 
 ---
 
+## 15. 11-18 晚四轮：主题切换 + 状态文案 + 搜索触发规则
+
+**主题**（`ui.theme` 字段早就存在，但从没被应用过）
+- 新文件 `src/renderer/theme.ts`：`initTheme()` 读设置 → `document.documentElement.dataset.theme`，并订阅设置变更
+- 四个渲染入口（settings/bubble/menu/ball）都调了 `initTheme()`
+- CSS 改造（`tools/theme-tokens.py` 批量执行，可重跑）：
+  - 所有 `rgba(255,255,255,a)` → `rgba(var(--ink),a)`；亮色主题里 `--ink: 15,23,42` 自动翻转
+  - 写死的浅色文字 → `--text-main / --accent-text / --ok-text / --danger-text / --warn-text / --accent2-text`
+  - 气泡卡片底色 → `--card-1 / --card-2`；深色底 `#171c29/#1c2231/#12161f/#0d1016` → 变量
+- 侧栏底部新增「☀ 亮色模式 / ☾ 暗色模式」按钮（图一红框位置），改完立即生效并广播到所有窗口
+- 亮色下额外补了气泡的对比度（用户气泡文字、发送按钮、ghost 按钮）
+
+**状态文案**
+- 气泡标题：闲聊/思考 `💬 思考中…`，跑工具 `💻 工作中`；`note`（如「整理中」）也会带上前缀图标
+- 球的徽标：`💬 工作中…` → `💻 工作中…`
+
+**搜索触发**
+- `runner.buildSystemPrompt` 增加第 7 条：时效性问题先 `web.search` 再答、带来源；闲聊/陪伴/代码/常识不搜；
+  搜索关闭时改为"如实说查不到，不要编造"
+- 注意：纯聊天模式没有工具调用，永远不会搜（README 已写明）
+
+**验证**：亮色/暗色的设置页、气泡、菜单都截图核对；全套测试 10/10、2/2、4/4、7/7、8/8。
+
+---
+
 ## 13. 11-18 晚二轮：发消息没响应（已修）
 
 **现象**：气泡里打字发送后完全没有回复。

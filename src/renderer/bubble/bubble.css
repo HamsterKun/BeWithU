@@ -1,6 +1,99 @@
 :root {
   color-scheme: dark;
   --pad: 20px;
+  --ink: 255, 255, 255;
+  --text-main: #e8edf7;
+  --text-strong: #fff;
+  --accent-text: #cffafe;
+  --ok-text: #bbf7d0;
+  --danger-text: #fecdd3;
+  --warn-text: #fde68a;
+  --card-1: rgba(22, 26, 40, 0.93);
+  --card-2: rgba(12, 15, 24, 0.95);
+}
+
+[data-theme='light'] {
+  color-scheme: light;
+  --ink: 15, 23, 42;
+  --text-main: #121a26;
+  --text-strong: #0b0d12;
+  --accent-text: #0e7490;
+  --ok-text: #047857;
+  --danger-text: #b91c1c;
+  --warn-text: #92400e;
+  --card-1: rgba(255, 255, 255, 0.97);
+  --card-2: rgba(246, 248, 252, 0.98);
+}
+
+[data-theme='light'] .card {
+  box-shadow:
+    0 18px 40px rgba(15, 23, 42, 0.18),
+    0 2px 8px rgba(15, 23, 42, 0.1);
+}
+
+[data-theme='light'] .row__label,
+[data-theme='light'] .card__state,
+[data-theme='light'] .hint-text,
+[data-theme='light'] .empty span {
+  color: rgba(15, 23, 42, 0.58);
+}
+
+[data-theme='light'] .row__text,
+[data-theme='light'] .empty p,
+[data-theme='light'] .composer__input {
+  color: #16202e;
+}
+
+[data-theme='light'] .notice {
+  color: #9f1239;
+  background: rgba(225, 29, 72, 0.08);
+  border-color: rgba(225, 29, 72, 0.2);
+}
+
+[data-theme='light'] .notice[data-kind='success'] {
+  color: #047857;
+  background: rgba(5, 150, 105, 0.1);
+  border-color: rgba(5, 150, 105, 0.22);
+}
+
+[data-theme='light'] .notice[data-kind='info'] {
+  color: #334155;
+  background: rgba(15, 23, 42, 0.06);
+  border-color: rgba(15, 23, 42, 0.12);
+}
+
+[data-theme='light'] .row--user .row__text {
+  color: #1f2937;
+}
+
+[data-theme='light'] .ghost-btn {
+  color: #334155;
+  border-color: rgba(15, 23, 42, 0.18);
+}
+
+[data-theme='light'] .ghost-btn--sm {
+  color: #475569;
+}
+
+[data-theme='light'] .composer__send {
+  color: #ffffff;
+  background: #0891b2;
+  border-color: rgba(8, 145, 178, 0.6);
+}
+
+[data-theme='light'] .composer__send:disabled {
+  color: rgba(15, 23, 42, 0.35);
+  background: rgba(15, 23, 42, 0.06);
+  border-color: rgba(15, 23, 42, 0.1);
+}
+
+[data-theme='light'] .icon-btn.active {
+  color: #0e7490;
+  background: rgba(8, 145, 178, 0.12);
+}
+
+[data-theme='light'] .approve__detail {
+  color: #475569;
 }
 
 * {
@@ -43,13 +136,13 @@ body {
   width: 340px;
   display: flex;
   flex-direction: column;
-  color: #e8edf7;
-  background: linear-gradient(180deg, rgba(22, 26, 40, 0.93), rgba(12, 15, 24, 0.95));
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--text-main);
+  background: linear-gradient(180deg, var(--card-1), var(--card-2));
+  border: 1px solid rgba(var(--ink), 0.1);
   border-radius: 18px;
   box-shadow:
     0 2px 16px rgba(0, 0, 0, 0.45),
-    0 0 0 1px rgba(255, 255, 255, 0.03) inset;
+    0 0 0 1px rgba(var(--ink), 0.03) inset;
   backdrop-filter: blur(22px) saturate(1.35);
   overflow: hidden;
   transform-origin: left center;
@@ -96,7 +189,7 @@ body {
 }
 
 .pulse[data-phase='thinking'] {
-  background: #fbbf24;
+  background: var(--warn-text);
   animation: pulse 1.4s ease-in-out infinite;
 }
 
@@ -160,8 +253,8 @@ body {
 }
 
 .icon-btn:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: #fff;
+  background: rgba(var(--ink), 0.08);
+  color: var(--text-strong);
 }
 
 .icon-btn.active {
@@ -204,14 +297,14 @@ body {
   line-height: 1.64;
   white-space: pre-wrap;
   word-break: break-word;
-  color: #eef3fb;
+  color: var(--text-main);
 }
 
 .row--user .row__text {
   font-size: 13px;
   color: rgba(203, 213, 225, 0.94);
-  background: rgba(255, 255, 255, 0.055);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: rgba(var(--ink), 0.055);
+  border: 1px solid rgba(var(--ink), 0.05);
   border-radius: 10px;
   padding: 7px 10px;
 }
@@ -257,7 +350,7 @@ body {
   border-radius: 10px;
   font-size: 11.5px;
   line-height: 1.45;
-  color: #fecdd3;
+  color: var(--danger-text);
   background: rgba(244, 63, 94, 0.12);
   border: 1px solid rgba(244, 63, 94, 0.25);
 }
@@ -269,7 +362,7 @@ body {
 }
 
 .notice[data-kind='success'] {
-  color: #bbf7d0;
+  color: var(--ok-text);
   background: rgba(34, 197, 94, 0.12);
   border-color: rgba(34, 197, 94, 0.25);
 }
@@ -281,8 +374,8 @@ body {
 
 .notice button {
   flex: none;
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(var(--ink), 0.18);
+  background: rgba(var(--ink), 0.06);
   color: inherit;
   font-size: 11px;
   padding: 3px 8px;
@@ -291,7 +384,7 @@ body {
 }
 
 .notice button:hover {
-  background: rgba(255, 255, 255, 0.12);
+  background: rgba(var(--ink), 0.12);
 }
 
 .card__foot {
@@ -299,7 +392,7 @@ body {
   align-items: center;
   gap: 10px;
   padding: 7px 12px 9px;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  border-top: 1px solid rgba(var(--ink), 0.06);
   min-height: 30px;
 }
 
@@ -309,7 +402,7 @@ body {
   align-items: center;
   gap: 8px;
   padding: 9px 12px 6px;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  border-top: 1px solid rgba(var(--ink), 0.06);
 }
 
 .composer__input {
@@ -318,9 +411,9 @@ body {
   height: 30px;
   padding: 0 10px;
   border-radius: 9px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(255, 255, 255, 0.05);
-  color: #e8edf7;
+  border: 1px solid rgba(var(--ink), 0.1);
+  background: rgba(var(--ink), 0.05);
+  color: var(--text-main);
   font-size: 12.5px;
   font-family: inherit;
   outline: none;
@@ -331,7 +424,7 @@ body {
 
 .composer__input:focus {
   border-color: rgba(103, 232, 249, 0.55);
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(var(--ink), 0.08);
 }
 
 .composer__input::placeholder {
@@ -345,7 +438,7 @@ body {
   border-radius: 9px;
   border: 1px solid rgba(103, 232, 249, 0.32);
   background: rgba(103, 232, 249, 0.14);
-  color: #cffafe;
+  color: var(--accent-text);
   font-size: 12px;
   font-family: inherit;
   cursor: pointer;
@@ -428,8 +521,8 @@ body {
 
 .ghost-btn {
   margin-left: auto;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(var(--ink), 0.14);
+  background: rgba(var(--ink), 0.05);
   color: rgba(226, 232, 240, 0.9);
   font-size: 11px;
   padding: 4px 10px;
@@ -439,7 +532,7 @@ body {
 }
 
 .ghost-btn:hover {
-  background: rgba(255, 255, 255, 0.12);
+  background: rgba(var(--ink), 0.12);
 }
 
 .ghost-btn--sm {
@@ -542,11 +635,11 @@ body {
   font-weight: 600;
 }
 .approve__no {
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(var(--ink), 0.08);
   color: rgba(240, 240, 240, 0.9);
-  border-color: rgba(255, 255, 255, 0.14) !important;
+  border-color: rgba(var(--ink), 0.14) !important;
 }
 .approve__hint {
   font-size: 10px;
-  color: rgba(255, 255, 255, 0.45);
+  color: rgba(var(--ink), 0.45);
 }

@@ -176,7 +176,7 @@ export default function Ball(): React.ReactElement {
       {agent ? (
         <div className="work-badge">
           <span className="work-badge__dot" />
-          <span className="work-badge__text">💬 工作中…</span>
+          <span className="work-badge__text">💻 工作中…</span>
           {agent.total ? <span className="work-badge__count">{agent.step}/{agent.total}</span> : null}
         </div>
       ) : null}
