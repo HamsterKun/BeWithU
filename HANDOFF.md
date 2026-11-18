@@ -534,6 +534,21 @@ $d = "$env:USERPROFILE\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies"
 
 ---
 
+## 19. 11-18 晚八轮：TTS 并发 / 亮色对比度 / Agent 看图
+
+- **TTS 只念前半句**：日志实锤 `breeze http error 429 GENERATION_CONCURRENCY_EXCEEDED`。
+  Breeze 的计划并发上限是 1，而 `SpeechQueue` 默认并发 2 → 第二句直接 429 被丢。
+  修法：构造时按 provider 传并发（breeze=1，其他=2）；`run()` 对 429 做 1.2s 退避重试一次。
+- **Agent 模式不再截屏**：`respondWithAgent` 里从来没调 `captureScreen`（只有纯聊天分支调），
+  所以模型只能拿到 `input.screen_info` 的分辨率。现在 Agent 任务开始前也截图，
+  并作为首轮 user 消息的 `image_url` 发出；模型不支持图片时自动去掉图重试一次并提示。
+- **亮色对比度**：
+  - 气泡/菜单投影全部去掉（透明窗口边缘会露灰框），开关关闭态改成 `--toggle-off`（亮色 #cbd5e1）
+  - 气泡里「正在调用工具/思考」这类行在亮色下改用深青 #0f5f70、失败用 #b91c1c
+- 验证：`vision: Agent 已截屏 1600x900` 出现在日志；测试 10/10、2/2、4/4、6/6、7/7。
+
+---
+
 ## 17. 11-18 晚六轮：弹出方向按半屏 / 两窗口互斥
 
 - **方向**：`layoutBubble` 和 `layoutMenu` 原来都是"右边放得下就放右边"，导致球在屏幕右半区也往右弹。

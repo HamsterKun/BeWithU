@@ -23,6 +23,7 @@
   --btn-hover-bg: #1c2231;
   --pop-bg: #12161f;
   --preview-bg: #05070b;
+  --toggle-off: #232a38;
   --text-2: #c3cddd;
   --muted-ink: 148, 163, 184;
   --text2-ink: 203, 213, 225;
@@ -53,6 +54,7 @@
   --btn-hover-bg: #e9eef6;
   --pop-bg: #ffffff;
   --preview-bg: #eef2f8;
+  --toggle-off: #cbd5e1;
   --text-2: #334155;
   --muted-ink: 100, 116, 139;
   --text2-ink: 51, 65, 85;
@@ -496,7 +498,7 @@ body {
   width: 34px;
   height: 20px;
   border-radius: 999px;
-  background: #232a38;
+  background: var(--toggle-off);
   border: 1px solid var(--border-strong);
   position: relative;
   transition: background 0.18s ease;

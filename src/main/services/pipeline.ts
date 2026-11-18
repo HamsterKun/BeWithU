@@ -59,7 +59,6 @@ class SpeechQueue {
   private ended = false
   private aborted = false
   private controller = new AbortController()
-  private concurrency = 2
   private seq = 0
   /** 第一句必须最先开始推流，否则渲染端可能先收到第二句、把第一句判为过期 */
   private firstStarted = false
@@ -67,7 +66,8 @@ class SpeechQueue {
   constructor(
     private tts: Settings['tts'],
     private onChunk: (seq: number, pcm: Buffer | null) => void,
-    private onEnd: () => void
+    private onEnd: () => void,
+    private concurrency = 2
   ) {}
 
   add(text: string): void {
@@ -102,14 +102,29 @@ class SpeechQueue {
   }
 
   private async run(item: { seq: number; text: string }): Promise<void> {
-    const signal = AbortSignal.any([this.controller.signal, AbortSignal.timeout(20000)])
-    try {
+    const attempt = async (): Promise<void> => {
+      const signal = AbortSignal.any([this.controller.signal, AbortSignal.timeout(20000)])
       for await (const chunk of synthesize(this.tts, item.text, signal)) {
         if (this.aborted) break
         this.onChunk(item.seq, chunk.pcm)
         if (!this.firstStarted && item.seq === 0) {
           this.firstStarted = true
           void this.pump()
+        }
+      }
+    }
+    try {
+      try {
+        await attempt()
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e)
+        // Breeze 并发超限（429）：串行 + 退避重试一次，否则整句被吞
+        if (!this.aborted && /429|concurren|并发/i.test(msg)) {
+          await new Promise((r) => setTimeout(r, 1200))
+          if (!this.aborted) await attempt()
+          else return
+        } else {
+          throw e
         }
       }
     } catch (e) {
@@ -589,16 +604,30 @@ class Conversation {
         },
         () => {
           if (turn === this.turnId) getBallWindow()?.webContents.send(IPC.audioEnd)
-        }
+        },
+        // Breeze 的并发上限是 1，两条一起合成就 429，第二句会直接丢
+        s.tts.provider === 'breeze' ? 1 : 2
       )
     } else {
       this.speech?.abort()
       this.speech = null
     }
 
+    // 屏幕理解：Agent 模式下也要带截图（之前只有纯聊天分支截了）
+    let agentShot: ScreenCapture | null = null
+    if (s.llm.vision.enabled) {
+      const cap = await captureScreen()
+      if (turn !== this.turnId) return
+      if (cap.ok) {
+        agentShot = cap.shot
+        log('vision: Agent 已截屏', `${cap.shot.width}x${cap.shot.height}`)
+      }
+    }
+
     try {
       const res = await runAgentTask(userText, {
         signal: controller.signal,
+        image: agentShot ? { dataUrl: agentShot.dataUrl } : undefined,
         events: {
           onText: (text) => {
             if (turn !== this.turnId) return

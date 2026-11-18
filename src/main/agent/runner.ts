@@ -99,7 +99,7 @@ function summarizeArgs(def: ToolDef, args: Record<string, unknown>): string {
 
 export async function runAgentTask(
   userText: string,
-  opts: { signal: AbortSignal; events: AgentEvents }
+  opts: { signal: AbortSignal; events: AgentEvents; image?: { dataUrl: string } }
 ): Promise<AgentRunResult> {
   const cfg = settingsStore.get().agent
   const maxSteps = cfg.maxSteps
@@ -113,11 +113,25 @@ export async function runAgentTask(
   // 模型看到的是 input_type，回来要换回 input.type
   const wireToReal = buildWireMap(enabled.map((t) => t.id))
   const history = historyStore.recent(6).map((m) => ({ role: m.role, content: m.content }))
+  // 屏幕理解：首轮带上截图；模型不支持图片时自动降级为纯文字
+  let useImage = Boolean(opts.image?.dataUrl)
+  const userMessage = (): Record<string, unknown> =>
+    useImage && opts.image
+      ? {
+          role: 'user',
+          content: [
+            { type: 'text', text: userText },
+            { type: 'image_url', image_url: { url: opts.image.dataUrl } }
+          ]
+        }
+      : { role: 'user', content: userText }
   const messages: unknown[] = [
     { role: 'system', content: buildSystemPrompt(maxSteps, cfg.shellEnabled) },
     ...history,
-    { role: 'user', content: userText }
+    userMessage()
   ]
+  const userIndex = messages.length - 1
+  let retriedNoImage = false
 
   let steps = 0
   let finalText = ''
@@ -129,6 +143,15 @@ export async function runAgentTask(
       turn = await chatWithTools({ messages, tools, signal: opts.signal, scenario: userText })
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
+      // 模型不支持图片：去掉图再试一次
+      if (useImage && !retriedNoImage && /image|vision|multi-?modal|content[ _-]?type|unsupported/i.test(msg)) {
+        retriedNoImage = true
+        useImage = false
+        messages[userIndex] = { role: 'user', content: userText }
+        log('vision: Agent 模型拒绝图片，降级为纯文字', msg)
+        opts.events.onText('（这个模型不支持看图，这次先不看了）')
+        continue
+      }
       log('agent: LLM 调用失败', msg)
       const text = friendlyAgentError(msg)
       // 必须走 onText，否则气泡里什么都不显示，用户以为"没反应"

@@ -31,12 +31,6 @@
   --text2-ink: 51, 65, 85;
 }
 
-[data-theme='light'] .card {
-  box-shadow:
-    0 18px 40px rgba(15, 23, 42, 0.18),
-    0 2px 8px rgba(15, 23, 42, 0.1);
-}
-
 [data-theme='light'] .row__label,
 [data-theme='light'] .card__state,
 [data-theme='light'] .hint-text,
@@ -102,6 +96,39 @@
   color: #475569;
 }
 
+/* 亮色下"正在调用工具/思考"这类行要压深，否则亮青字在白底上看不清 */
+[data-theme='light'] .card__step {
+  color: #0f5f70;
+  background: rgba(8, 145, 178, 0.09);
+  border-color: rgba(8, 145, 178, 0.22);
+}
+
+[data-theme='light'] .card__step[data-done='true'][data-ok='false'] {
+  color: #b91c1c;
+  background: rgba(220, 38, 38, 0.08);
+  border-color: rgba(220, 38, 38, 0.24);
+}
+
+[data-theme='light'] .card__step-dot {
+  background: #0891b2;
+}
+
+[data-theme='light'] .card__step[data-done='true'] .card__step-dot {
+  background: #059669;
+}
+
+[data-theme='light'] .approve__title {
+  color: #92400e;
+}
+
+[data-theme='light'] .card__name {
+  color: #0f172a;
+}
+
+[data-theme='light'] .card__body {
+  scrollbar-color: rgba(15, 23, 42, 0.22) transparent;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -146,9 +173,7 @@ body {
   background: linear-gradient(180deg, var(--card-1), var(--card-2));
   border: 1px solid rgba(var(--ink), 0.1);
   border-radius: 18px;
-  box-shadow:
-    0 2px 16px rgba(0, 0, 0, 0.45),
-    0 0 0 1px rgba(var(--ink), 0.03) inset;
+  box-shadow: none;
   /* 透明窗口里 backdrop-filter 会画出一层灰底，去掉更干净 */
   overflow: hidden;
   transform-origin: left center;
