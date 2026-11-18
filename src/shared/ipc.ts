@@ -107,7 +107,13 @@ export const IPC = {
   // 审批：气泡里点允许/拒绝
   agentApprove: 'agent:approve',
   // 测试用：跑一次 Agent 任务
-  agentTestRun: 'agent:test-run'
+  agentTestRun: 'agent:test-run',
+  // Agent 设置页
+  agentToolsList: 'agent:tools-list',
+  agentRuns: 'agent:runs',
+  agentRunsClear: 'agent:runs-clear',
+  agentOpenToolsDir: 'agent:open-tools-dir',
+  appPickDir: 'app:pick-dir'
 } as const
 
 export interface AgentProgress {
@@ -162,6 +168,7 @@ export interface BwuApi {
     asrLocalWarmup(): Promise<TestResult>
     restartHotkey(): Promise<void>
     openDataDir(): Promise<void>
+    pickDir(): Promise<string | null>
     dataDirInfo(): Promise<DataDirInfo>
     changeDataDir(): Promise<{ ok: boolean; canceled?: boolean; dir?: string; message?: string }>
     resetDataDir(): Promise<{ ok: boolean; message?: string }>
@@ -199,6 +206,13 @@ export interface BwuApi {
     resize(width: number, height: number): void
     pick(id: string): void
     close(): void
+  }
+  /** Agent 设置页数据 */
+  agentTools: {
+    list(): Promise<Array<{ id: string; name: string; risk: string; enabled: boolean }>>
+    runs(): Promise<Array<{ at: number; toolId: string; ok: boolean; summary: string }>>
+    clearRuns(): Promise<boolean>
+    openDir(): Promise<void>
   }
   /** Agent 审批（气泡里点允许/拒绝） */
   agent: {

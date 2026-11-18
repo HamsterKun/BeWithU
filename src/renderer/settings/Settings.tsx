@@ -6,14 +6,16 @@ import BallPane from './panes/BallPane'
 import PromptPane from './panes/PromptPane'
 import HotkeyPane from './panes/HotkeyPane'
 import AboutPane from './panes/AboutPane'
+import AgentPane from './panes/AgentPane'
 
-type Tab = 'model' | 'voice' | 'ball' | 'prompt' | 'hotkey' | 'about'
+type Tab = 'model' | 'voice' | 'ball' | 'prompt' | 'agent' | 'hotkey' | 'about'
 
 const TABS: { id: Tab; label: string; title: string; icon: string }[] = [
   { id: 'model', label: '大模型', title: '大模型', icon: 'M8 1.4l1.7 4.6 4.6 1.7-4.6 1.7L8 14l-1.7-4.6L1.7 7.7l4.6-1.7z' },
   { id: 'voice', label: '语音', title: '语音合成与识别', icon: 'M8 1.6a2.4 2.4 0 0 1 2.4 2.4v3.4a2.4 2.4 0 1 1-4.8 0V4A2.4 2.4 0 0 1 8 1.6zM3.4 7.2v.4a4.6 4.6 0 0 0 9.2 0v-.4h1.2v.4a5.8 5.8 0 0 1-5.2 5.75V15H7.4v-1.65A5.8 5.8 0 0 1 2.2 7.6v-.4z' },
   { id: 'ball', label: '悬浮球', title: '悬浮球与气泡', icon: 'M8 1.6a6.4 6.4 0 1 0 0 12.8A6.4 6.4 0 0 0 8 1.6zm0 1.6a4.8 4.8 0 1 1 0 9.6 4.8 4.8 0 0 1 0-9.6z' },
   { id: 'prompt', label: '提示词', title: '系统提示词', icon: 'M3 3.2h10v1.4H3zm0 3.2h10v1.4H3zm0 3.2h6.4v1.4H3zM3 12.8h8.4v1.4H3z' },
+  { id: 'agent', label: 'Agent 能力', title: 'Agent 能力', icon: 'M8 2.2a1.3 1.3 0 0 1 1.3 1.3v1h1.5A2.2 2.2 0 0 1 13 6.7v1.6h1V9.7h-1v1.6a2.2 2.2 0 0 1-2.2 2.2H5.2A2.2 2.2 0 0 1 3 11.3V9.7H2V8.3h1V6.7a2.2 2.2 0 0 1 2.2-2.2h1.5v-1A1.3 1.3 0 0 1 8 2.2Zm-2 5.1v1.4h1.4V7.3Zm2.6 0v1.4H10V7.3Z' },
   { id: 'hotkey', label: '快捷键', title: '开麦键', icon: 'M1.6 4.4h12.8v7.2H1.6zM3.2 6h1.6v1.4H3.2zm2.6 0H7.4v1.4H5.8zm2.6 0h1.6v1.4H8.4zm2.6 0h1.6v1.4h-1.6zM4.4 8.6h7.2v1.4H4.4z' },
   { id: 'about', label: '关于', title: '关于与隐私', icon: 'M8 1.6a6.4 6.4 0 1 0 0 12.8A6.4 6.4 0 0 0 8 1.6zM7.2 4.6h1.6v1.6H7.2zm0 2.8h1.6v4H7.2z' }
 ]
@@ -148,6 +150,7 @@ export default function Settings(): React.ReactElement {
           {tab === 'ball' ? <BallPane {...paneProps} /> : null}
           {tab === 'prompt' ? <PromptPane {...paneProps} /> : null}
           {tab === 'hotkey' ? <HotkeyPane {...paneProps} /> : null}
+          {tab === 'agent' ? <AgentPane {...paneProps} /> : null}
           {tab === 'about' ? <AboutPane {...paneProps} /> : null}
         </div>
       </main>

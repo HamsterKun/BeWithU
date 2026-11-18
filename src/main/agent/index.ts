@@ -7,6 +7,7 @@ import { registerSystemTools } from './tools/system'
 import type { ToolContext, ToolResult } from './types'
 import { log } from '../logger'
 import { workerPing } from '../services/input-inject'
+import { recordAudit } from './audit'
 
 let registered = false
 
@@ -49,6 +50,14 @@ export async function callTool(
   try {
     const res = await tool.run(args, ctx)
     log(`agent: ${id} ${res.ok ? 'ok' : 'fail'} ${Date.now() - started}ms`)
+    recordAudit({
+      at: Date.now(),
+      callId,
+      toolId: id,
+      ok: res.ok,
+      summary: res.summary.slice(0, 500),
+      argsPreview: JSON.stringify(args).slice(0, 300)
+    })
     return res
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e)

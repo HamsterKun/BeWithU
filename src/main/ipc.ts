@@ -12,6 +12,9 @@ import { testAsr } from './services/asr'
 import { captureScreen } from './services/vision'
 import { callTool, listTools, registerBuiltinTools } from './agent'
 import { resolveApproval } from './agent/approval'
+import { clearAudit, recentAudit } from './agent/audit'
+import { mkdirSync } from 'node:fs'
+import { join } from 'node:path'
 import { runAgentTask } from './agent/runner'
 import { deleteModel, downloadModel, modelStatus } from './services/asr-model'
 import { warmupLocalAsr } from './services/local-asr'
@@ -456,6 +459,33 @@ export function registerIpc(getQuit: () => void): void {
   /* ------------------------------------------------------------- agent ---- */
 
   registerBuiltinTools()
+  // Agent 设置页
+  ipcMain.handle(IPC.appPickDir, async () => {
+    const r = await dialog.showOpenDialog({
+      title: '选择允许操作的目录',
+      properties: ['openDirectory', 'createDirectory']
+    })
+    return r.canceled ? null : r.filePaths[0] ?? null
+  })
+  ipcMain.handle(IPC.agentToolsList, () => {
+    const disabled = settingsStore.get().agent.disabledTools
+    return listTools().map((t) => ({
+      id: t.id,
+      name: t.name,
+      risk: t.risk,
+      enabled: !disabled.includes(t.id)
+    }))
+  })
+  ipcMain.handle(IPC.agentRuns, () => recentAudit(50))
+  ipcMain.handle(IPC.agentRunsClear, () => {
+    clearAudit()
+    return true
+  })
+  ipcMain.handle(IPC.agentOpenToolsDir, async () => {
+    const dir = join(app.getPath('userData'), 'agent', 'tools')
+    mkdirSync(dir, { recursive: true })
+    await shell.openPath(dir)
+  })
   // 气泡里点「允许/拒绝」
   ipcMain.on(IPC.agentApprove, (_e, id: string, allow: boolean) => {
     resolveApproval(String(id ?? ''), Boolean(allow))

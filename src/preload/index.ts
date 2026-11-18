@@ -79,6 +79,13 @@ contextBridge.exposeInMainWorld('bwu', {
     pick: (id: string) => ipcRenderer.send(IPC.menuPick, id),
     close: () => ipcRenderer.send(IPC.menuClose)
   },
+  /** Agent 设置页数据 */
+  agentTools: {
+    list: () => ipcRenderer.invoke(IPC.agentToolsList),
+    runs: () => ipcRenderer.invoke(IPC.agentRuns),
+    clearRuns: () => ipcRenderer.invoke(IPC.agentRunsClear),
+    openDir: () => ipcRenderer.invoke(IPC.agentOpenToolsDir)
+  },
   /** Agent 审批 */
   agent: {
     approve: (id: string, allow: boolean) => ipcRenderer.send(IPC.agentApprove, id, allow)
