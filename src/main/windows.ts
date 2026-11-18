@@ -229,7 +229,19 @@ export function layoutBubble(): void {
 
   const spaceRight = wa.x + wa.width - (center.x + radius)
   const spaceLeft = center.x - radius - wa.x
-  bubbleSide = spaceRight >= winW + 12 || spaceRight >= spaceLeft ? 'right' : 'left'
+  // 方向按"球在屏幕的左半区还是右半区"决定：左半区往右弹，右半区往左弹；
+  // 只有那一侧实在放不下时才反向。
+  const midX = wa.x + wa.width / 2
+  const preferRight = center.x < midX
+  const fitsRight = spaceRight >= winW + 12
+  const fitsLeft = spaceLeft >= winW + 12
+  bubbleSide = preferRight
+    ? fitsRight || !fitsLeft
+      ? 'right'
+      : 'left'
+    : fitsLeft || !fitsRight
+      ? 'left'
+      : 'right'
 
   const edge = center.x + (bubbleSide === 'right' ? ringRadius : -ringRadius)
   let x =
@@ -276,8 +288,8 @@ let bubbleShownOnce = false
 const OFFSCREEN = -32000
 
 export function showBubble(): void {
-  // 菜单开着的时候不弹气泡：气泡是置顶窗口，盖上来会吃掉菜单的点击
-  if (menuVisible) return
+  // 两个置顶窗口只留一个：要弹气泡就先把菜单收起来（点哪个开哪个）
+  if (menuVisible) hideBallMenu()
   log('bubble: show')
   const win = getBubbleWindow() ?? createBubbleWindow()
   bubbleVisible = true
@@ -510,7 +522,17 @@ function layoutMenu(): void {
   const radius = s.ball.size / 2 + 18
   const wa = screen.getDisplayNearestPoint({ x: Math.round(center.x), y: Math.round(center.y) }).workArea
   const spaceRight = wa.x + wa.width - (center.x + radius)
-  const side = spaceRight >= cardW + 8 ? 'right' : 'left'
+  // 同样按半屏取舍：左半区往右弹，右半区往左弹，放不下才反向
+  const preferRight = center.x < wa.x + wa.width / 2
+  const fitsRight = spaceRight >= cardW + 8
+  const fitsLeft = center.x - radius - wa.x >= cardW + 8
+  const side = preferRight
+    ? fitsRight || !fitsLeft
+      ? 'right'
+      : 'left'
+    : fitsLeft || !fitsRight
+      ? 'left'
+      : 'right'
   const cardX = Math.round(side === 'right' ? center.x + radius : center.x - radius - cardW)
   const cardY = Math.round(center.y - cardH / 2)
   const cx = clampNum(cardX, wa.x + 4, wa.x + wa.width - cardW - 4)
