@@ -15,9 +15,9 @@
 **现在它多了什么**：一个真正的 Agent 能力层——能调用 19 个工具直接操作电脑（键鼠注入、文件读写、启动应用、通知/提醒、PowerShell），有「低风险静默 / 高风险弹卡确认」的权限模型、语音说「同意」的确认方式、球上的「工作中」状态、以及一个「Agent 能力」设置页 + 审计日志。
 
 **还没做完的**：
-1. 工具/Skill 的**导入**（目录和列表已经有了，导入 UI 还没做）
+1. ~~工具/Skill 的**导入**~~ → **11-18 晚已做完**（见 §12）
 2. COM / UIA 深度办公能力（只有设计，没实现）
-3. **打包没成功**：`release/` 里两个 exe 是今天中午 12:33 的旧包，**不含 Agent 代码，不要发给用户**。重新打包见 §6.4（网络问题，需要用国内镜像）。
+3. ~~**打包没成功**~~ → **11-18 晚打包成功**（`release/` 里是 20:14 / 20:16 的新包，含 Agent 代码）
 
 **今天新增 commit（在 `719e1cc` 之上）**：
 
@@ -88,6 +88,10 @@ src/
         files.ts             file.list / file.read / file.write
         shell.ts             shell.ps（默认关闭）
         system.ts            app.launch / notify / remind / web.open
+        skills.ts            ★ skill.read（Skill 全文读取）
+      custom-tools.ts        ★ 第三方工具：manifest 校验 / 信任 / 子进程执行
+      skills.ts              ★ Skill 扫描 / 导入 / 删除 / 提示词摘要
+    tool-worker.ts           ★ 自定义工具执行进程（每次调用一个）
     store/settings.ts        ★ agent 配置归一化（maxSteps 3–30 等）
   preload/index.ts           ★ agent/agentTools/agentTest/pickDir/onAgent
   shared/
@@ -163,6 +167,7 @@ tools/                       ★ 新增 5 个测试/工具脚本
 | | `remind` | low | N 分钟后提醒 |
 | | `web.open` | low | 仅 http/https |
 | Shell | `shell.ps` | high | 默认关闭；开启后完全信任（除硬红线） |
+| Skill | `skill.read` | low | 按名称读取技能全文（渐进披露第二层） |
 | 测试 | `input.self_test` | low | **只在 `BWU_AGENT_TEST=1` 时注册** |
 
 ### 3.3 设置项（`Settings.agent`）
@@ -175,9 +180,14 @@ agent: {
   stepTimeoutMs: 20000,
   audit: true,           // 审计日志
   files: { fullAccess: false, dirs: [] },
-  disabledTools: []      // 被禁用的工具 id
+  disabledTools: [],      // 被禁用的工具 id
+  trustedTools: [],       // 已信任的第三方工具 id（未信任不注册）
+  skillsEnabled: true     // 是否把 Skill 摘要注入提示词
 }
 ```
+
+自定义工具（M4）与 Skill 见 §12：前者 `agent/custom-tools.ts` + `tool-worker.ts`，
+后者 `agent/skills.ts` + `agent/tools/skills.ts`。
 
 文件访问规则（`tools/files.ts`）：
 - `fullAccess=false` 时只允许 **桌面 / 文档 / 下载** + `dirs` 里列的目录（`path.resolve` 前缀校验，防 `..` 穿越）
@@ -270,6 +280,7 @@ Get-Process electron -ErrorAction SilentlyContinue | Stop-Process -Force
 & $node tools\agent-run-test.mjs     # Agent 循环 7/7（mock LLM）
 & $node tools\agent-ui-test.mjs      # 交互 6/6（mock LLM）
 & $node tools\agent-settings-test.mjs# 设置页 8/8
+& $node tools\agent-ext-test.mjs     # 自定义工具 + Skill 10/10
 ```
 
 ### 5.2 mock LLM（不需要真 API Key）
@@ -302,12 +313,12 @@ Get-Process electron -ErrorAction SilentlyContinue | Stop-Process -Force
 
 ---
 
-## 6. 打包（当前卡住的地方）
+## 6. 打包
 
-### 6.1 现状
+### 6.1 现状（11-18 晚已解决）
 
-- `release/BeWithU-0.1.0-x64.exe`（122.4MB，12:33）和 `BeWithU-0.1.0-portable.exe`（110.8MB，12:35）**是旧包**，不含 Agent 代码
-- 今天尝试重新打包失败：`Failed to connect to github.com:443`，卡在从 GitHub CDN 下载 Electron
+- `release/BeWithU-0.1.0-x64.exe`（122.9MB，20:14）和 `BeWithU-0.1.0-portable.exe`（111.2MB，20:16）**都是含 Agent 代码的新包**
+- 中午失败原因：从 GitHub CDN 拉 Electron 时 `Failed to connect to github.com:443`；换镜像即可
 
 ### 6.2 正确的打包命令（带国内镜像）
 
@@ -405,3 +416,35 @@ $d = "$env:USERPROFILE\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies"
 - `release/` 里是旧包，**不要当成果交付**
 - 临时目录 `.shots/.tmp-*` 已清理；`.shots/` 里保留了 8 张界面截图（含 Agent 三张）
 - 后台没有遗留 job
+
+---
+
+## 12. 11-18 晚进展（接手后第一轮）
+
+**打包**：§6.2 的镜像命令一次成功。
+- `release/BeWithU-0.1.0-x64.exe` 122.9MB @ 20:14
+- `release/BeWithU-0.1.0-portable.exe` 111.2MB @ 20:16
+- 核验：`app.asar.unpacked/node_modules/koffi` 存在；打包版冒烟测试工具注册成功，
+  `input.screen_info` 经 koffi 返回虚拟桌面 2560×1440。
+
+**M4 工具导入**（新增 `src/main/agent/custom-tools.ts` + `src/main/tool-worker.ts`）
+- 工具目录 `<userData>/agent/tools/<id>/`：`manifest.json` + `index.js`（`module.exports = { run(args, api) }`）
+- 每次调用起一个 utilityProcess，崩溃隔离；能力只走 `log / fs.read / fs.write / notify / net`，
+  **按 manifest.permissions 在主进程校验**
+- 信任门禁：未信任的工具**不注册**，模型既看不到也调不到；设置页勾选后立即生效
+- 设置页「自定义工具」区：导入 / 信任开关 / 删除 / 打开目录（首次会写示例工具）
+- 安全边界要如实告诉用户：子进程是完整 Node，恶意代码能绕过 api —— 真正的闸门是信任勾选
+
+**Skill 管理**（新增 `src/main/agent/skills.ts` + `src/main/agent/tools/skills.ts`）
+- 目录 `<userData>/agent/skills/<id>/SKILL.md`，frontmatter 只支持 `name / description / whenToUse`
+- 渐进披露：`runner.buildSystemPrompt` 只注入 name+description+whenToUse；模型需要时调 `skill.read` 取全文
+- 设置页「Skill」区：启用总开关 / 导入 / 删除 / 打开目录（首次写 `_example`）
+- 工具总数 19 → **20**（多了 `skill.read`）
+
+**测试**：新增 `tools/agent-ext-test.mjs`（10 项，全绿）+ `tools/fixtures/{custom-tool,skill}`
+```powershell
+& $node tools\agent-ext-test.mjs     # 10/10
+```
+既有回归同步跑过：`agent-run-test` 7/7、`agent-settings-test` 8/8。
+
+**下一步**：COM / UIA 深度办公（§7.4），以及给 `input.*` 补 `screen.look`。

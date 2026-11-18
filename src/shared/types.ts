@@ -135,6 +135,26 @@ export interface AgentFileSettings {
 }
 
 /** Agent 能力设置 */
+export interface AgentCustomTool {
+  id: string
+  name: string
+  description: string
+  risk: 'low' | 'high'
+  permissions: string[]
+  entry: string
+  dir: string
+  trusted: boolean
+}
+
+export interface AgentSkill {
+  id: string
+  name: string
+  description: string
+  whenToUse: string
+  path: string
+  chars: number
+}
+
 export interface AgentSettings {
   /** 总开关：关闭时完全走原来的聊天流程 */
   enabled: boolean
@@ -152,6 +172,10 @@ export interface AgentSettings {
   files: AgentFileSettings
   /** 被禁用的工具 id */
   disabledTools: string[]
+  /** 已信任的自定义工具 id（未信任的不注册，模型看不到也调不到） */
+  trustedTools: string[]
+  /** 是否把 Skill 摘要注入系统提示词 */
+  skillsEnabled: boolean
 }
 
 export interface Settings {

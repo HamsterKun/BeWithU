@@ -90,6 +90,8 @@ export const DEFAULT_SETTINGS: Settings = {
     stepTimeoutMs: 20000,
     audit: true,
     files: { fullAccess: false, dirs: [] },
-    disabledTools: []
+    disabledTools: [],
+    trustedTools: [],
+    skillsEnabled: true
   }
 }

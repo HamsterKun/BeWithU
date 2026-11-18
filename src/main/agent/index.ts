@@ -4,6 +4,8 @@ import { registerInputTools } from './tools/input'
 import { registerShellTools } from './tools/shell'
 import { registerFileTools } from './tools/files'
 import { registerSystemTools } from './tools/system'
+import { registerSkillTools } from './tools/skills'
+import { registerCustomTools } from './custom-tools'
 import type { ToolContext, ToolResult } from './types'
 import { log } from '../logger'
 import { workerPing } from '../services/input-inject'
@@ -18,6 +20,9 @@ export function registerBuiltinTools(): void {
   registerFileTools()
   registerSystemTools()
   registerShellTools()
+  registerSkillTools()
+  // 已信任的第三方工具
+  registerCustomTools()
   // 预热键鼠工作进程（utilityProcess），让第一次注入不用等冷启动
   void workerPing().catch(() => undefined)
   log('agent: 内置工具已注册', listTools().map((t) => t.id).join(', '))

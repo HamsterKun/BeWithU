@@ -7,6 +7,7 @@ import { callTool } from './index'
 import { chatWithTools, type AgentToolCall } from './llm-agent'
 import { checkDangerous } from './policy'
 import { resolvePendingByText } from './approval'
+import { skillsPromptSection } from './skills'
 import type { ToolDef, ToolResult } from './types'
 
 export interface AgentEvents {
@@ -28,6 +29,7 @@ export interface AgentRunResult {
 
 function buildSystemPrompt(maxSteps: number, shellEnabled: boolean): string {
   const s = settingsStore.get()
+  const skills = s.agent.skillsEnabled ? skillsPromptSection() : ''
   return [
     s.llm.systemPrompt,
     '',
@@ -40,7 +42,8 @@ function buildSystemPrompt(maxSteps: number, shellEnabled: boolean): string {
       ? '4. Shell 能力已开启，可以执行 PowerShell 完成文件/文档处理。'
       : '4. Shell 能力未开启：如果确实需要，直接告诉用户「去 设置 → Agent 能力 里开启 Shell」，不要反复尝试。',
     '5. 高风险操作需要用户确认；看到"用户拒绝"就停下并说明，不要绕过。',
-    '6. 不要编造工具结果，只根据工具返回汇报。'
+    '6. 不要编造工具结果，只根据工具返回汇报。',
+    skills ? `\n${skills}` : ''
   ]
     .filter(Boolean)
     .join('\n')
@@ -79,7 +82,10 @@ export async function runAgentTask(
 ): Promise<AgentRunResult> {
   const cfg = settingsStore.get().agent
   const maxSteps = cfg.maxSteps
-  const tools = toOpenAiTools().filter((t) => !cfg.disabledTools.includes(t.function.name))
+  const tools = toOpenAiTools()
+    .filter((t) => !cfg.disabledTools.includes(t.function.name))
+    // 关了技能开关就把 skill.read 一起藏起来，别让模型看见一个必然失败的入口
+    .filter((t) => cfg.skillsEnabled || t.function.name !== 'skill.read')
   const history = historyStore.recent(6).map((m) => ({ role: m.role, content: m.content }))
   const messages: unknown[] = [
     { role: 'system', content: buildSystemPrompt(maxSteps, cfg.shellEnabled) },

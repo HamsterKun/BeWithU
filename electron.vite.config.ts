@@ -12,7 +12,8 @@ export default defineConfig({
         input: {
           index: r('src/main/index.ts'),
           'asr-worker': r('src/main/asr-worker.ts'),
-          'input-worker': r('src/main/input-worker.ts')
+          'input-worker': r('src/main/input-worker.ts'),
+          'tool-worker': r('src/main/tool-worker.ts')
         }
       }
     }

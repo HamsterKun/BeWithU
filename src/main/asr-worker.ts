@@ -5,6 +5,8 @@
 
 const port = (process as unknown as { parentPort: { on: Function; postMessage: Function } }).parentPort
 
+export {}
+
 let recognizer: any = null
 let loading = false
 

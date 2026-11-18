@@ -84,7 +84,19 @@ contextBridge.exposeInMainWorld('bwu', {
     list: () => ipcRenderer.invoke(IPC.agentToolsList),
     runs: () => ipcRenderer.invoke(IPC.agentRuns),
     clearRuns: () => ipcRenderer.invoke(IPC.agentRunsClear),
-    openDir: () => ipcRenderer.invoke(IPC.agentOpenToolsDir)
+    openDir: () => ipcRenderer.invoke(IPC.agentOpenToolsDir),
+    customList: () => ipcRenderer.invoke(IPC.agentCustomList),
+    importCustom: () => ipcRenderer.invoke(IPC.agentCustomImport),
+    trustCustom: (id: string, trusted: boolean) =>
+      ipcRenderer.invoke(IPC.agentCustomTrust, id, trusted),
+    deleteCustom: (id: string) => ipcRenderer.invoke(IPC.agentCustomDelete, id)
+  },
+  /** Skill 管理 */
+  agentSkills: {
+    list: () => ipcRenderer.invoke(IPC.agentSkillsList),
+    import: () => ipcRenderer.invoke(IPC.agentSkillImport),
+    remove: (id: string) => ipcRenderer.invoke(IPC.agentSkillDelete, id),
+    openDir: () => ipcRenderer.invoke(IPC.agentSkillOpenDir)
   },
   /** Agent 审批 */
   agent: {
@@ -94,7 +106,10 @@ contextBridge.exposeInMainWorld('bwu', {
   agentTest: {
     list: () => ipcRenderer.invoke(IPC.agentTestList),
     call: (id: string, args: Record<string, unknown>) => ipcRenderer.invoke(IPC.agentTestCall, id, args),
-    run: (text: string, autoApprove?: boolean) => ipcRenderer.invoke(IPC.agentTestRun, text, autoApprove)
+    run: (text: string, autoApprove?: boolean) => ipcRenderer.invoke(IPC.agentTestRun, text, autoApprove),
+    importTool: (dir: string) => ipcRenderer.invoke(IPC.agentTestImportTool, dir),
+    trustTool: (id: string, trusted: boolean) => ipcRenderer.invoke(IPC.agentTestTrustTool, id, trusted),
+    importSkill: (dir: string) => ipcRenderer.invoke(IPC.agentTestImportSkill, dir)
   },
   bubble: {
     onUpdate: (cb: (u: BubbleUpdate) => void) => on<BubbleUpdate>(IPC.bubbleUpdate, cb),

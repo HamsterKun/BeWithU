@@ -1203,6 +1203,25 @@ body {
   color: rgba(253, 230, 138, 0.95);
   background: rgba(251, 191, 36, 0.14);
 }
+.agent-tool__risk.is-trusted {
+  color: rgba(110, 231, 183, 0.95);
+  background: rgba(16, 185, 129, 0.14);
+}
+.agent-tool__desc {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: rgba(148, 163, 184, 0.95);
+}
+.agent-tool__side {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
 
 .agent-actions {
   display: flex;

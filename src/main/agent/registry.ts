@@ -12,6 +12,10 @@ export function getTool(id: string): ToolDef | undefined {
   return registry.get(id)
 }
 
+export function unregisterTool(id: string): void {
+  registry.delete(id)
+}
+
 export function listTools(): ToolDef[] {
   return [...registry.values()]
 }

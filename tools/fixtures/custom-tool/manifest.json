@@ -1,0 +1,15 @@
+{
+  "id": "demo.greet",
+  "name": "问候示例",
+  "description": "把传入的名字拼成一句问候，用来验证自定义工具能被导入、信任并调用",
+  "risk": "low",
+  "permissions": ["notify"],
+  "params": {
+    "type": "object",
+    "properties": {
+      "name": { "type": "string", "description": "要问候的人" }
+    },
+    "required": ["name"],
+    "additionalProperties": false
+  }
+}

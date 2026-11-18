@@ -1,4 +1,6 @@
 import type {
+  AgentCustomTool,
+  AgentSkill,
   AppInfo,
   AsrModelProgress,
   AudioChunk,
@@ -108,11 +110,22 @@ export const IPC = {
   agentApprove: 'agent:approve',
   // 测试用：跑一次 Agent 任务
   agentTestRun: 'agent:test-run',
+  agentTestImportTool: 'agent:test-import-tool',
+  agentTestTrustTool: 'agent:test-trust-tool',
+  agentTestImportSkill: 'agent:test-import-skill',
   // Agent 设置页
   agentToolsList: 'agent:tools-list',
   agentRuns: 'agent:runs',
   agentRunsClear: 'agent:runs-clear',
   agentOpenToolsDir: 'agent:open-tools-dir',
+  agentCustomList: 'agent:custom-list',
+  agentCustomImport: 'agent:custom-import',
+  agentCustomTrust: 'agent:custom-trust',
+  agentCustomDelete: 'agent:custom-delete',
+  agentSkillsList: 'agent:skills-list',
+  agentSkillImport: 'agent:skill-import',
+  agentSkillDelete: 'agent:skill-delete',
+  agentSkillOpenDir: 'agent:skill-open-dir',
   appPickDir: 'app:pick-dir'
 } as const
 
@@ -213,6 +226,17 @@ export interface BwuApi {
     runs(): Promise<Array<{ at: number; toolId: string; ok: boolean; summary: string }>>
     clearRuns(): Promise<boolean>
     openDir(): Promise<void>
+    customList(): Promise<AgentCustomTool[]>
+    importCustom(): Promise<{ ok: boolean; tool?: AgentCustomTool; error?: string } | null>
+    trustCustom(id: string, trusted: boolean): Promise<AgentCustomTool[]>
+    deleteCustom(id: string): Promise<AgentCustomTool[]>
+  }
+  /** Skill 管理 */
+  agentSkills: {
+    list(): Promise<AgentSkill[]>
+    import(): Promise<{ ok: boolean; skill?: AgentSkill; error?: string } | null>
+    remove(id: string): Promise<AgentSkill[]>
+    openDir(): Promise<void>
   }
   /** Agent 审批（气泡里点允许/拒绝） */
   agent: {
@@ -222,6 +246,9 @@ export interface BwuApi {
   agentTest: {
     list(): Promise<Array<{ id: string; name: string; risk: string }>>
     call(id: string, args: Record<string, unknown>): Promise<{ ok: boolean; summary: string; data?: unknown }>
+    importTool(dir: string): Promise<unknown>
+    trustTool(id: string, trusted: boolean): Promise<unknown>
+    importSkill(dir: string): Promise<unknown>
     run(
       text: string,
       autoApprove?: boolean

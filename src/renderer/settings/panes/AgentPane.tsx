@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import type { AgentCustomTool, AgentSkill } from '@shared/types'
 import { Btn, Field, NumberInput, Section, Toggle } from '../ui'
 import type { PaneProps } from './types'
 
@@ -25,12 +26,22 @@ function timeText(ts: number): string {
 export default function AgentPane({ s, patch }: PaneProps): React.ReactElement {
   const [tools, setTools] = useState<ToolInfo[]>([])
   const [runs, setRuns] = useState<RunEntry[]>([])
+  const [custom, setCustom] = useState<AgentCustomTool[]>([])
+  const [skills, setSkills] = useState<AgentSkill[]>([])
   const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
 
   const refresh = useCallback(async (): Promise<void> => {
-    const [t, r] = await Promise.all([window.bwu.agentTools.list(), window.bwu.agentTools.runs()])
+    const [t, r, c, sk] = await Promise.all([
+      window.bwu.agentTools.list(),
+      window.bwu.agentTools.runs(),
+      window.bwu.agentTools.customList(),
+      window.bwu.agentSkills.list()
+    ])
     setTools(t)
     setRuns(r)
+    setCustom(c)
+    setSkills(sk)
   }, [])
 
   useEffect(() => {
@@ -59,6 +70,51 @@ export default function AgentPane({ s, patch }: PaneProps): React.ReactElement {
 
   const removeDir = (dir: string): void => {
     patch({ agent: { files: { dirs: s.agent.files.dirs.filter((d) => d !== dir) } } })
+  }
+
+  const importTool = async (): Promise<void> => {
+    setErr('')
+    setBusy(true)
+    try {
+      const r = await window.bwu.agentTools.importCustom()
+      if (r && !r.ok) setErr(r.error ?? '导入失败')
+      if (r?.ok) await refresh()
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const trustTool = async (id: string, trusted: boolean): Promise<void> => {
+    setCustom(await window.bwu.agentTools.trustCustom(id, trusted))
+    // 信任状态会改变注册表，内置工具列表也要跟着刷新
+    setTools(await window.bwu.agentTools.list())
+  }
+
+  const removeTool = async (id: string): Promise<void> => {
+    if (!confirm(`删除工具「${id}」？会把它从工具目录里删掉。`)) return
+    setCustom(await window.bwu.agentTools.deleteCustom(id))
+    setTools(await window.bwu.agentTools.list())
+  }
+
+  const importSkill = async (): Promise<void> => {
+    setErr('')
+    setBusy(true)
+    try {
+      const r = await window.bwu.agentSkills.import()
+      if (r && !r.ok) setErr(r.error ?? '导入失败')
+      if (r?.ok) setSkills(await window.bwu.agentSkills.list())
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const removeSkill = async (id: string): Promise<void> => {
+    if (!confirm(`删除技能「${id}」？`)) return
+    setSkills(await window.bwu.agentSkills.remove(id))
   }
 
   const shellOn = s.agent.shellEnabled
@@ -124,7 +180,7 @@ export default function AgentPane({ s, patch }: PaneProps): React.ReactElement {
         </Field>
       </Section>
 
-      <Section title="工具" desc="关掉不想让 Agent 使用的工具；自定义工具放进工具目录即可（导入功能下一步做）。">
+      <Section title="工具" desc="关掉不想让 Agent 使用的工具；带「自定义」标记的是导入的工具。">
         <div className="agent-tools">
           {tools.map((t) => (
             <div className="agent-tool" key={t.id}>
@@ -139,8 +195,88 @@ export default function AgentPane({ s, patch }: PaneProps): React.ReactElement {
             </div>
           ))}
         </div>
+      </Section>
+
+      <Section
+        title="自定义工具"
+        desc="从目录导入（manifest.json + index.js）。工具代码会在你的电脑上运行，只导入你信任的来源。"
+      >
+        <div className="agent-tools">
+          {custom.length === 0 ? (
+            <span className="agent-empty">还没有导入工具，可以先点「打开工具目录」看示例</span>
+          ) : (
+            custom.map((t) => (
+              <div className="agent-tool" key={t.id}>
+                <div className="agent-tool__main">
+                  <span className="agent-tool__name">{t.name}</span>
+                  <span className="agent-tool__id">{t.id}</span>
+                  <span className="agent-tool__risk">
+                    {t.permissions.length ? t.permissions.join(' · ') : '无需额外权限'}
+                  </span>
+                  <span className={t.trusted ? 'agent-tool__risk is-trusted' : 'agent-tool__risk is-high'}>
+                    {t.trusted ? '已信任' : '未信任'}
+                  </span>
+                </div>
+                <div className="agent-tool__side">
+                  <Toggle checked={t.trusted} onChange={(v) => void trustTool(t.id, v)} />
+                  <button className="agent-dir__del" onClick={() => void removeTool(t.id)} title="删除">
+                    ×
+                  </button>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+        {err ? <p className="agent-warn">{err}</p> : null}
+        {custom.some((t) => !t.trusted) ? (
+          <p className="agent-warn">
+            未信任的工具不会注册给模型。勾选「信任」等于允许它在你的电脑上执行代码。
+          </p>
+        ) : null}
         <div className="agent-actions">
+          <Btn onClick={() => void importTool()} disabled={busy}>
+            导入工具…
+          </Btn>
           <Btn onClick={() => void window.bwu.agentTools.openDir()}>打开工具目录</Btn>
+        </div>
+      </Section>
+
+      <Section
+        title="Skill"
+        desc="把「什么时候用 + 具体步骤」写成 SKILL.md 导入。模型平时只看到名字和简介，需要时才读全文。"
+      >
+        <Field label="启用技能" hint="关闭后不会把技能列表放进提示词，skill.read 也不可用">
+          <Toggle
+            checked={s.agent.skillsEnabled}
+            onChange={(v) => patch({ agent: { skillsEnabled: v } })}
+          />
+        </Field>
+        <div className="agent-tools">
+          {skills.length === 0 ? (
+            <span className="agent-empty">还没有技能，可以点「打开技能目录」看示例</span>
+          ) : (
+            skills.map((k) => (
+              <div className="agent-tool" key={k.id}>
+                <div className="agent-tool__main">
+                  <span className="agent-tool__name">{k.name}</span>
+                  <span className="agent-tool__desc" title={k.description}>
+                    {k.whenToUse || k.description || '（没有简介）'}
+                  </span>
+                </div>
+                <div className="agent-tool__side">
+                  <button className="agent-dir__del" onClick={() => void removeSkill(k.id)} title="删除">
+                    ×
+                  </button>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+        <div className="agent-actions">
+          <Btn onClick={() => void importSkill()} disabled={busy}>
+            导入技能…
+          </Btn>
+          <Btn onClick={() => void window.bwu.agentSkills.openDir()}>打开技能目录</Btn>
         </div>
       </Section>
 

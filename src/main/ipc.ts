@@ -16,6 +16,16 @@ import { clearAudit, recentAudit } from './agent/audit'
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { runAgentTask } from './agent/runner'
+import {
+  deleteCustomTool,
+  importCustomTool,
+  registerCustomTools,
+  scanCustomTools,
+  setToolTrusted,
+  toolsDir,
+  writeToolTemplate
+} from './agent/custom-tools'
+import { deleteSkill, importSkill, scanSkills, writeSkillTemplate } from './agent/skills'
 import { deleteModel, downloadModel, modelStatus } from './services/asr-model'
 import { warmupLocalAsr } from './services/local-asr'
 import {
@@ -482,9 +492,57 @@ export function registerIpc(getQuit: () => void): void {
     return true
   })
   ipcMain.handle(IPC.agentOpenToolsDir, async () => {
-    const dir = join(app.getPath('userData'), 'agent', 'tools')
-    mkdirSync(dir, { recursive: true })
-    await shell.openPath(dir)
+    writeToolTemplate()
+    await shell.openPath(toolsDir())
+  })
+
+  /* ------------------------------------------------- 自定义工具 / Skill ---- */
+
+  ipcMain.handle(IPC.agentCustomList, () => scanCustomTools())
+  ipcMain.handle(IPC.agentCustomImport, async () => {
+    const r = await dialog.showOpenDialog({
+      title: '选择工具目录（里面要有 manifest.json）',
+      properties: ['openDirectory']
+    })
+    if (r.canceled || !r.filePaths[0]) return null
+    try {
+      const tool = importCustomTool(r.filePaths[0])
+      registerCustomTools()
+      return { ok: true, tool }
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+  ipcMain.handle(IPC.agentCustomTrust, (_e, id: string, trusted: boolean) => {
+    setToolTrusted(String(id ?? ''), Boolean(trusted))
+    registerCustomTools()
+    return scanCustomTools()
+  })
+  ipcMain.handle(IPC.agentCustomDelete, (_e, id: string) => {
+    deleteCustomTool(String(id ?? ''))
+    registerCustomTools()
+    return scanCustomTools()
+  })
+
+  ipcMain.handle(IPC.agentSkillsList, () => scanSkills())
+  ipcMain.handle(IPC.agentSkillImport, async () => {
+    const r = await dialog.showOpenDialog({
+      title: '选择技能目录（里面要有 SKILL.md）',
+      properties: ['openDirectory']
+    })
+    if (r.canceled || !r.filePaths[0]) return null
+    try {
+      return { ok: true, skill: importSkill(r.filePaths[0]) }
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+  ipcMain.handle(IPC.agentSkillDelete, (_e, id: string) => {
+    deleteSkill(String(id ?? ''))
+    return scanSkills()
+  })
+  ipcMain.handle(IPC.agentSkillOpenDir, async () => {
+    await shell.openPath(writeSkillTemplate())
   })
   // 气泡里点「允许/拒绝」
   ipcMain.on(IPC.agentApprove, (_e, id: string, allow: boolean) => {
@@ -492,6 +550,17 @@ export function registerIpc(getQuit: () => void): void {
   })
   // 测试通道：只有以 BWU_AGENT_TEST=1 启动时才暴露，正常运行时不存在
   if (process.env['BWU_AGENT_TEST'] === '1') {
+    ipcMain.handle(IPC.agentTestImportTool, (_e, dir: string) => {
+      const tool = importCustomTool(String(dir ?? ''))
+      registerCustomTools()
+      return tool
+    })
+    ipcMain.handle(IPC.agentTestTrustTool, (_e, id: string, trusted: boolean) => {
+      setToolTrusted(String(id ?? ''), Boolean(trusted))
+      registerCustomTools()
+      return scanCustomTools()
+    })
+    ipcMain.handle(IPC.agentTestImportSkill, (_e, dir: string) => importSkill(String(dir ?? '')))
     ipcMain.handle(IPC.agentTestList, () =>
       listTools().map((t) => ({ id: t.id, name: t.name, risk: t.risk }))
     )

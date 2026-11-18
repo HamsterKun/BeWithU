@@ -163,7 +163,9 @@ class SettingsStore {
           ? agent.files.dirs.map((d) => String(d).trim()).filter(Boolean).slice(0, 20)
           : []
       },
-      disabledTools: Array.isArray(agent.disabledTools) ? agent.disabledTools.map(String).slice(0, 100) : []
+      disabledTools: Array.isArray(agent.disabledTools) ? agent.disabledTools.map(String).slice(0, 100) : [],
+      trustedTools: Array.isArray(agent.trustedTools) ? agent.trustedTools.map(String).slice(0, 100) : [],
+      skillsEnabled: agent.skillsEnabled !== false
     }
     return s
   }
