@@ -5,7 +5,7 @@ export type TtsAuthMode = 'console' | 'apikey'
 /** 语音合成服务商：火山引擎 / Breeze Blue */
 export type TtsProvider = 'volc' | 'breeze'
 export type VoiceMode = 'hold' | 'toggle'
-export type Phase = 'idle' | 'listening' | 'thinking' | 'speaking'
+export type Phase = 'idle' | 'listening' | 'thinking' | 'speaking' | 'acting'
 
 export interface SummaryModelSettings {
   /** 开启后用专用（更快的）模型做记忆总结，否则复用对话模型 */

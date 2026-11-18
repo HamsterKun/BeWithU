@@ -456,6 +456,10 @@ export function registerIpc(getQuit: () => void): void {
   /* ------------------------------------------------------------- agent ---- */
 
   registerBuiltinTools()
+  // 气泡里点「允许/拒绝」
+  ipcMain.on(IPC.agentApprove, (_e, id: string, allow: boolean) => {
+    resolveApproval(String(id ?? ''), Boolean(allow))
+  })
   // 测试通道：只有以 BWU_AGENT_TEST=1 启动时才暴露，正常运行时不存在
   if (process.env['BWU_AGENT_TEST'] === '1') {
     ipcMain.handle(IPC.agentTestList, () =>

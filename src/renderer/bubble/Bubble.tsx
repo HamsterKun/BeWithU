@@ -145,6 +145,13 @@ export default function Bubble(): React.ReactElement {
     if (el) el.scrollTop = el.scrollHeight
   }, [state.assistant, state.user, state.notice])
 
+  // 确认卡出现时把它滚进视野（不然会被"自动滚到底"顶出去）
+  useEffect(() => {
+    if (!state.approve) return
+    const el = bodyRef.current?.querySelector('.approve')
+    if (el) el.scrollIntoView({ block: 'nearest' })
+  }, [state.approve])
+
   // 点击输入框：窗口平时 focusable:false 不抢焦点，这里临时申请焦点再聚焦输入框
   const grabFocus = useCallback((): void => {
     window.bwu.bubble.requestFocus()
@@ -162,6 +169,8 @@ export default function Bubble(): React.ReactElement {
   const stateText = useMemo(() => {
     if (state.note && state.phase !== 'idle') return state.note
     switch (state.phase) {
+      case 'acting':
+        return '工作中'
       case 'listening':
         return '正在听…'
       case 'thinking':

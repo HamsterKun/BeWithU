@@ -248,3 +248,66 @@ body {
     opacity: 1;
   }
 }
+
+
+/* ------------------------------------------------------- Agent 工作中状态 */
+/* 球本身不变红：只让外圈流光加快、换成琥珀⇄青的配色 */
+.stage[data-phase='acting'] .ring {
+  opacity: 1;
+  animation: actingBreathe 1.6s ease-in-out infinite;
+}
+.stage[data-phase='acting'] .ring::before {
+  animation-duration: 2.1s;
+  background: conic-gradient(
+    from 0deg,
+    rgba(251, 191, 36, 0) 0deg,
+    rgba(251, 191, 36, 0.95) 60deg,
+    rgba(103, 232, 249, 0.95) 150deg,
+    rgba(167, 139, 250, 0.75) 205deg,
+    rgba(251, 191, 36, 0) 280deg,
+    rgba(251, 191, 36, 0) 360deg
+  );
+}
+@keyframes actingBreathe {
+  0%, 100% { transform: scale(calc(1 + var(--level) * 0.12)); }
+  50% { transform: scale(calc(1.06 + var(--level) * 0.12)); }
+}
+
+/* 💬 工作中…… 小徽标：贴在球下方，随球窗口一起移动 */
+.work-badge {
+  position: absolute;
+  left: 50%;
+  bottom: 2px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: rgba(14, 18, 28, 0.86);
+  border: 1px solid rgba(251, 191, 36, 0.35);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+  white-space: nowrap;
+  pointer-events: none;
+  animation: badgeIn 0.18s ease-out;
+}
+.work-badge__dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #fbbf24;
+  box-shadow: 0 0 7px rgba(251, 191, 36, 0.9);
+  animation: stepPulse 1.1s ease-in-out infinite;
+}
+.work-badge__text {
+  font-size: 10.5px;
+  color: rgba(253, 230, 138, 0.95);
+}
+.work-badge__count {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.5);
+}
+@keyframes badgeIn {
+  from { opacity: 0; transform: translate(-50%, 4px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}

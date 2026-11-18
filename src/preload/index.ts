@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
-import { IPC, type BubbleUpdate } from '../shared/ipc'
+import { IPC, type AgentProgress, type BubbleUpdate } from '../shared/ipc'
 import type {
   AudioChunk,
   BallMenuItem,
@@ -60,6 +60,7 @@ contextBridge.exposeInMainWorld('bwu', {
     resetPosition: () => ipcRenderer.send(IPC.ballResetPosition),
     reportError: (message: string) => ipcRenderer.send(IPC.voiceError, message),
     onPhase: (cb: (p: Phase) => void) => on<Phase>(IPC.ballPhase, cb),
+    onAgent: (cb: (p: AgentProgress) => void) => on<AgentProgress>(IPC.agentProgress, cb),
     onSettings: (cb: (s: PublicSettings) => void) => on<PublicSettings>(IPC.settingsChanged, cb),
     onRecStart: (cb: () => void) => on(IPC.voiceRecStart, cb),
     onRecStop: (cb: () => void) => on(IPC.voiceRecStop, cb),

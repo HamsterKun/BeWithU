@@ -56,6 +56,7 @@ export const IPC = {
   ballContextMenu: 'ball:context-menu',
   ballBubbleToggle: 'ball:bubble-toggle',
   ballPhase: 'ball:phase',
+  agentProgress: 'agent:progress',
   ballResetPosition: 'ball:reset-position',
 
   // bubble
@@ -108,6 +109,13 @@ export const IPC = {
   // 测试用：跑一次 Agent 任务
   agentTestRun: 'agent:test-run'
 } as const
+
+export interface AgentProgress {
+  active: boolean
+  step: number
+  total: number
+  text?: string
+}
 
 export type BubbleUpdate =
   | { type: 'agent-step'; index: number; total: number; text: string; done: boolean; ok?: boolean }
@@ -171,6 +179,7 @@ export interface BwuApi {
     resetPosition(): void
     reportError(message: string): void
     onPhase(cb: (phase: Phase) => void): () => void
+    onAgent(cb: (p: AgentProgress) => void): () => void
     onSettings(cb: (s: PublicSettings) => void): () => void
     onRecStart(cb: () => void): () => void
     onRecStop(cb: () => void): () => void

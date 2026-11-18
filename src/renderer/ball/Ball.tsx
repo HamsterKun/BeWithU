@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Phase, PublicSettings } from '@shared/types'
+import type { AgentProgress } from '@shared/ipc'
 import { resolveBallImage } from '@shared/art'
 import { Player } from './player'
 import { Recorder } from './recorder'
@@ -10,6 +11,7 @@ const recorder = new Recorder()
 export default function Ball(): React.ReactElement {
   const [settings, setSettings] = useState<PublicSettings | null>(null)
   const [phase, setPhase] = useState<Phase>('idle')
+  const [agent, setAgent] = useState<AgentProgress | null>(null)
   const [recording, setRecording] = useState(false)
   const stageRef = useRef<HTMLDivElement | null>(null)
   const phaseRef = useRef<Phase>('idle')
@@ -34,7 +36,9 @@ export default function Ball(): React.ReactElement {
       player.setVolume(s.tts.volume)
     })
 
-    const offPhase = window.bwu.ball.onPhase((p) => {
+    const offAgent = window.bwu.ball.onAgent((p) => setAgent(p.active ? p : null))
+
+  const offPhase = window.bwu.ball.onPhase((p) => {
       phaseRef.current = p
       setPhase(p)
     })
@@ -66,6 +70,7 @@ export default function Ball(): React.ReactElement {
     return () => {
       offSettings()
       offPhase()
+    offAgent()
       offRecStart()
       offRecStop()
       offAudio()
@@ -164,10 +169,17 @@ export default function Ball(): React.ReactElement {
     <div
       className="stage"
       ref={stageRef}
-      data-phase={phase === 'idle' && recording ? 'listening' : phase}
+      data-phase={agent ? 'acting' : phase === 'idle' && recording ? 'listening' : phase}
       style={{ ['--size' as string]: `${size}px`, ['--opacity' as string]: opacity }}
     >
       <div className="ring" />
+      {agent ? (
+        <div className="work-badge">
+          <span className="work-badge__dot" />
+          <span className="work-badge__text">💬 工作中…</span>
+          {agent.total ? <span className="work-badge__count">{agent.step}/{agent.total}</span> : null}
+        </div>
+      ) : null}
       <div
         className="ball"
         onPointerDown={onPointerDown}

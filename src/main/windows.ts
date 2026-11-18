@@ -1,7 +1,7 @@
 import { BrowserWindow, screen } from 'electron'
 import { join } from 'node:path'
 import type { BallMenuItem, Phase, PublicSettings } from '../shared/types'
-import { IPC } from '../shared/ipc'
+import { IPC, type AgentProgress } from '../shared/ipc'
 import { settingsStore } from './store/settings'
 import { prettyChord } from './input/hotkey'
 import { log } from './logger'
@@ -579,6 +579,10 @@ export function broadcastSettings(s: PublicSettings): void {
     if (!win.isDestroyed()) win.webContents.send(IPC.settingsChanged, s)
   }
   sendBubbleMeta()
+}
+
+export function sendAgentProgress(p: AgentProgress): void {
+  getBallWindow()?.webContents.send(IPC.agentProgress, p)
 }
 
 export function broadcastPhase(phase: Phase): void {

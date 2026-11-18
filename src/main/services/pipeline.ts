@@ -32,6 +32,7 @@ import {
   hideBubble,
   isBubbleFocused,
   isBubblePinned,
+  sendAgentProgress,
   sendBubble,
   showBubble
 } from '../windows'
@@ -540,7 +541,8 @@ class Conversation {
 
   /** Agent 模式：跑工具循环，边显示边播报，结束时收起 */
   private async respondWithAgent(userText: string, turn: number, s: Settings): Promise<void> {
-    this.setPhase('thinking', '处理中')
+    this.setPhase('acting', '工作中')
+    sendAgentProgress({ active: true, step: 0, total: s.agent.maxSteps })
     const controller = new AbortController()
     this.abortLlm = controller
     const splitter = new SentenceSplitter()
@@ -576,6 +578,7 @@ class Conversation {
           },
           onStep: (info) => {
             if (turn !== this.turnId) return
+            sendAgentProgress({ active: true, step: info.index, total: info.total, text: info.summary })
             sendBubble({
               type: 'agent-step',
               index: info.index,
@@ -599,6 +602,7 @@ class Conversation {
         }
       })
       if (turn !== this.turnId) return
+      sendAgentProgress({ active: false, step: res.steps, total: s.agent.maxSteps })
       if (this.speech) {
         for (const sentence of splitter.flush()) this.speech.add(sentence)
         this.speech.finish()
