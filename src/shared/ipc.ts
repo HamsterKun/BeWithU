@@ -9,6 +9,7 @@ import type {
   DataDirInfo,
   McpServerConfig,
   MemoryInfo,
+  UsageSummary,
   Phase,
   PublicSettings,
   ScreenCaptureInfo,
@@ -136,6 +137,9 @@ export const IPC = {
   mcpAdd: 'mcp:add',
   mcpRemove: 'mcp:remove',
   mcpTest: 'mcp:test',
+  llmModels: 'llm:models',
+  usageStats: 'usage:stats',
+  usageClear: 'usage:clear',
   searchTest: 'search:test',
   appPickDir: 'app:pick-dir'
 } as const
@@ -260,6 +264,11 @@ export interface BwuApi {
   }
   /** 联网搜索测试 */
   searchTest(query: string): Promise<{ ok: boolean; message: string }>
+  /** 拉取可用模型 */
+  llmModels(): Promise<{ ok: boolean; models?: string[]; error?: string }>
+  /** 用量统计 */
+  usageStats(): Promise<UsageSummary>
+  clearUsage(): Promise<UsageSummary>
   /** Agent 审批（气泡里点允许/拒绝） */
   agent: {
     approve(id: string, allow: boolean): void

@@ -31,8 +31,8 @@
 
 ### 用打好的安装包
 
-- 安装版：`release/BeWithU-1.0.1-x64.exe`（可自选安装目录，带开始菜单与桌面快捷方式）
-- 便携版：`release/BeWithU-1.0.1-portable.exe`（双击即用，不写注册表）
+- 安装版：`release/BeWithU-1.0.2-x64.exe`（可自选安装目录，带开始菜单与桌面快捷方式）
+- 便携版：`release/BeWithU-1.0.2-portable.exe`（双击即用，不写注册表）
 
 启动后右下角出现悬浮球，右键悬浮球 →「设置…」开始配置。
 

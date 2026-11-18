@@ -178,6 +178,18 @@ export interface AgentSettings {
   skillsEnabled: boolean
 }
 
+export interface DayUsage {
+  chat: { input: number; output: number; calls: number }
+  summary: { input: number; output: number; calls: number }
+  tts: { chars: number; calls: number }
+  asr: { seconds: number; calls: number }
+}
+
+export interface UsageSummary {
+  today: DayUsage
+  month: DayUsage
+}
+
 export interface McpServerConfig {
   id: string
   name: string

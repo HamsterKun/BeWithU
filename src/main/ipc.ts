@@ -30,6 +30,8 @@ import { deleteSkill, importSkill, importSkillArchive, scanSkills, writeSkillTem
 import { disconnectMcp, mcpListTools } from './agent/mcp'
 import { ensureMcpTools } from './agent'
 import { webSearch } from './services/web-search'
+import { listModels } from './services/llm'
+import { clearUsage, usageSummary } from './store/usage'
 import { deleteModel, downloadModel, modelStatus } from './services/asr-model'
 import { warmupLocalAsr } from './services/local-asr'
 import {
@@ -601,6 +603,23 @@ export function registerIpc(getQuit: () => void): void {
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : String(e) }
     }
+  })
+
+  /* ------------------------------------------------------- 模型列表 / 用量 -- */
+
+  ipcMain.handle(IPC.llmModels, async () => {
+    try {
+      const models = await listModels(settingsStore.get().llm)
+      return { ok: true, models }
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  ipcMain.handle(IPC.usageStats, () => usageSummary())
+  ipcMain.handle(IPC.usageClear, () => {
+    clearUsage()
+    return usageSummary()
   })
 
   ipcMain.handle(IPC.mcpList, () => settingsStore.get().mcp.servers)

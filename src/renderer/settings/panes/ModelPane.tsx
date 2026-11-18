@@ -24,6 +24,23 @@ export default function ModelPane({ s, patch }: PaneProps): React.ReactElement {
   const [shot, setShot] = useState('')
   const [shotMsg, setShotMsg] = useState('')
   const [shotBusy, setShotBusy] = useState(false)
+  const [models, setModels] = useState<string[]>([])
+  const [modelsBusy, setModelsBusy] = useState(false)
+  const [modelsError, setModelsError] = useState('')
+
+  const fetchModels = async (): Promise<void> => {
+    setModelsBusy(true)
+    setModelsError('')
+    try {
+      const r = await window.bwu.llmModels()
+      if (r.ok && r.models) setModels(r.models)
+      else setModelsError(r.error ?? '获取失败，检查 Base URL / API Key')
+    } catch (e) {
+      setModelsError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setModelsBusy(false)
+    }
+  }
 
   const testShot = async (): Promise<void> => {
     setShotBusy(true)
@@ -107,13 +124,33 @@ export default function ModelPane({ s, patch }: PaneProps): React.ReactElement {
           />
         </Field>
 
-        <Field label="模型名" hint={s.llm.preset === 'ark' ? '接入点 ID，以 ep- 开头' : '填写模型名称'}>
-          <TextInput
-            mono
-            value={s.llm.model}
-            placeholder="doubao-seed-1.6-flash"
-            onChange={(v) => patch({ llm: { model: v } })}
-          />
+        <Field label="模型名" hint={s.llm.preset === 'ark' ? '接入点 ID，以 ep- 开头' : '填写模型名称，或点「获取列表」'}>
+          <div className="stack">
+            <div className="stack">
+              <TextInput
+                mono
+                value={s.llm.model}
+                placeholder="doubao-seed-1.6-flash"
+                onChange={(v) => patch({ llm: { model: v } })}
+              />
+              <Btn onClick={() => void fetchModels()} disabled={modelsBusy}>
+                {modelsBusy ? '获取中…' : '获取列表'}
+              </Btn>
+            </div>
+            {models.length ? (
+              <Select
+                value={models.includes(s.llm.model) ? s.llm.model : ''}
+                options={[
+                  { value: '', label: `共 ${models.length} 个模型，选择一个…` },
+                  ...models.map((m) => ({ value: m, label: m }))
+                ]}
+                onChange={(v) => {
+                  if (v) patch({ llm: { model: v } })
+                }}
+              />
+            ) : null}
+            {modelsError ? <span className="muted small">{modelsError}</span> : null}
+          </div>
         </Field>
 
         <Field label="温度" hint="越高越自由发挥，建议 0.7~0.9">

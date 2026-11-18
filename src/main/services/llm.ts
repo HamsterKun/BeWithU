@@ -1,5 +1,6 @@
 import type { LlmSettings } from '../../shared/types'
 import { log } from '../logger'
+import { recordTokens } from '../store/usage'
 
 export type ContentPart =
   | { type: 'text'; text: string }
@@ -26,10 +27,39 @@ function friendlyError(status: number): string {
   return '请求失败，请稍后再试'
 }
 
+/** 从各种 baseUrl 推导出 /models 端点 */
+export function modelsEndpoint(baseUrl: string): string {
+  const url = baseUrl.trim().replace(/\/+$/, '')
+  if (/\/chat\/completions$/i.test(url)) return url.replace(/\/chat\/completions$/i, '/models')
+  if (/\/v\d+$/i.test(url)) return `${url}/models`
+  return `${url}/v1/models`
+}
+
+/** 拉取服务商支持的模型列表（OpenAI 兼容的 GET /models） */
+export async function listModels(llm: LlmSettings): Promise<string[]> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 15000)
+  try {
+    const headers: Record<string, string> = {}
+    if (llm.apiKey.trim()) headers.Authorization = `Bearer ${llm.apiKey.trim()}`
+    const res = await fetch(modelsEndpoint(llm.baseUrl), { headers, signal: controller.signal })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const json = (await res.json()) as { data?: Array<{ id?: string }> }
+    return (json.data ?? [])
+      .map((d) => String(d.id ?? ''))
+      .filter(Boolean)
+      .sort()
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 export async function* streamChat(opts: {
   llm: LlmSettings
   messages: ChatMessage[]
   signal: AbortSignal
+  /** 记账用：闲聊还是记忆总结 */
+  purpose?: 'chat' | 'summary'
 }): AsyncGenerator<string> {
   const { llm, messages, signal } = opts
   if (!llm.model.trim()) throw new Error('还没填模型名')
@@ -48,7 +78,9 @@ export async function* streamChat(opts: {
       model: llm.model.trim(),
       messages,
       stream: true,
-      temperature: llm.temperature
+      temperature: llm.temperature,
+      // 有些服务端只有带上这个才会在最后一个 chunk 里返回 usage
+      stream_options: { include_usage: true }
       // 不传 max_tokens：交给提示词软控制，硬截断会让回答断在半句话上
     })
   })
@@ -80,6 +112,14 @@ export async function* streamChat(opts: {
         const delta = choice?.delta?.content ?? choice?.message?.content ?? ''
         if (typeof delta === 'string' && delta) yield delta
         if (choice?.finish_reason === 'error') throw new Error('模型返回错误')
+        // usage 可能在最后一个 chunk（choices 为空）
+        if (json.usage) {
+          recordTokens(
+            opts.purpose ?? 'chat',
+            Number(json.usage.prompt_tokens) || 0,
+            Number(json.usage.completion_tokens) || 0
+          )
+        }
       } catch (e) {
         if (e instanceof SyntaxError) continue
         throw e

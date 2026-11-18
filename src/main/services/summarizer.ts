@@ -55,7 +55,8 @@ export async function summarizeConversation(opts: {
     for await (const delta of streamChat({
       llm: resolveSummaryLlm(llm),
       messages: [{ role: 'user', content }],
-      signal: controller.signal
+      signal: controller.signal,
+      purpose: 'summary'
     })) {
       out += delta
     }

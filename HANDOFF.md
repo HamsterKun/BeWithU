@@ -563,6 +563,20 @@ $d = "$env:USERPROFILE\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies"
 
 ---
 
+## 21. 11-18 晚十轮：收尾轮 / 模型列表 / 用量统计（1.0.2）
+
+- **机械回复的根因**：模型跑满步数却没写收尾文本，`runner` 兜底把步骤日志摊给了用户。
+  现在多了一轮**收尾调用**（`tools: []` + `tool_choice: 'none'`，提示"用 1-3 句话汇报"）；
+  连收尾轮都失败才用 `fallbackText()`，且只说结论/卡点，不再列步骤。
+- **获取可用模型**：`llm.listModels()` 走 OpenAI 兼容的 `GET /models`（baseUrl 自动推导），
+  设置 → 大模型 → 模型名旁「获取列表」→ 下拉选择。实测 DeepSeek 返回 `deepseek-flash / deepseek-v4-pro`。
+- **用量统计**（新 `store/usage.ts`，存 `usage.json`）：
+  - 对话 / 记忆总结：token（`stream_options.include_usage` 抓流式 usage；Agent 非流式直接读响应）
+  - TTS：合成字数；云端 ASR：音频秒数（16kHz 16bit → 字节数/32000）
+  - 设置 → 关于 → 用量统计：今日 / 本月，可刷新、清零
+
+---
+
 ## 17. 11-18 晚六轮：弹出方向按半屏 / 两窗口互斥
 
 - **方向**：`layoutBubble` 和 `layoutMenu` 原来都是"右边放得下就放右边"，导致球在屏幕右半区也往右弹。

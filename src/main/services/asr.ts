@@ -3,6 +3,7 @@ import { gunzipSync } from 'node:zlib'
 import WebSocket from 'ws'
 import type { AsrSettings } from '../../shared/types'
 import { log } from '../logger'
+import { recordAsrSeconds } from '../store/usage'
 
 /* ---------------------------------------------------------------------------
  * 豆包流式语音识别大模型（V3）
@@ -123,6 +124,8 @@ export class VolcAsr {
   private onPartial?: (text: string) => void
   private closedByUs = false
   private error: Error | null = null
+  /** 已发送的音频字节数，用于按秒记用量 */
+  private audioBytes = 0
 
   private constructor(ws: WebSocket, cfg: AsrSettings, onPartial?: (t: string) => void) {
     this.ws = ws
@@ -256,6 +259,7 @@ export class VolcAsr {
 
   sendAudio(pcm: Buffer): void {
     if (this.ws.readyState !== WebSocket.OPEN || this.finalDone) return
+    this.audioBytes += pcm.byteLength
     try {
       this.ws.send(makeFrame(CLIENT_AUDIO_ONLY_REQUEST, POS_SEQUENCE, pcm, { seq: this.seq++ }))
     } catch (e) {
@@ -279,6 +283,8 @@ export class VolcAsr {
       new Promise<void>((resolve) => setTimeout(resolve, timeoutMs))
     ])
     this.close()
+    // 16kHz 16bit 单声道 → 每秒 32000 字节
+    if (this.audioBytes > 0) recordAsrSeconds(this.audioBytes / 32000)
     if (this.error && !this.text) throw this.error
     return this.text
   }

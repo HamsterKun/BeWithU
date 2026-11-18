@@ -206,22 +206,48 @@ export async function runAgentTask(
   }
 
   if (!finalText) {
-    finalText = stopped ? '（已停止）' : summarizeSteps(stepLog)
-    // 兜底文案也要走到气泡，否则用户只看到一堆步骤、没有结论
-    opts.events.onText(finalText)
+    // 模型跑完工具却没写收尾：单独再来一轮，禁用工具，逼它用人话汇报
+    if (!stopped && stepLog.length) {
+      try {
+        const closing = await chatWithTools({
+          messages: [
+            ...messages,
+            {
+              role: 'user',
+              content: '现在用 1-3 句话直接告诉用户结果（做了什么、结果如何、下一步建议），不要再调用任何工具。'
+            }
+          ],
+          tools: [],
+          toolChoice: 'none',
+          signal: opts.signal,
+          scenario: userText
+        })
+        if (closing.text.trim()) {
+          finalText = closing.text.trim()
+          opts.events.onText(finalText)
+        }
+      } catch (e) {
+        log('agent: 收尾总结失败', e instanceof Error ? e.message : e)
+      }
+    }
+    if (!finalText) {
+      finalText = stopped ? '（已停止）' : fallbackText(stepLog)
+      opts.events.onText(finalText)
+    }
   }
   return { text: finalText, steps, stopped }
 }
 
-/** 模型没写收尾时，用实际执行过的步骤拼一句人话 */
-function summarizeSteps(stepLog: { name: string; ok: boolean; summary: string }[]): string {
-  if (!stepLog.length) return '这次没拿到结果，你换个说法我再试试。'
-  const lines = stepLog
-    .slice(-3)
-    .map((s) => `· ${s.name}：${s.summary.replace(/\s+/g, ' ').slice(0, 120)}`)
-    .join('\n')
-  const okCount = stepLog.filter((s) => s.ok).length
-  return `我做了 ${stepLog.length} 步（成功 ${okCount} 步）：\n${lines}`
+/** 连收尾轮都失败时，用人话说一句，别把步骤日志摊给用户 */
+function fallbackText(stepLog: { name: string; ok: boolean; summary: string }[]): string {
+  const clip = (s: string, n: number): string => s.replace(/\s+/g, ' ').slice(0, n)
+  const failed = stepLog.filter((s) => !s.ok)
+  if (failed.length) {
+    return `中间卡住了：${clip(failed[failed.length - 1].summary, 80)}。要不要我换个方式再试一次？`
+  }
+  const last = stepLog[stepLog.length - 1]
+  if (last) return `${clip(last.summary, 100)}。你看看这样是不是你要的？`
+  return '这次没拿到结果，你换个说法我再试试。'
 }
 
 /** 单个工具：禁用检查 → 危险命令检查 → 高风险确认 → 执行（带超时） */

@@ -205,6 +205,48 @@ body {
   color: var(--accent);
 }
 
+.usage {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.usage__head,
+.usage__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 170px 170px;
+  gap: 10px;
+  align-items: center;
+  padding: 7px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+}
+
+.usage__row:nth-child(odd) {
+  background: rgba(var(--ink), 0.03);
+}
+
+.usage__label {
+  color: var(--text-2);
+}
+
+.usage__value {
+  text-align: right;
+  font-family: ui-monospace, 'Cascadia Code', Consolas, monospace;
+  font-size: 11.5px;
+  color: var(--text);
+}
+
+.usage__value--month {
+  color: var(--muted);
+}
+
+.usage__head .usage__value {
+  font-family: inherit;
+  font-size: 11px;
+  color: var(--muted);
+}
+
 /* ---------------------------------------------------------------- main --- */
 
 .main {
@@ -635,6 +677,12 @@ body {
 .stack > .secret {
   flex: 1 1 auto;
   min-width: 200px;
+}
+
+.stack > .input,
+.stack > .select {
+  flex: 1 1 220px;
+  min-width: 180px;
 }
 
 .stack--top > .btn {

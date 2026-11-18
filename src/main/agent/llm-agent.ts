@@ -6,6 +6,7 @@ import { readFileSync } from 'node:fs'
 import type { LlmSettings } from '../../shared/types'
 import { settingsStore } from '../store/settings'
 import { log } from '../logger'
+import { recordTokens } from '../store/usage'
 import type { ChatMessage } from '../services/llm'
 
 export interface AgentToolCall {
@@ -99,6 +100,8 @@ export async function chatWithTools(opts: {
   signal?: AbortSignal
   /** 测试用：当前任务文本，用来选 mock 场景 */
   scenario?: string
+  /** 收尾轮用 'none' 逼模型直接说话，不再调工具 */
+  toolChoice?: 'auto' | 'none'
 }): Promise<AgentTurnResult> {
   const mocked = mockTurn(opts.scenario)
   if (mocked) return mocked
@@ -116,7 +119,7 @@ export async function chatWithTools(opts: {
   }
   if (opts.tools.length) {
     body.tools = opts.tools
-    body.tool_choice = 'auto'
+    body.tool_choice = opts.toolChoice ?? 'auto'
   }
   const res = await fetch(endpoint(llm.baseUrl), {
     method: 'POST',
@@ -135,9 +138,14 @@ export async function chatWithTools(opts: {
         tool_calls?: Array<{ id: string; function: { name: string; arguments: string } }>
       }
     }>
+    usage?: { prompt_tokens?: number; completion_tokens?: number }
   }
   const msg = data.choices?.[0]?.message
   const text = typeof msg?.content === 'string' ? msg.content : ''
+  // Agent 走非流式，usage 直接在响应里
+  if (data.usage) {
+    recordTokens('chat', Number(data.usage.prompt_tokens) || 0, Number(data.usage.completion_tokens) || 0)
+  }
   const toolCalls: AgentToolCall[] = (msg?.tool_calls ?? []).map((c, i) => ({
     id: c.id || `call-${i}`,
     name: c.function?.name ?? '',

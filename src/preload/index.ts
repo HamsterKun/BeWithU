@@ -108,6 +108,9 @@ contextBridge.exposeInMainWorld('bwu', {
     test: (id: string) => ipcRenderer.invoke(IPC.mcpTest, id)
   },
   searchTest: (query: string) => ipcRenderer.invoke(IPC.searchTest, query),
+  llmModels: () => ipcRenderer.invoke(IPC.llmModels),
+  usageStats: () => ipcRenderer.invoke(IPC.usageStats),
+  clearUsage: () => ipcRenderer.invoke(IPC.usageClear),
   /** Agent 审批 */
   agent: {
     approve: (id: string, allow: boolean) => ipcRenderer.send(IPC.agentApprove, id, allow)
