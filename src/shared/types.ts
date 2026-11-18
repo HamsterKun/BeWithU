@@ -178,6 +178,37 @@ export interface AgentSettings {
   skillsEnabled: boolean
 }
 
+export interface McpServerConfig {
+  id: string
+  name: string
+  enabled: boolean
+  /** stdio：本地进程；http：远程 JSON-RPC / SSE */
+  transport: 'stdio' | 'http'
+  command: string
+  /** 命令行参数，支持引号 */
+  args: string
+  url: string
+  /** 每行一个 "Key: Value" */
+  headers: string
+}
+
+export interface McpToolDef {
+  name: string
+  description: string
+  inputSchema: Record<string, unknown>
+}
+
+export interface McpStatus {
+  id: string
+  ok: boolean
+  message: string
+  tools: string[]
+}
+
+export interface McpSettings {
+  servers: McpServerConfig[]
+}
+
 export interface SearchSettings {
   /** 总开关：关掉后 web.search 会引导用户去打开 */
   enabled: boolean
@@ -202,6 +233,7 @@ export interface Settings {
   ui: UiSettings
   agent: AgentSettings
   search: SearchSettings
+  mcp: McpSettings
   meta?: MetaSettings
 }
 

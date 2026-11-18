@@ -7,6 +7,7 @@ import type {
   BallMenuItem,
   BubbleNotice,
   DataDirInfo,
+  McpServerConfig,
   MemoryInfo,
   Phase,
   PublicSettings,
@@ -113,6 +114,9 @@ export const IPC = {
   agentTestImportTool: 'agent:test-import-tool',
   agentTestTrustTool: 'agent:test-trust-tool',
   agentTestImportSkill: 'agent:test-import-skill',
+  agentTestMcp: 'agent:test-mcp',
+  agentTestImportToolZip: 'agent:test-import-tool-zip',
+  agentTestImportSkillZip: 'agent:test-import-skill-zip',
   // Agent 设置页
   agentToolsList: 'agent:tools-list',
   agentRuns: 'agent:runs',
@@ -126,6 +130,12 @@ export const IPC = {
   agentSkillImport: 'agent:skill-import',
   agentSkillDelete: 'agent:skill-delete',
   agentSkillOpenDir: 'agent:skill-open-dir',
+  agentCustomImportZip: 'agent:custom-import-zip',
+  agentSkillImportZip: 'agent:skill-import-zip',
+  mcpList: 'mcp:list',
+  mcpAdd: 'mcp:add',
+  mcpRemove: 'mcp:remove',
+  mcpTest: 'mcp:test',
   searchTest: 'search:test',
   appPickDir: 'app:pick-dir'
 } as const
@@ -229,6 +239,7 @@ export interface BwuApi {
     openDir(): Promise<void>
     customList(): Promise<AgentCustomTool[]>
     importCustom(): Promise<{ ok: boolean; tool?: AgentCustomTool; error?: string } | null>
+    importCustomZip(): Promise<{ ok: boolean; tool?: AgentCustomTool; error?: string } | null>
     trustCustom(id: string, trusted: boolean): Promise<AgentCustomTool[]>
     deleteCustom(id: string): Promise<AgentCustomTool[]>
   }
@@ -236,8 +247,16 @@ export interface BwuApi {
   agentSkills: {
     list(): Promise<AgentSkill[]>
     import(): Promise<{ ok: boolean; skill?: AgentSkill; error?: string } | null>
+    importZip(): Promise<{ ok: boolean; skill?: AgentSkill; error?: string } | null>
     remove(id: string): Promise<AgentSkill[]>
     openDir(): Promise<void>
+  }
+  /** MCP 服务器 */
+  mcp: {
+    list(): Promise<McpServerConfig[]>
+    add(cfg: Omit<McpServerConfig, 'id' | 'enabled'>): Promise<McpServerConfig[]>
+    remove(id: string): Promise<McpServerConfig[]>
+    test(id: string): Promise<{ ok: boolean; message: string; tools?: string[] }>
   }
   /** 联网搜索测试 */
   searchTest(query: string): Promise<{ ok: boolean; message: string }>
@@ -252,6 +271,9 @@ export interface BwuApi {
     importTool(dir: string): Promise<unknown>
     trustTool(id: string, trusted: boolean): Promise<unknown>
     importSkill(dir: string): Promise<unknown>
+    importToolZip(path: string): Promise<unknown>
+    importSkillZip(path: string): Promise<unknown>
+    mcpTools(): Promise<string[]>
     run(
       text: string,
       autoApprove?: boolean

@@ -4,6 +4,7 @@ import { historyStore } from '../store/history'
 import { log } from '../logger'
 import { listTools, toOpenAiTools, buildWireMap } from './registry'
 import { callTool } from './index'
+import { ensureMcpTools } from './index'
 import { chatWithTools, type AgentToolCall } from './llm-agent'
 import { checkDangerous } from './policy'
 import { resolvePendingByText } from './approval'
@@ -102,6 +103,8 @@ export async function runAgentTask(
 ): Promise<AgentRunResult> {
   const cfg = settingsStore.get().agent
   const maxSteps = cfg.maxSteps
+  // MCP 工具是动态的：每次任务开始前刷新一次（连不上就跳过）
+  await ensureMcpTools()
   const enabled = listTools()
     .filter((t) => !cfg.disabledTools.includes(t.id))
     // 关了技能开关就把 skill.read 一起藏起来，别让模型看见一个必然失败的入口

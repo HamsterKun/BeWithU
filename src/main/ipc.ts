@@ -19,13 +19,16 @@ import { runAgentTask } from './agent/runner'
 import {
   deleteCustomTool,
   importCustomTool,
+  importCustomToolArchive,
   registerCustomTools,
   scanCustomTools,
   setToolTrusted,
   toolsDir,
   writeToolTemplate
 } from './agent/custom-tools'
-import { deleteSkill, importSkill, scanSkills, writeSkillTemplate } from './agent/skills'
+import { deleteSkill, importSkill, importSkillArchive, scanSkills, writeSkillTemplate } from './agent/skills'
+import { disconnectMcp, mcpListTools } from './agent/mcp'
+import { ensureMcpTools } from './agent'
 import { webSearch } from './services/web-search'
 import { deleteModel, downloadModel, modelStatus } from './services/asr-model'
 import { warmupLocalAsr } from './services/local-asr'
@@ -568,6 +571,76 @@ export function registerIpc(getQuit: () => void): void {
     await shell.openPath(writeSkillTemplate())
   })
 
+  /* ------------------------------------------------------ zip / MCP ------- */
+
+  ipcMain.handle(IPC.agentCustomImportZip, async () => {
+    const r = await dialog.showOpenDialog({
+      title: '选择工具压缩包（zip）',
+      properties: ['openFile'],
+      filters: [{ name: 'Zip', extensions: ['zip'] }]
+    })
+    if (r.canceled || !r.filePaths[0]) return null
+    try {
+      const tool = await importCustomToolArchive(r.filePaths[0])
+      registerCustomTools()
+      return { ok: true, tool }
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  ipcMain.handle(IPC.agentSkillImportZip, async () => {
+    const r = await dialog.showOpenDialog({
+      title: '选择技能压缩包（zip）',
+      properties: ['openFile'],
+      filters: [{ name: 'Zip', extensions: ['zip'] }]
+    })
+    if (r.canceled || !r.filePaths[0]) return null
+    try {
+      return { ok: true, skill: await importSkillArchive(r.filePaths[0]) }
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  ipcMain.handle(IPC.mcpList, () => settingsStore.get().mcp.servers)
+  ipcMain.handle(IPC.mcpAdd, (_e, cfg: Record<string, unknown>) => {
+    const cur = settingsStore.get().mcp.servers
+    const id = `mcp-${Date.now().toString(36)}`
+    const next = [
+      ...cur,
+      {
+        id,
+        name: String(cfg.name ?? '').trim() || 'MCP',
+        enabled: true,
+        transport: cfg.transport === 'http' ? ('http' as const) : ('stdio' as const),
+        command: String(cfg.command ?? '').trim(),
+        args: String(cfg.args ?? '').trim(),
+        url: String(cfg.url ?? '').trim(),
+        headers: String(cfg.headers ?? '').trim()
+      }
+    ]
+    settingsStore.update({ mcp: { servers: next } })
+    return next
+  })
+  ipcMain.handle(IPC.mcpRemove, (_e, id: string) => {
+    disconnectMcp(String(id ?? ''))
+    const next = settingsStore.get().mcp.servers.filter((s) => s.id !== id)
+    settingsStore.update({ mcp: { servers: next } })
+    return next
+  })
+  ipcMain.handle(IPC.mcpTest, async (_e, id: string) => {
+    const server = settingsStore.get().mcp.servers.find((s) => s.id === id)
+    if (!server) return { ok: false, message: '服务器不存在' }
+    try {
+      disconnectMcp(server.id)
+      const tools = await mcpListTools(server)
+      return { ok: true, message: `已连接 · ${tools.length} 个工具`, tools: tools.map((t) => t.name) }
+    } catch (e) {
+      return { ok: false, message: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
   /* ---------------------------------------------------------------- 搜索 ---- */
 
   ipcMain.handle(IPC.searchTest, async (_e, query: string) => {
@@ -601,6 +674,14 @@ export function registerIpc(getQuit: () => void): void {
       return scanCustomTools()
     })
     ipcMain.handle(IPC.agentTestImportSkill, (_e, dir: string) => importSkill(String(dir ?? '')))
+    ipcMain.handle(IPC.agentTestImportToolZip, (_e, path: string) => importCustomToolArchive(String(path ?? '')))
+    ipcMain.handle(IPC.agentTestImportSkillZip, async (_e, path: string) =>
+      importSkillArchive(String(path ?? ''))
+    )
+    ipcMain.handle(IPC.agentTestMcp, async () => {
+      await ensureMcpTools()
+      return listTools().filter((t) => t.id.startsWith('mcp.')).map((t) => t.id)
+    })
     ipcMain.handle(IPC.agentTestList, () =>
       listTools().map((t) => ({ id: t.id, name: t.name, risk: t.risk }))
     )

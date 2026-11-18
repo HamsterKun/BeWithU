@@ -154,6 +154,23 @@ class SettingsStore {
     s.search.tavilyBaseUrl = (s.search.tavilyBaseUrl || '').trim() || 'https://api.tavily.com'
     s.search.deepseekBaseUrl = (s.search.deepseekBaseUrl || '').trim() || 'https://api.deepseek.com'
     s.search.auto = s.search.auto !== false
+    // MCP 服务器
+    const rawServers = Array.isArray(s.mcp?.servers) ? s.mcp.servers : []
+    s.mcp = {
+      servers: rawServers
+        .map((m, i) => ({
+          id: String(m?.id ?? `mcp-${i + 1}`).replace(/[^\w.-]+/g, '-'),
+          name: String(m?.name ?? '').trim() || `MCP ${i + 1}`,
+          enabled: m?.enabled !== false,
+          transport: m?.transport === 'http' ? ('http' as const) : ('stdio' as const),
+          command: String(m?.command ?? '').trim(),
+          args: String(m?.args ?? '').trim(),
+          url: String(m?.url ?? '').trim(),
+          headers: String(m?.headers ?? '').trim()
+        }))
+        .filter((m) => m.command || m.url)
+        .slice(0, 20)
+    }
     // 名字允许留空（气泡里会显示为 TA），不要在这里强行填回默认值，
     // 否则用户清空输入框时会被"变回小伴"，根本改不了名
     s.ui.assistantName = (s.ui.assistantName || '').trim()

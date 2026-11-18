@@ -87,6 +87,7 @@ contextBridge.exposeInMainWorld('bwu', {
     openDir: () => ipcRenderer.invoke(IPC.agentOpenToolsDir),
     customList: () => ipcRenderer.invoke(IPC.agentCustomList),
     importCustom: () => ipcRenderer.invoke(IPC.agentCustomImport),
+    importCustomZip: () => ipcRenderer.invoke(IPC.agentCustomImportZip),
     trustCustom: (id: string, trusted: boolean) =>
       ipcRenderer.invoke(IPC.agentCustomTrust, id, trusted),
     deleteCustom: (id: string) => ipcRenderer.invoke(IPC.agentCustomDelete, id)
@@ -95,8 +96,16 @@ contextBridge.exposeInMainWorld('bwu', {
   agentSkills: {
     list: () => ipcRenderer.invoke(IPC.agentSkillsList),
     import: () => ipcRenderer.invoke(IPC.agentSkillImport),
+    importZip: () => ipcRenderer.invoke(IPC.agentSkillImportZip),
     remove: (id: string) => ipcRenderer.invoke(IPC.agentSkillDelete, id),
     openDir: () => ipcRenderer.invoke(IPC.agentSkillOpenDir)
+  },
+  /** MCP 服务器 */
+  mcp: {
+    list: () => ipcRenderer.invoke(IPC.mcpList),
+    add: (cfg: Record<string, unknown>) => ipcRenderer.invoke(IPC.mcpAdd, cfg),
+    remove: (id: string) => ipcRenderer.invoke(IPC.mcpRemove, id),
+    test: (id: string) => ipcRenderer.invoke(IPC.mcpTest, id)
   },
   searchTest: (query: string) => ipcRenderer.invoke(IPC.searchTest, query),
   /** Agent 审批 */
@@ -110,7 +119,10 @@ contextBridge.exposeInMainWorld('bwu', {
     run: (text: string, autoApprove?: boolean) => ipcRenderer.invoke(IPC.agentTestRun, text, autoApprove),
     importTool: (dir: string) => ipcRenderer.invoke(IPC.agentTestImportTool, dir),
     trustTool: (id: string, trusted: boolean) => ipcRenderer.invoke(IPC.agentTestTrustTool, id, trusted),
-    importSkill: (dir: string) => ipcRenderer.invoke(IPC.agentTestImportSkill, dir)
+    importSkill: (dir: string) => ipcRenderer.invoke(IPC.agentTestImportSkill, dir),
+    importToolZip: (path: string) => ipcRenderer.invoke(IPC.agentTestImportToolZip, path),
+    importSkillZip: (path: string) => ipcRenderer.invoke(IPC.agentTestImportSkillZip, path),
+    mcpTools: () => ipcRenderer.invoke(IPC.agentTestMcp)
   },
   bubble: {
     onUpdate: (cb: (u: BubbleUpdate) => void) => on<BubbleUpdate>(IPC.bubbleUpdate, cb),

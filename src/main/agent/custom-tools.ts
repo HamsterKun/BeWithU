@@ -19,6 +19,7 @@ import { registerTool, unregisterTool, getTool } from './registry'
 import { resolveAgentPath } from './tools/files'
 import { settingsStore } from '../store/settings'
 import { log } from '../logger'
+import { extractZip } from './import-archive'
 import type { ToolResult, ToolRisk, JsonSchema } from './types'
 
 export interface CustomToolInfo {
@@ -110,8 +111,17 @@ export function importCustomTool(srcDir: string): CustomToolInfo {
   return info
 }
 
-export function deleteCustomTool(id: string): void {
-  const dir = join(toolsDir(), id)
+/** 从 zip 导入：解压后按目录导入，临时文件会自动清理 */
+export async function importCustomToolArchive(zipPath: string): Promise<CustomToolInfo> {
+  const { dir, cleanup } = await extractZip(zipPath)
+  try {
+    return importCustomTool(dir)
+  } finally {
+    cleanup()
+  }
+}
+
+export function deleteCustomTool(id: string): void {  const dir = join(toolsDir(), id)
   if (!dir.startsWith(toolsDir())) return
   unregisterCustomTool(id)
   if (existsSync(dir)) rmSync(dir, { recursive: true, force: true })

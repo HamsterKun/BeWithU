@@ -8,6 +8,7 @@ import { app } from 'electron'
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { log } from '../logger'
+import { extractZip } from './import-archive'
 
 export interface SkillInfo {
   id: string
@@ -137,6 +138,16 @@ export function importSkill(srcDir: string): SkillInfo {
   if (!info) throw new Error('导入后解析失败')
   log('skill: 已导入', id)
   return info
+}
+
+/** 从 zip 导入 Skill */
+export async function importSkillArchive(zipPath: string): Promise<SkillInfo> {
+  const { dir, cleanup } = await extractZip(zipPath)
+  try {
+    return importSkill(dir)
+  } finally {
+    cleanup()
+  }
 }
 
 export function deleteSkill(id: string): void {

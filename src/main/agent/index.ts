@@ -7,6 +7,9 @@ import { registerSystemTools } from './tools/system'
 import { registerSkillTools } from './tools/skills'
 import { registerWebTools } from './tools/web'
 import { registerCustomTools } from './custom-tools'
+import { mcpCallTool, mcpListTools } from './mcp'
+import { settingsStore } from '../store/settings'
+import { registerTool } from './registry'
 import type { ToolContext, ToolResult } from './types'
 import { log } from '../logger'
 import { workerPing } from '../services/input-inject'
@@ -74,3 +77,45 @@ export async function callTool(
 }
 
 export { listTools, toOpenAiTools } from './registry'
+
+/** MCP 工具 id：mcp.<server>.<tool>，wire 名会自动把点换成下划线 */
+export function mcpToolId(serverId: string, toolName: string): string {
+  return `mcp.${serverId}.${toolName}`.replace(/[^a-zA-Z0-9_.-]+/g, '_')
+}
+
+/**
+ * 把已启用的 MCP 服务器的工具注册进来（幂等）。
+ * 连不上就跳过并在日志里留痕，不阻塞本次任务。
+ */
+export async function ensureMcpTools(): Promise<void> {
+  const servers = settingsStore.get().mcp.servers.filter((s) => s.enabled)
+  if (!servers.length) return
+  const results = await Promise.allSettled(servers.map((s) => mcpListTools(s)))
+  results.forEach((res, i) => {
+    const server = servers[i]
+    if (res.status === 'rejected') {
+      log(`mcp: ${server.name} 连接失败`, res.reason instanceof Error ? res.reason.message : String(res.reason))
+      return
+    }
+    for (const t of res.value) {
+      const id = mcpToolId(server.id, t.name)
+      if (getTool(id)) continue
+      registerTool({
+        id,
+        name: `${server.name} · ${t.name}`,
+        description: t.description || `来自 MCP 服务「${server.name}」的工具`,
+        risk: 'low',
+        params: { ...t.inputSchema, type: 'object' },
+        run: async (args) => {
+          try {
+            const r = await mcpCallTool(server, t.name, args)
+            return { ok: r.ok, summary: r.summary }
+          } catch (e) {
+            return { ok: false, summary: e instanceof Error ? e.message : String(e) }
+          }
+        }
+      })
+    }
+    log('mcp: 已注册工具', `${server.name} x${res.value.length}`)
+  })
+}

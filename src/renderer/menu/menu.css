@@ -33,14 +33,12 @@ body,
   flex-direction: column;
   min-width: 168px;
   padding: 6px;
-  /* 与主进程 MENU_PAD 对应：给投影留出空间，避免圆角外出现直角阴影 */
-  margin: 14px;
+  /* 无投影：窗口与卡片等大，不留白 */
+  margin: 0;
   border-radius: 12px;
   background: var(--menu-bg);
   border: 1px solid rgba(var(--ink), 0.1);
-  box-shadow:
-    0 18px 40px rgba(0, 0, 0, 0.55),
-    0 2px 8px rgba(0, 0, 0, 0.4);
+  box-shadow: none;
   /* 同上：透明窗口不做背景模糊，避免菜单周围出现淡黑底 */
   user-select: none;
 }
@@ -70,12 +68,6 @@ body,
 
 .menu__item:active {
   background: rgba(103, 232, 249, 0.22);
-}
-
-[data-theme='light'] .menu {
-  box-shadow:
-    0 18px 40px rgba(15, 23, 42, 0.2),
-    0 2px 8px rgba(15, 23, 42, 0.12);
 }
 
 [data-theme='light'] .menu__item:hover {

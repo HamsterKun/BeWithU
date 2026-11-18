@@ -432,8 +432,8 @@ let menuWin: BrowserWindow | null = null
 let menuVisible = false
 /** 菜单卡片的内容尺寸（不含投影留白） */
 let menuSize = { w: 190, h: 300 }
-/** 卡片四周留白：给投影留空间，否则圆角外会出现直角阴影 */
-const MENU_PAD = 14
+/** 卡片四周留白：不要投影时必须是 0，否则透明窗口会露出黑色边框 */
+const MENU_PAD = 0
 let menuAnchor: Electron.Rectangle | null = null
 let followTimer: NodeJS.Timeout | null = null
 
@@ -600,6 +600,33 @@ export function hideBallMenu(): void {
 
 /* -------------------------------------------------------------- settings -- */
 
+const TITLEBAR_COLORS = {
+  dark: { color: '#0b0d12', symbolColor: '#c7d2e5' },
+  light: { color: '#eef1f7', symbolColor: '#16202e' }
+} as const
+
+/** 窗口标题栏/底色跟随主题：亮色下右上角不再是一块黑 */
+export function applyWindowTheme(theme: 'dark' | 'light'): void {
+  const c = TITLEBAR_COLORS[theme] ?? TITLEBAR_COLORS.dark
+  const bg = theme === 'light' ? '#eef1f7' : '#0b0d12'
+  // 只处理不透明的设置窗；气泡/菜单是透明窗口，调 setBackgroundColor 反而会画出一层黑底
+  const win = settingsWin
+  if (!win || win.isDestroyed()) return
+  try {
+    win.setBackgroundColor(bg)
+  } catch {
+    /* ignore */
+  }
+  try {
+    ;(win as unknown as { setTitleBarOverlay: (o: unknown) => void }).setTitleBarOverlay({
+      ...c,
+      height: 44
+    })
+  } catch {
+    /* 非 hidden 标题栏的窗口不支持，忽略 */
+  }
+}
+
 export function openSettingsWindow(tab?: string): BrowserWindow {
   if (settingsWin && !settingsWin.isDestroyed()) {
     if (settingsWin.isMinimized()) settingsWin.restore()
@@ -614,10 +641,13 @@ export function openSettingsWindow(tab?: string): BrowserWindow {
     minWidth: 920,
     minHeight: 640,
     show: false,
-    backgroundColor: '#0b0d12',
+    backgroundColor: settingsStore.get().ui.theme === 'light' ? '#eef1f7' : '#0b0d12',
     title: 'BeWithU · 设置',
     titleBarStyle: 'hidden',
-    titleBarOverlay: { color: '#0b0d12', symbolColor: '#c7d2e5', height: 44 },
+    titleBarOverlay: {
+      ...TITLEBAR_COLORS[settingsStore.get().ui.theme === 'light' ? 'light' : 'dark'],
+      height: 44
+    },
     webPreferences: baseWebPrefs()
   })
   loadRenderer(settingsWin, 'settings')
@@ -652,6 +682,7 @@ export function broadcastSettings(s: PublicSettings): void {
   for (const win of BrowserWindow.getAllWindows()) {
     if (!win.isDestroyed()) win.webContents.send(IPC.settingsChanged, s)
   }
+  applyWindowTheme(s.ui.theme)
   sendBubbleMeta()
 }
 

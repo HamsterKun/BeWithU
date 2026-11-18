@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
-import type { AgentCustomTool, AgentSkill } from '@shared/types'
-import { Btn, Field, NumberInput, Section, Toggle } from '../ui'
+import type { AgentCustomTool, AgentSkill, McpServerConfig } from '@shared/types'
+import { Btn, Field, NumberInput, Section, Select, TextInput, Toggle } from '../ui'
 import type { PaneProps } from './types'
 
 interface ToolInfo {
@@ -30,18 +30,30 @@ export default function AgentPane({ s, patch }: PaneProps): React.ReactElement {
   const [skills, setSkills] = useState<AgentSkill[]>([])
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
+  const [mcpServers, setMcpServers] = useState<McpServerConfig[]>([])
+  const [mcpStatus, setMcpStatus] = useState<Record<string, { ok: boolean; message: string; tools?: string[] }>>({})
+  const [mcpForm, setMcpForm] = useState({
+    name: '',
+    transport: 'stdio' as 'stdio' | 'http',
+    command: '',
+    args: '',
+    url: '',
+    headers: ''
+  })
 
   const refresh = useCallback(async (): Promise<void> => {
-    const [t, r, c, sk] = await Promise.all([
+    const [t, r, c, sk, mcp] = await Promise.all([
       window.bwu.agentTools.list(),
       window.bwu.agentTools.runs(),
       window.bwu.agentTools.customList(),
-      window.bwu.agentSkills.list()
+      window.bwu.agentSkills.list(),
+      window.bwu.mcp.list()
     ])
     setTools(t)
     setRuns(r)
     setCustom(c)
     setSkills(sk)
+    setMcpServers(mcp)
   }, [])
 
   useEffect(() => {
@@ -81,6 +93,65 @@ export default function AgentPane({ s, patch }: PaneProps): React.ReactElement {
       if (r?.ok) await refresh()
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const importToolZip = async (): Promise<void> => {
+    setErr('')
+    setBusy(true)
+    try {
+      const r = await window.bwu.agentTools.importCustomZip()
+      if (r && !r.ok) setErr(r.error ?? '导入失败')
+      if (r?.ok) await refresh()
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const importSkillZip = async (): Promise<void> => {
+    setErr('')
+    setBusy(true)
+    try {
+      const r = await window.bwu.agentSkills.importZip()
+      if (r && !r.ok) setErr(r.error ?? '导入失败')
+      if (r?.ok) setSkills(await window.bwu.agentSkills.list())
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const addMcp = async (): Promise<void> => {
+    setBusy(true)
+    try {
+      setMcpServers(await window.bwu.mcp.add(mcpForm))
+      setMcpForm({ name: '', transport: 'stdio', command: '', args: '', url: '', headers: '' })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const removeMcp = async (id: string): Promise<void> => {
+    if (!confirm('删除这个 MCP 服务器？')) return
+    setMcpServers(await window.bwu.mcp.remove(id))
+    setMcpStatus((prev) => {
+      const next = { ...prev }
+      delete next[id]
+      return next
+    })
+  }
+
+  const testMcp = async (id: string): Promise<void> => {
+    setBusy(true)
+    try {
+      const r = await window.bwu.mcp.test(id)
+      setMcpStatus((prev) => ({ ...prev, [id]: r }))
+      if (r.ok) setTools(await window.bwu.agentTools.list())
     } finally {
       setBusy(false)
     }
@@ -240,8 +311,11 @@ export default function AgentPane({ s, patch }: PaneProps): React.ReactElement {
           </p>
         ) : null}
         <div className="agent-actions">
+          <Btn onClick={() => void importToolZip()} disabled={busy}>
+            导入压缩包…
+          </Btn>
           <Btn onClick={() => void importTool()} disabled={busy}>
-            导入工具…
+            从目录导入…
           </Btn>
           <Btn onClick={() => void window.bwu.agentTools.openDir()}>打开工具目录</Btn>
         </div>
@@ -279,11 +353,103 @@ export default function AgentPane({ s, patch }: PaneProps): React.ReactElement {
           )}
         </div>
         <div className="agent-actions">
+          <Btn onClick={() => void importSkillZip()} disabled={busy}>
+            导入压缩包…
+          </Btn>
           <Btn onClick={() => void importSkill()} disabled={busy}>
-            导入技能…
+            从目录导入…
           </Btn>
           <Btn onClick={() => void window.bwu.agentSkills.openDir()}>打开技能目录</Btn>
         </div>
+      </Section>
+
+      <Section
+        title="MCP 服务器"
+        desc="接入外部 MCP 服务（文件系统、数据库、浏览器等），它们的工具会自动注册给 Agent。"
+      >
+        <div className="agent-tools">
+          {mcpServers.length === 0 ? (
+            <span className="agent-empty">还没有 MCP 服务器</span>
+          ) : (
+            mcpServers.map((srv) => (
+              <div className="agent-tool" key={srv.id}>
+                <div className="agent-tool__main">
+                  <span className="agent-tool__name">{srv.name}</span>
+                  <span className="agent-tool__id">
+                    {srv.transport === 'http' ? srv.url : `${srv.command} ${srv.args}`.trim()}
+                  </span>
+                  {mcpStatus[srv.id] ? (
+                    <span className={mcpStatus[srv.id].ok ? 'agent-tool__risk is-trusted' : 'agent-tool__risk is-high'}>
+                      {mcpStatus[srv.id].ok ? `已连接 · ${mcpStatus[srv.id].tools?.length ?? 0}` : '连接失败'}
+                    </span>
+                  ) : null}
+                </div>
+                <div className="agent-tool__side">
+                  <Btn onClick={() => void testMcp(srv.id)} disabled={busy}>
+                    测试
+                  </Btn>
+                  <Toggle
+                    checked={srv.enabled}
+                    onChange={(v) => patch({ mcp: { servers: mcpServers.map((x) => (x.id === srv.id ? { ...x, enabled: v } : x)) } }, true)}
+                  />
+                  <button className="agent-dir__del" onClick={() => void removeMcp(srv.id)} title="删除">
+                    ×
+                  </button>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+
+        <Field label="新增服务器" hint="stdio 填命令（如 npx），http 填地址">
+          <div className="stack">
+            <TextInput value={mcpForm.name} placeholder="名称，例如 文件系统" onChange={(v) => setMcpForm({ ...mcpForm, name: v })} />
+            <Select
+              value={mcpForm.transport}
+              options={[
+                { value: 'stdio', label: 'stdio（本地进程）' },
+                { value: 'http', label: 'HTTP（远程）' }
+              ]}
+              onChange={(v) => setMcpForm({ ...mcpForm, transport: v as 'stdio' | 'http' })}
+            />
+            {mcpForm.transport === 'stdio' ? (
+              <>
+                <TextInput
+                  value={mcpForm.command}
+                  placeholder="命令，例如 npx"
+                  onChange={(v) => setMcpForm({ ...mcpForm, command: v })}
+                />
+                <TextInput
+                  value={mcpForm.args}
+                  placeholder="参数，例如 -y @modelcontextprotocol/server-filesystem C:\docs"
+                  onChange={(v) => setMcpForm({ ...mcpForm, args: v })}
+                />
+              </>
+            ) : (
+              <>
+                <TextInput
+                  value={mcpForm.url}
+                  placeholder="https://example.com/mcp"
+                  onChange={(v) => setMcpForm({ ...mcpForm, url: v })}
+                />
+                <TextInput
+                  value={mcpForm.headers}
+                  placeholder="请求头，每行一个 Key: Value（可留空）"
+                  onChange={(v) => setMcpForm({ ...mcpForm, headers: v })}
+                />
+              </>
+            )}
+            <div>
+              <Btn onClick={() => void addMcp()} disabled={busy || (!mcpForm.command && !mcpForm.url)}>
+                添加
+              </Btn>
+            </div>
+          </div>
+        </Field>
+
+        <p className="agent-warn">
+          MCP 服务器的工具会在每次任务开始前自动拉取；连不上只是跳过，不会卡住任务。远程服务请自己确认来源可信。
+        </p>
       </Section>
 
       <Section title="运行记录" desc="最近 50 次工具调用；日志按天保存，只保留 7 天。">

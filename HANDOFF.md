@@ -518,6 +518,22 @@ $d = "$env:USERPROFILE\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies"
 
 ---
 
+## 18. 11-18 晚七轮：菜单黑边 / 标题栏主题 / 压缩包导入 / MCP
+
+- **菜单"纯黑"框**：上一轮去掉了 `box-shadow`，但窗口四周还留着 14px 的 `MENU_PAD`（原本给投影留的），
+  这圈留白在透明窗口上被系统画成了黑色边框。现在 `MENU_PAD = 0` + `.menu { margin: 0 }`，窗口和卡片等大。
+- **透明窗口不要调 setBackgroundColor**：气泡/菜单只处理标题栏；只有不透明的设置窗才设底色，
+  否则透明区域会被涂黑。
+- **标题栏跟随主题**：`applyWindowTheme()` 在 `broadcastSettings` 里调用，亮色下右上角不再是黑块。
+- **压缩包导入**：`agent/import-archive.ts` 用系统自带 `tar -xf`（Windows 10+ 的 bsdtar 支持 zip）解到临时目录，
+  再走原来的目录导入；工具/Skill 都加了「导入压缩包…」按钮，目录导入保留为次要入口。
+- **MCP 支持**：`agent/mcp.ts` 手写极简客户端（不引 SDK）：stdio 走换行 JSON-RPC，HTTP 支持 SSE 响应；
+  `ensureMcpTools()` 在每次 Agent 任务前拉取 `tools/list` 并注册为 `mcp.<server>.<tool>`；
+  设置页新增「MCP 服务器」区（增删/启停/测试），连接失败只跳过不阻塞。
+- 测试：`tools/mcp-zip-test.mjs` 6/6（zip 导入工具/技能 + MCP 连接/注册/调用）。
+
+---
+
 ## 17. 11-18 晚六轮：弹出方向按半屏 / 两窗口互斥
 
 - **方向**：`layoutBubble` 和 `layoutMenu` 原来都是"右边放得下就放右边"，导致球在屏幕右半区也往右弹。

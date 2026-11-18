@@ -103,5 +103,6 @@ export const DEFAULT_SETTINGS: Settings = {
     deepseekApiKey: '',
     maxResults: 5,
     auto: true
-  }
+  },
+  mcp: { servers: [] }
 }
