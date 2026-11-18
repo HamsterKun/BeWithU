@@ -10,6 +10,7 @@ import { synthesize } from './services/tts'
 import { testLlm } from './services/llm'
 import { testAsr } from './services/asr'
 import { captureScreen } from './services/vision'
+import { callTool, listTools, registerBuiltinTools } from './agent'
 import { deleteModel, downloadModel, modelStatus } from './services/asr-model'
 import { warmupLocalAsr } from './services/local-asr'
 import {
@@ -449,4 +450,18 @@ export function registerIpc(getQuit: () => void): void {
 
   ipcMain.handle(IPC.hotkeyCapture, async () => captureNextChord())
   ipcMain.handle(IPC.settingsHotkeyStatus, () => hotkeyStatus())
+
+  /* ------------------------------------------------------------- agent ---- */
+
+  registerBuiltinTools()
+  // 测试通道：只有以 BWU_AGENT_TEST=1 启动时才暴露，正常运行时不存在
+  if (process.env['BWU_AGENT_TEST'] === '1') {
+    ipcMain.handle(IPC.agentTestList, () =>
+      listTools().map((t) => ({ id: t.id, name: t.name, risk: t.risk }))
+    )
+    ipcMain.handle(IPC.agentTestCall, (_e, id: string, args: Record<string, unknown>) =>
+      callTool(String(id ?? ''), (args ?? {}) as Record<string, unknown>)
+    )
+    log('agent: 测试通道已开启')
+  }
 }

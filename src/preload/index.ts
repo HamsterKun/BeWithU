@@ -78,6 +78,11 @@ contextBridge.exposeInMainWorld('bwu', {
     pick: (id: string) => ipcRenderer.send(IPC.menuPick, id),
     close: () => ipcRenderer.send(IPC.menuClose)
   },
+  /** 仅测试用：BWU_AGENT_TEST=1 启动时才由主进程注册 handler */
+  agentTest: {
+    list: () => ipcRenderer.invoke(IPC.agentTestList),
+    call: (id: string, args: Record<string, unknown>) => ipcRenderer.invoke(IPC.agentTestCall, id, args)
+  },
   bubble: {
     onUpdate: (cb: (u: BubbleUpdate) => void) => on<BubbleUpdate>(IPC.bubbleUpdate, cb),
     resize: (w: number, h: number) => ipcRenderer.send(IPC.bubbleResize, w, h),

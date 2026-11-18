@@ -11,7 +11,8 @@ export default defineConfig({
       rollupOptions: {
         input: {
           index: r('src/main/index.ts'),
-          'asr-worker': r('src/main/asr-worker.ts')
+          'asr-worker': r('src/main/asr-worker.ts'),
+          'input-worker': r('src/main/input-worker.ts')
         }
       }
     }

@@ -98,7 +98,11 @@ export const IPC = {
   hotkeyCaptured: 'hotkey:captured',
   hotkeyStatus: 'hotkey:status',
   appQuit: 'app:quit',
-  appHide: 'app:hide'
+  appHide: 'app:hide',
+
+  // agent（测试通道：仅 BWU_AGENT_TEST=1 时主进程才注册 handler）
+  agentTestList: 'agent:test-list',
+  agentTestCall: 'agent:test-call'
 } as const
 
 export type BubbleUpdate =
@@ -180,6 +184,11 @@ export interface BwuApi {
     resize(width: number, height: number): void
     pick(id: string): void
     close(): void
+  }
+  /** 仅测试用（BWU_AGENT_TEST=1 时主进程才注册） */
+  agentTest: {
+    list(): Promise<Array<{ id: string; name: string; risk: string }>>
+    call(id: string, args: Record<string, unknown>): Promise<{ ok: boolean; summary: string; data?: unknown }>
   }
   bubble: {
     onUpdate(cb: (u: BubbleUpdate) => void): () => void
