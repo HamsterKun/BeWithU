@@ -1222,6 +1222,40 @@ body {
   gap: 8px;
   flex-shrink: 0;
 }
+.ball-presets {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.ball-preset {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 12px;
+  border-radius: 9px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.03);
+  color: rgba(200, 212, 228, 0.9);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.ball-preset:hover {
+  background: rgba(255, 255, 255, 0.07);
+}
+.ball-preset.is-active {
+  border-color: rgba(103, 232, 249, 0.55);
+  background: rgba(103, 232, 249, 0.12);
+  color: #e8fbff;
+}
+.ball-preset__dot {
+  display: block;
+  border-radius: 50%;
+  background: rgba(200, 212, 228, 0.35);
+}
+.ball-preset.is-active .ball-preset__dot {
+  background: rgba(103, 232, 249, 0.75);
+}
 
 .agent-actions {
   display: flex;

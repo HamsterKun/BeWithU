@@ -412,9 +412,9 @@ $d = "$env:USERPROFILE\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies"
 ## 11. 当前进程/环境状态（11-18 晚收尾）
 
 - 所有 electron / 打包进程已结束
-- 工作区 git 干净，HEAD `1b74886`（含 M4 + Skill），已推送 `origin/main`
-- `release/` 里是 20:22 / 20:24 的新包，含 Agent + 工具导入 + Skill
-- `.shots/` 新增 `agent-custom-tools.png`（自定义工具 + Skill 设置页）
+- 工作区 git 干净，HEAD 见 `git log`（含 M4 + Skill + 工具名修复），已推送 `origin/main`
+- `release/` 里是 20:37 / 20:39 的新包（含工具名修复 + 悬浮球大小）
+- `.shots/` 新增 `agent-custom-tools.png`、`ball-size.png`
 - 后台没有遗留 job；`.tmp-*` 已清理
 
 ---
@@ -448,3 +448,39 @@ $d = "$env:USERPROFILE\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies"
 既有回归同步跑过：`agent-run-test` 7/7、`agent-settings-test` 8/8。
 
 **下一步**：COM / UIA 深度办公（§7.4），以及给 `input.*` 补 `screen.look`。
+
+---
+
+## 13. 11-18 晚二轮：发消息没响应（已修）
+
+**现象**：气泡里打字发送后完全没有回复。
+
+**根因（日志实锤）**：
+```
+HTTP 400: Invalid 'tools[0].function.name': string does not match pattern
+Expected a string that matches the pattern '^[a-zA-Z0-9_-]+$'
+```
+工具 id 用点分层（`input.type` / `file.write` / `skill.read`），而 OpenAI/DeepSeek 的函数名只允许
+`[a-zA-Z0-9_-]`，所以**每次 Agent 请求都被 400 拒绝**。
+
+**为什么是"完全没反应"**：`runner` 捕获 LLM 错误后只 `return {text:'（模型调用失败…）'}`，
+没有走 `events.onText`，pipeline 只把它写进 history、没发到气泡。
+
+**修法**：
+1. `registry.wireToolName()`：发给模型前把 id 里非法字符换成下划线（`input.type` → `input_type`）；
+   `buildWireMap()` 在回包时换回真实 id（撞名会打 warning 并跳过）。
+2. `runner` 失败时改走 `opts.events.onText(friendlyAgentError(msg))`，气泡立刻能看到人话错误；
+   同时 `pipeline` 加了兜底：`answer` 为空但 `res.text` 非空时也补发。
+3. `friendlyAgentError()` 把 400 工具名 / 401 鉴权 / 404 模型名 / 取消 翻译成短句。
+
+**验证**：新增 `tools/agent-llm-test.mjs`，本地起一个**严格校验函数名**的假 OpenAI 服务
+（名字非法就照 DeepSeek 原文返回 400）：
+```powershell
+& $node tools\agent-llm-test.mjs   # 2/2
+```
+- 合法名字 → 200，气泡显示"链路正常，收到 20 个工具"
+- 服务端 400 → 气泡显示"这个模型不接受工具调用…"而不是空白
+
+**顺带**：悬浮球大小原来只能靠设置页里的滑杆，现在多了
+- 设置页「快速大小」预设（小/中/大/特大，带比例圆点）
+- 右键菜单「悬浮球放大 / 悬浮球缩小」（±8px，64–152 夹取）

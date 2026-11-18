@@ -603,6 +603,11 @@ class Conversation {
       })
       if (turn !== this.turnId) return
       sendAgentProgress({ active: false, step: res.steps, total: s.agent.maxSteps })
+      // 兜底：万一 runner 没通过 onText 回传（例如直接返回了错误文本），也要显示出来
+      if (!answer.trim() && res.text.trim()) {
+        answer = res.text
+        sendBubble({ type: 'assistant-delta', text: res.text })
+      }
       if (this.speech) {
         for (const sentence of splitter.flush()) this.speech.add(sentence)
         this.speech.finish()

@@ -385,6 +385,8 @@ export function registerIpc(getQuit: () => void): void {
     showBallMenu([
       { id: 'settings', label: '设置…' },
       { id: 'skin', label: '换皮肤' },
+      { id: 'size-plus', label: '悬浮球放大' },
+      { id: 'size-minus', label: '悬浮球缩小' },
       { id: 'mute', label: s.ui.muted ? '取消静音' : '静音', checked: s.ui.muted },
       { id: 'sep1', label: '', separator: true },
       { id: 'hide-ball', label: '隐藏悬浮球' },
@@ -409,6 +411,15 @@ export function registerIpc(getQuit: () => void): void {
       case 'mute':
         broadcastSettings(settingsStore.update({ ui: { muted: !s.ui.muted } }))
         break
+      case 'size-plus':
+      case 'size-minus': {
+        const step = id === 'size-plus' ? 8 : -8
+        const next = Math.max(64, Math.min(152, s.ball.size + step))
+        if (next !== s.ball.size) {
+          broadcastSettings(settingsStore.update({ ball: { size: next } }))
+        }
+        break
+      }
       case 'hide-ball':
         hideBallWindow()
         break

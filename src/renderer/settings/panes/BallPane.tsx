@@ -91,7 +91,7 @@ export default function BallPane({ s, patch }: PaneProps): React.ReactElement {
           </Btn>
         </Field>
 
-        <Field label="直径">
+        <Field label="直径" hint="也可以右键悬浮球，用「放大 / 缩小」快速调整">
           <Range
             value={s.ball.size}
             min={64}
@@ -99,6 +99,27 @@ export default function BallPane({ s, patch }: PaneProps): React.ReactElement {
             onChange={(v) => patch({ ball: { size: v } })}
             format={(v) => `${v}px`}
           />
+        </Field>
+
+        <Field label="快速大小" hint="一键切换，滑杆可以再微调">
+          <div className="ball-presets">
+            {[
+              { size: 72, label: '小' },
+              { size: 96, label: '中' },
+              { size: 128, label: '大' },
+              { size: 152, label: '特大' }
+            ].map((p) => (
+              <button
+                key={p.size}
+                className={Math.abs(s.ball.size - p.size) <= 4 ? 'ball-preset is-active' : 'ball-preset'}
+                onClick={() => patch({ ball: { size: p.size } }, true)}
+                title={`${p.size}px`}
+              >
+                <span className="ball-preset__dot" style={{ width: p.size / 3.2, height: p.size / 3.2 }} />
+                <span>{p.label}</span>
+              </button>
+            ))}
+          </div>
         </Field>
 
         <Field label="不透明度">

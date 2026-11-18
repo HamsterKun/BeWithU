@@ -2,7 +2,7 @@
 import { settingsStore } from '../store/settings'
 import { historyStore } from '../store/history'
 import { log } from '../logger'
-import { listTools, toOpenAiTools } from './registry'
+import { listTools, toOpenAiTools, buildWireMap } from './registry'
 import { callTool } from './index'
 import { chatWithTools, type AgentToolCall } from './llm-agent'
 import { checkDangerous } from './policy'
@@ -58,6 +58,22 @@ function parseArgs(raw: string): Record<string, unknown> {
   }
 }
 
+/** 把常见错误翻译成用户能看懂的话（原文进日志，气泡里只放短句） */
+function friendlyAgentError(msg: string): string {
+  if (/Invalid 'tools|tool_calls|function\.name/i.test(msg)) {
+    return '这个模型不接受工具调用（接口返回 400）。可以到「设置 → Agent 能力」关掉 Agent 只聊天，或换一个支持 function calling 的模型。'
+  }
+  if (/HTTP 401|HTTP 403|invalid_api_key|Unauthorized/i.test(msg)) {
+    return '大模型鉴权失败（401/403），检查一下 API Key 是否填对、有没有过期。'
+  }
+  if (/HTTP 404|model_not_found|does not exist/i.test(msg)) {
+    return '模型名找不到（404），检查模型名/接入点 ID 是否正确。'
+  }
+  if (/abort|cancel/i.test(msg)) return '已取消'
+  const short = msg.replace(/\s+/g, ' ').slice(0, 120)
+  return `模型调用失败：${short}`
+}
+
 function summarizeArgs(def: ToolDef, args: Record<string, unknown>): string {
   const pick = (k: string): string => (args[k] === undefined ? '' : String(args[k]))
   switch (def.id) {
@@ -82,10 +98,13 @@ export async function runAgentTask(
 ): Promise<AgentRunResult> {
   const cfg = settingsStore.get().agent
   const maxSteps = cfg.maxSteps
-  const tools = toOpenAiTools()
-    .filter((t) => !cfg.disabledTools.includes(t.function.name))
+  const enabled = listTools()
+    .filter((t) => !cfg.disabledTools.includes(t.id))
     // 关了技能开关就把 skill.read 一起藏起来，别让模型看见一个必然失败的入口
-    .filter((t) => cfg.skillsEnabled || t.function.name !== 'skill.read')
+    .filter((t) => cfg.skillsEnabled || t.id !== 'skill.read')
+  const tools = toOpenAiTools(enabled.map((t) => t.id))
+  // 模型看到的是 input_type，回来要换回 input.type
+  const wireToReal = buildWireMap(enabled.map((t) => t.id))
   const history = historyStore.recent(6).map((m) => ({ role: m.role, content: m.content }))
   const messages: unknown[] = [
     { role: 'system', content: buildSystemPrompt(maxSteps, cfg.shellEnabled) },
@@ -104,7 +123,10 @@ export async function runAgentTask(
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
       log('agent: LLM 调用失败', msg)
-      return { text: `（模型调用失败：${msg}）`, steps, stopped: false }
+      const text = friendlyAgentError(msg)
+      // 必须走 onText，否则气泡里什么都不显示，用户以为"没反应"
+      opts.events.onText(text)
+      return { text, steps, stopped: false }
     }
     if (turn.text.trim()) {
       finalText = turn.text.trim()
@@ -128,23 +150,24 @@ export async function runAgentTask(
         break
       }
       steps += 1
-      const def = listTools().find((t) => t.id === call.name)
+      const realId = wireToReal.get(call.name) ?? call.name
+      const def = listTools().find((t) => t.id === realId)
       const args = parseArgs(call.args)
       opts.events.onStep({
         index: steps,
         total: maxSteps,
-        toolId: call.name,
-        summary: def?.name ?? call.name
+        toolId: realId,
+        summary: def?.name ?? realId
       })
 
-      const result = await runOne(def, args, call, cfg, opts)
+      const result = await runOne(def, args, { ...call, name: realId }, cfg, opts)
       messages.push({
         role: 'tool',
         tool_call_id: call.id,
         content: JSON.stringify({ ok: result.ok, result: result.summary }).slice(0, 4000)
       })
-      opts.events.onStepDone?.({ index: steps, total: maxSteps, toolId: call.name, ok: result.ok, summary: result.summary })
-      log('agent: 工具结果', `${call.name} ${result.ok ? 'ok' : 'fail'}`)
+      opts.events.onStepDone?.({ index: steps, total: maxSteps, toolId: realId, ok: result.ok, summary: result.summary })
+      log('agent: 工具结果', `${realId} ${result.ok ? 'ok' : 'fail'}`)
     }
     if (stopped) break
   }
