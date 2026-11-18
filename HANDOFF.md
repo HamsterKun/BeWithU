@@ -409,13 +409,13 @@ $d = "$env:USERPROFILE\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies"
 
 ---
 
-## 11. 当前进程/环境状态（离开时）
+## 11. 当前进程/环境状态（11-18 晚收尾）
 
-- 所有 electron / node 打包进程已结束
-- 工作区 git 干净，HEAD `acc22f2`，已推送
-- `release/` 里是旧包，**不要当成果交付**
-- 临时目录 `.shots/.tmp-*` 已清理；`.shots/` 里保留了 8 张界面截图（含 Agent 三张）
-- 后台没有遗留 job
+- 所有 electron / 打包进程已结束
+- 工作区 git 干净，HEAD `1b74886`（含 M4 + Skill），已推送 `origin/main`
+- `release/` 里是 20:22 / 20:24 的新包，含 Agent + 工具导入 + Skill
+- `.shots/` 新增 `agent-custom-tools.png`（自定义工具 + Skill 设置页）
+- 后台没有遗留 job；`.tmp-*` 已清理
 
 ---
 
