@@ -1,0 +1,50 @@
+appId: com.bewithu.app
+productName: BeWithU
+copyright: Copyright © 2026 BeWithU
+
+directories:
+  buildResources: build
+  output: release
+
+files:
+  - out/**/*
+  - package.json
+  - '!node_modules/**/{CHANGELOG.md,README.md,readme.md,*.md,*.map,*.ts,*.d.ts}'
+  - '!node_modules/**/{test,__tests__,tests,example,examples,doc,docs}/**'
+  - '!node_modules/uiohook-napi/prebuilds/{darwin,linux,win32-arm64}/**'
+
+asarUnpack:
+  - node_modules/uiohook-napi/**
+  - '**/node_modules/sherpa-onnx-node/**'
+  - '**/node_modules/sherpa-onnx-win-x64/**'
+  - '**/node_modules/.pnpm/sherpa-onnx-win-x64*/**'
+
+extraResources:
+  - from: resources/tray.png
+    to: tray.png
+
+npmRebuild: false
+
+win:
+  icon: build/icon.ico
+  target:
+    - target: nsis
+      arch: [x64]
+    - target: portable
+      arch: [x64]
+  artifactName: ${productName}-${version}-${arch}.${ext}
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowElevation: true
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: BeWithU
+  deleteAppDataOnUninstall: false
+  installerIcon: build/icon.ico
+  uninstallerIcon: build/icon.ico
+
+portable:
+  artifactName: ${productName}-${version}-portable.${ext}

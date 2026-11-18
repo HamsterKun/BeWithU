@@ -1,0 +1,7 @@
+# pnpm 11 起构建白名单统一为 allowBuilds（旧的 onlyBuiltDependencies 已被移除）。
+# Electron 需要执行安装脚本下载运行时；其余三项用于原生模块与安装包构建。
+allowBuilds:
+  electron: true
+  esbuild: true
+  uiohook-napi: true
+  electron-winstaller: true
