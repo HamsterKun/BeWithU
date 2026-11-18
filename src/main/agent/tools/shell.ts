@@ -29,8 +29,8 @@ export function registerShellTools(): void {
         return {
           ok: false,
           summary:
-            'Shell 能力当前没有开启，无法执行命令。请告诉用户：去「设置 → Agent 能力」里打开「允许执行 PowerShell」，' +
-            '开启后我就能直接读写文件、处理文档，不用靠模拟键鼠。'
+            'Shell 能力当前没有开启，无法执行命令。请告诉用户：去「设置 → Agent 能力」里打开「完全信任模式」，' +
+            '开启后我就能直接读写文件、执行命令、操作界面，不再逐次确认。'
         }
       }
       const script = String(args.script ?? '').trim()

@@ -549,6 +549,20 @@ $d = "$env:USERPROFILE\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies"
 
 ---
 
+## 20. 11-18 晚九轮：1.0.0 正式版 + 信任模式 + 收尾兜底
+
+- **版本**：`package.json` 0.1.0 → **1.0.0**（随后这轮改动 → **1.0.1**）。以后每次更新都改 `version`，
+  产物名由 `${productName}-${version}-${arch}` 生成；打包前先清空 `release/`。
+- **SmartScreen**：新增 `scripts/install-app.cmd`（`Unblock-File` 后再启动），README 写了「未知发布者 vs 已保护你的电脑」的区别与三条签名路线。
+- **收尾兜底**：模型只调工具、不写总结时，`runner` 用实际执行过的步骤拼一句人话
+  （`我做了 N 步（成功 M 步）：· 工具：结果`），不再出现「（没有需要汇报的内容）」；兜底文案也会推到气泡。
+- **完全信任模式**：`agent.shellEnabled` 语义升级——开启后**所有**高风险工具跳过确认卡（不再只管 shell.ps），
+  硬红线仍在 `policy.ts` 拦截；工具列表里的「需确认」会变成「已信任」。设置页文案同步。
+- **亮色警告条**：`.agent-warn` 亮色下改 #b91c1c + 深底，之前是浅粉几乎看不清；同时允许换行。
+- 验证：`shellEnabled=true` + `autoApprove=false` 时 `file.write` 直接执行成功；测试 7/7、8/8。
+
+---
+
 ## 17. 11-18 晚六轮：弹出方向按半屏 / 两窗口互斥
 
 - **方向**：`layoutBubble` 和 `layoutMenu` 原来都是"右边放得下就放右边"，导致球在屏幕右半区也往右弹。

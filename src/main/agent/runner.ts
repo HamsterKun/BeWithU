@@ -41,8 +41,8 @@ function buildSystemPrompt(maxSteps: number, shellEnabled: boolean): string {
     '2. 一步只做一件小事，看结果再决定下一步；不要重复同样的失败尝试。',
     `3. 本次任务最多 ${maxSteps} 步，做完用 1-3 句话汇报结果。`,
     shellEnabled
-      ? '4. Shell 能力已开启，可以执行 PowerShell 完成文件/文档处理。'
-      : '4. Shell 能力未开启：如果确实需要，直接告诉用户「去 设置 → Agent 能力 里开启 Shell」，不要反复尝试。',
+      ? '4. 完全信任模式已开启：所有工具（Shell、文件写入、键鼠）都直接执行，不会再有确认卡。删盘/格式化这类硬红线仍然执行不了。'
+      : '4. 高风险操作会弹确认卡；看到"用户拒绝"就停下并说明。如果用户嫌麻烦，可以让 TA 去「设置 → Agent 能力」开「完全信任模式」。',
     '5. 高风险操作需要用户确认；看到"用户拒绝"就停下并说明，不要绕过。',
     '6. 不要编造工具结果，只根据工具返回汇报。',
     searchOn
@@ -136,6 +136,8 @@ export async function runAgentTask(
   let steps = 0
   let finalText = ''
   let stopped = false
+  /** 记下每一步做了什么，模型没给收尾时用它拼一句人话 */
+  const stepLog: { name: string; ok: boolean; summary: string }[] = []
 
   while (steps < maxSteps && !opts.signal.aborted) {
     let turn
@@ -191,6 +193,7 @@ export async function runAgentTask(
       })
 
       const result = await runOne(def, args, { ...call, name: realId }, cfg, opts)
+      stepLog.push({ name: def?.name ?? realId, ok: result.ok, summary: result.summary })
       messages.push({
         role: 'tool',
         tool_call_id: call.id,
@@ -202,8 +205,23 @@ export async function runAgentTask(
     if (stopped) break
   }
 
-  if (!finalText) finalText = stopped ? '（已停止）' : '（没有需要汇报的内容）'
+  if (!finalText) {
+    finalText = stopped ? '（已停止）' : summarizeSteps(stepLog)
+    // 兜底文案也要走到气泡，否则用户只看到一堆步骤、没有结论
+    opts.events.onText(finalText)
+  }
   return { text: finalText, steps, stopped }
+}
+
+/** 模型没写收尾时，用实际执行过的步骤拼一句人话 */
+function summarizeSteps(stepLog: { name: string; ok: boolean; summary: string }[]): string {
+  if (!stepLog.length) return '这次没拿到结果，你换个说法我再试试。'
+  const lines = stepLog
+    .slice(-3)
+    .map((s) => `· ${s.name}：${s.summary.replace(/\s+/g, ' ').slice(0, 120)}`)
+    .join('\n')
+  const okCount = stepLog.filter((s) => s.ok).length
+  return `我做了 ${stepLog.length} 步（成功 ${okCount} 步）：\n${lines}`
 }
 
 /** 单个工具：禁用检查 → 危险命令检查 → 高风险确认 → 执行（带超时） */
@@ -222,9 +240,9 @@ async function runOne(
   const danger = checkDangerous(dangerText)
   if (!danger.ok) return { ok: false, summary: danger.reason ?? '被安全策略拒绝' }
 
-  // shell 开启 = 完全信任：不再逐次弹确认卡（硬红线仍在上面拦过）
-  const trustedShell = def.id === 'shell.ps' && cfg.shellEnabled
-  if (def.risk === 'high' && !trustedShell) {
+  // 完全信任模式：所有工具（含 Shell / 写文件 / 键鼠）直接执行，不再逐次确认。
+  // 硬红线（policy.ts）仍然在上面拦过，删盘/格式化这类永远执行不了。
+  if (def.risk === 'high' && !cfg.shellEnabled) {
     const approved = opts.events.onApproval
       ? await opts.events.onApproval({ toolId: def.id, title: def.name, detail: summarizeArgs(def, args) })
       : false

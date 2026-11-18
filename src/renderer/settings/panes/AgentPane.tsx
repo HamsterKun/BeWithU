@@ -200,14 +200,15 @@ export default function AgentPane({ s, patch }: PaneProps): React.ReactElement {
           <Toggle checked={s.agent.enabled} onChange={(v) => patch({ agent: { enabled: v } })} />
         </Field>
         <Field
-          label="允许执行 PowerShell"
-          hint="这是总开关：开启后不再逐次确认（下面工具列表里的「执行 PowerShell」只管这个工具开不开）"
+          label="完全信任模式"
+          hint="开启后所有工具和 Skill 直接执行，不再逐次弹确认卡（Shell、写文件、键鼠、MCP 都算）；只保留删盘/格式化这类硬红线"
         >
           <Toggle checked={shellOn} onChange={(v) => patch({ agent: { shellEnabled: v } })} />
         </Field>
         {shellOn ? (
           <p className="agent-warn">
-            Shell 已开启：模型可以直接读写文件、调用系统命令。不熟悉的模型建议关掉，或只在需要时临时打开。
+            已开启最高权限：模型可以直接改文件、执行 PowerShell、操作键鼠、调用 MCP。
+            不确定模型靠不靠谱时，建议用完就关掉。
           </p>
         ) : null}
         <Field label="最大步数" hint="一次任务最多调用多少次工具">
@@ -258,14 +259,12 @@ export default function AgentPane({ s, patch }: PaneProps): React.ReactElement {
               <div className="agent-tool__main">
                 <span className="agent-tool__name">{t.name}</span>
                 <span className="agent-tool__id">{t.id}</span>
-                <span className={t.risk === 'high' ? 'agent-tool__risk is-high' : 'agent-tool__risk'}>
-                  {t.id === 'shell.ps'
-                    ? shellOn
-                      ? '已信任'
-                      : '需确认'
-                    : t.risk === 'high'
-                      ? '需确认'
-                      : '只读'}
+                <span
+                  className={
+                    t.risk === 'high' && !shellOn ? 'agent-tool__risk is-high' : 'agent-tool__risk is-trusted'
+                  }
+                >
+                  {t.risk === 'high' ? (shellOn ? '已信任' : '需确认') : '只读'}
                 </span>
               </div>
               <Toggle checked={t.enabled} onChange={(v) => toggleTool(t.id, v)} />
