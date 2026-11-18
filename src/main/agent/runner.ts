@@ -1,0 +1,183 @@
+/** Agent 主循环：LLM ⇄ 工具，带步数上限、超时、确认与中断 */
+import { settingsStore } from '../store/settings'
+import { historyStore } from '../store/history'
+import { log } from '../logger'
+import { listTools, toOpenAiTools } from './registry'
+import { callTool } from './index'
+import { chatWithTools, type AgentToolCall } from './llm-agent'
+import { checkDangerous } from './policy'
+import { resolvePendingByText } from './approval'
+import type { ToolDef, ToolResult } from './types'
+
+export interface AgentEvents {
+  /** 模型说的话（用于气泡显示 + 播报） */
+  onText: (text: string) => void
+  /** 一步工具开始 */
+  onStep: (info: { index: number; total: number; toolId: string; summary: string }) => void
+  /** 一步工具结束 */
+  onStepDone?: (info: { index: number; total: number; toolId: string; ok: boolean; summary: string }) => void
+  /** 高风险工具需要用户确认（返回 true=允许） */
+  onApproval?: (req: { toolId: string; title: string; detail: string }) => Promise<boolean>
+}
+
+export interface AgentRunResult {
+  text: string
+  steps: number
+  stopped: boolean
+}
+
+function buildSystemPrompt(maxSteps: number, shellEnabled: boolean): string {
+  const s = settingsStore.get()
+  return [
+    s.llm.systemPrompt,
+    '',
+    '【你现在可以使用工具直接操作这台电脑】',
+    '工作规则：',
+    '1. 改文件、处理文档、批量操作时优先用文件工具或 shell，不要用模拟键鼠去打字编辑文本；键鼠只用来操作图形界面（点按钮、切窗口、拖拽）。',
+    '2. 一步只做一件小事，看结果再决定下一步；不要重复同样的失败尝试。',
+    `3. 本次任务最多 ${maxSteps} 步，做完用 1-3 句话汇报结果。`,
+    shellEnabled
+      ? '4. Shell 能力已开启，可以执行 PowerShell 完成文件/文档处理。'
+      : '4. Shell 能力未开启：如果确实需要，直接告诉用户「去 设置 → Agent 能力 里开启 Shell」，不要反复尝试。',
+    '5. 高风险操作需要用户确认；看到"用户拒绝"就停下并说明，不要绕过。',
+    '6. 不要编造工具结果，只根据工具返回汇报。'
+  ]
+    .filter(Boolean)
+    .join('\n')
+}
+
+function parseArgs(raw: string): Record<string, unknown> {
+  try {
+    const v = JSON.parse(raw || '{}')
+    return v && typeof v === 'object' ? (v as Record<string, unknown>) : {}
+  } catch {
+    return {}
+  }
+}
+
+function summarizeArgs(def: ToolDef, args: Record<string, unknown>): string {
+  const pick = (k: string): string => (args[k] === undefined ? '' : String(args[k]))
+  switch (def.id) {
+    case 'shell.ps':
+      return `${pick('purpose')}\n\n${pick('script').slice(0, 500)}`
+    case 'file.write':
+      return `写入 ${pick('path')}\n\n${pick('content').slice(0, 240)}`
+    case 'input.type':
+      return `输入到当前窗口：${pick('text').slice(0, 200)}`
+    case 'app.launch':
+      return `启动 ${pick('name')}`
+    default: {
+      const json = JSON.stringify(args)
+      return json.length > 300 ? `${json.slice(0, 300)}…` : json
+    }
+  }
+}
+
+export async function runAgentTask(
+  userText: string,
+  opts: { signal: AbortSignal; events: AgentEvents }
+): Promise<AgentRunResult> {
+  const cfg = settingsStore.get().agent
+  const maxSteps = cfg.maxSteps
+  const tools = toOpenAiTools().filter((t) => !cfg.disabledTools.includes(t.function.name))
+  const history = historyStore.recent(6).map((m) => ({ role: m.role, content: m.content }))
+  const messages: unknown[] = [
+    { role: 'system', content: buildSystemPrompt(maxSteps, cfg.shellEnabled) },
+    ...history,
+    { role: 'user', content: userText }
+  ]
+
+  let steps = 0
+  let finalText = ''
+  let stopped = false
+
+  while (steps < maxSteps && !opts.signal.aborted) {
+    let turn
+    try {
+      turn = await chatWithTools({ messages, tools, signal: opts.signal, scenario: userText })
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      log('agent: LLM 调用失败', msg)
+      return { text: `（模型调用失败：${msg}）`, steps, stopped: false }
+    }
+    if (turn.text.trim()) {
+      finalText = turn.text.trim()
+      opts.events.onText(turn.text)
+    }
+    if (!turn.toolCalls.length) break
+
+    messages.push({
+      role: 'assistant',
+      content: turn.text || null,
+      tool_calls: turn.toolCalls.map((c: AgentToolCall) => ({
+        id: c.id,
+        type: 'function',
+        function: { name: c.name, arguments: c.args }
+      }))
+    })
+
+    for (const call of turn.toolCalls) {
+      if (opts.signal.aborted) {
+        stopped = true
+        break
+      }
+      steps += 1
+      const def = listTools().find((t) => t.id === call.name)
+      const args = parseArgs(call.args)
+      opts.events.onStep({
+        index: steps,
+        total: maxSteps,
+        toolId: call.name,
+        summary: def?.name ?? call.name
+      })
+
+      const result = await runOne(def, args, call, cfg, opts)
+      messages.push({
+        role: 'tool',
+        tool_call_id: call.id,
+        content: JSON.stringify({ ok: result.ok, result: result.summary }).slice(0, 4000)
+      })
+      opts.events.onStepDone?.({ index: steps, total: maxSteps, toolId: call.name, ok: result.ok, summary: result.summary })
+      log('agent: 工具结果', `${call.name} ${result.ok ? 'ok' : 'fail'}`)
+    }
+    if (stopped) break
+  }
+
+  if (!finalText) finalText = stopped ? '（已停止）' : '（没有需要汇报的内容）'
+  return { text: finalText, steps, stopped }
+}
+
+/** 单个工具：禁用检查 → 危险命令检查 → 高风险确认 → 执行（带超时） */
+async function runOne(
+  def: ToolDef | undefined,
+  args: Record<string, unknown>,
+  call: AgentToolCall,
+  cfg: ReturnType<typeof settingsStore.get>['agent'],
+  opts: { signal: AbortSignal; events: AgentEvents }
+): Promise<ToolResult> {
+  if (!def) return { ok: false, summary: `没有这个工具：${call.name}` }
+  if (cfg.disabledTools.includes(def.id)) return { ok: false, summary: `工具 ${def.id} 已被用户禁用` }
+
+  // shell 未开启：不执行，交给工具自己给出"去开启"的引导
+  const dangerText = [String(args.script ?? ''), String(args.path ?? ''), String(args.content ?? '')].join('\n')
+  const danger = checkDangerous(dangerText)
+  if (!danger.ok) return { ok: false, summary: danger.reason ?? '被安全策略拒绝' }
+
+  if (def.risk === 'high') {
+    const approved = opts.events.onApproval
+      ? await opts.events.onApproval({ toolId: def.id, title: def.name, detail: summarizeArgs(def, args) })
+      : false
+    if (!approved) return { ok: false, summary: '用户拒绝了这次操作，请停下来并向用户说明' }
+  }
+
+  const timeout = new Promise<ToolResult>((resolve) =>
+    setTimeout(() => resolve({ ok: false, summary: '工具执行超时' }), cfg.stepTimeoutMs)
+  )
+  try {
+    return await Promise.race([callTool(def.id, args, { signal: opts.signal }), timeout])
+  } catch (e) {
+    return { ok: false, summary: e instanceof Error ? e.message : String(e) }
+  }
+}
+
+export { resolvePendingByText }

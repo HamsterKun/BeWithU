@@ -126,6 +126,34 @@ export interface BallMenuItem {
   checked?: boolean
 }
 
+/** Agent 文件访问设置 */
+export interface AgentFileSettings {
+  /** 完全访问：允许对任意用户目录读写 */
+  fullAccess: boolean
+  /** 额外允许的目录（绝对路径）；为空时用 桌面/文档/下载 */
+  dirs: string[]
+}
+
+/** Agent 能力设置 */
+export interface AgentSettings {
+  /** 总开关：关闭时完全走原来的聊天流程 */
+  enabled: boolean
+  /**
+   * Shell 能力：默认关闭。关闭时模型调 shell 会被告知"没有权限"并提醒用户开启；
+   * 开启后为完全信任模式（只拦截 rm -rf 这类极高危命令）。
+   */
+  shellEnabled: boolean
+  /** 单轮最多步数（默认 10） */
+  maxSteps: number
+  /** 单步超时（毫秒） */
+  stepTimeoutMs: number
+  /** 审计日志 */
+  audit: boolean
+  files: AgentFileSettings
+  /** 被禁用的工具 id */
+  disabledTools: string[]
+}
+
 export interface Settings {
   llm: LlmSettings
   tts: TtsSettings
@@ -134,6 +162,7 @@ export interface Settings {
   ball: BallSettings
   bubble: BubbleSettings
   ui: UiSettings
+  agent: AgentSettings
   meta?: MetaSettings
 }
 

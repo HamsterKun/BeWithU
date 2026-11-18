@@ -102,10 +102,16 @@ export const IPC = {
 
   // agent（测试通道：仅 BWU_AGENT_TEST=1 时主进程才注册 handler）
   agentTestList: 'agent:test-list',
-  agentTestCall: 'agent:test-call'
+  agentTestCall: 'agent:test-call',
+  // 审批：气泡里点允许/拒绝
+  agentApprove: 'agent:approve',
+  // 测试用：跑一次 Agent 任务
+  agentTestRun: 'agent:test-run'
 } as const
 
 export type BubbleUpdate =
+  | { type: 'agent-step'; index: number; total: number; text: string; done: boolean; ok?: boolean }
+  | { type: 'approve'; req: { id: string; title: string; detail: string } | null }
   | { type: 'phase'; phase: Phase; note?: string }
   | { type: 'user'; text: string; final: boolean }
   | { type: 'assistant-reset' }
@@ -185,10 +191,23 @@ export interface BwuApi {
     pick(id: string): void
     close(): void
   }
+  /** Agent 审批（气泡里点允许/拒绝） */
+  agent: {
+    approve(id: string, allow: boolean): void
+  }
   /** 仅测试用（BWU_AGENT_TEST=1 时主进程才注册） */
   agentTest: {
     list(): Promise<Array<{ id: string; name: string; risk: string }>>
     call(id: string, args: Record<string, unknown>): Promise<{ ok: boolean; summary: string; data?: unknown }>
+    run(
+      text: string,
+      autoApprove?: boolean
+    ): Promise<{
+      text: string
+      steps: number
+      stopped: boolean
+      tools: Array<{ toolId: string; ok: boolean; summary: string }>
+    }>
   }
   bubble: {
     onUpdate(cb: (u: BubbleUpdate) => void): () => void

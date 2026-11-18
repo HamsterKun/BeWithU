@@ -80,5 +80,16 @@ export const DEFAULT_SETTINGS: Settings = {
     muted: false,
     assistantName: '小伴',
     micDeviceId: ''
+  },
+  agent: {
+    // 默认关闭：用户主动开启前，一切照旧（普通聊天）
+    enabled: false,
+    // Shell 默认关闭；关闭时模型会被引导去提醒用户开权限
+    shellEnabled: false,
+    maxSteps: 10,
+    stepTimeoutMs: 20000,
+    audit: true,
+    files: { fullAccess: false, dirs: [] },
+    disabledTools: []
   }
 }

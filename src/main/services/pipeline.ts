@@ -12,6 +12,8 @@ import { summarizeConversation } from './summarizer'
 import { captureScreen, type ScreenCapture } from './vision'
 import { LocalAsrSession } from './local-asr'
 import { modelReady } from './local-asr'
+import { runAgentTask } from '../agent/runner'
+import { requestApproval, resolvePendingByText } from '../agent/approval'
 
 /** 云端 / 本地识别共用的会话接口 */
 type AsrSession = {
@@ -358,9 +360,23 @@ class Conversation {
 
   private async respond(userText: string): Promise<void> {
     const s = settingsStore.get()
+
+    // 正在等用户确认时，一句话"同意/拒绝"直接当作答复，不开启新回合
+    if (resolvePendingByText(userText) !== null) {
+      sendBubble({ type: 'user', text: userText, final: true })
+      return
+    }
+
     const turn = ++this.turnId
     sendBubble({ type: 'user', text: userText, final: true })
     sendBubble({ type: 'assistant-reset' })
+
+    // Agent 模式：交给工具循环；关闭时走原来的纯聊天
+    if (s.agent.enabled) {
+      await this.respondWithAgent(userText, turn, s)
+      return
+    }
+
     this.setPhase('thinking', '思考中')
 
     if (!s.llm.model.trim() || !s.llm.baseUrl.trim() || !s.llm.apiKey.trim()) {
@@ -520,6 +536,100 @@ class Conversation {
     }, 5000)
   }
 
+  /* -------------------------------------------------------- agent mode ---- */
+
+  /** Agent 模式：跑工具循环，边显示边播报，结束时收起 */
+  private async respondWithAgent(userText: string, turn: number, s: Settings): Promise<void> {
+    this.setPhase('thinking', '处理中')
+    const controller = new AbortController()
+    this.abortLlm = controller
+    const splitter = new SentenceSplitter()
+    const canSpeak = s.tts.enabled && !s.ui.muted
+    let audioStarted = false
+    let answer = ''
+
+    if (canSpeak) {
+      this.speech = new SpeechQueue(
+        s.tts,
+        (seq, pcm) => {
+          if (pcm) audioStarted = true
+          this.pushAudio(seq, pcm)
+        },
+        () => {
+          if (turn === this.turnId) getBallWindow()?.webContents.send(IPC.audioEnd)
+        }
+      )
+    } else {
+      this.speech?.abort()
+      this.speech = null
+    }
+
+    try {
+      const res = await runAgentTask(userText, {
+        signal: controller.signal,
+        events: {
+          onText: (text) => {
+            if (turn !== this.turnId) return
+            answer += text
+            sendBubble({ type: 'assistant-delta', text })
+            if (this.speech) for (const sentence of splitter.push(text)) this.speech.add(sentence)
+          },
+          onStep: (info) => {
+            if (turn !== this.turnId) return
+            sendBubble({
+              type: 'agent-step',
+              index: info.index,
+              total: info.total,
+              text: info.summary,
+              done: false
+            })
+          },
+          onStepDone: (info) => {
+            if (turn !== this.turnId) return
+            sendBubble({
+              type: 'agent-step',
+              index: info.index,
+              total: info.total,
+              text: info.summary,
+              done: true,
+              ok: info.ok
+            })
+          },
+          onApproval: (req) => requestApproval(req)
+        }
+      })
+      if (turn !== this.turnId) return
+      if (this.speech) {
+        for (const sentence of splitter.flush()) this.speech.add(sentence)
+        this.speech.finish()
+      }
+      sendBubble({ type: 'assistant-end' })
+      if (res.text.trim()) historyStore.add('assistant', res.text.trim())
+      if (res.stopped) this.notify('info', '已停止这次操作')
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      log('agent: 运行失败', msg)
+      this.notify('error', msg, 'open-settings')
+      sendBubble({ type: 'assistant-end' })
+    }
+
+    if (turn !== this.turnId) return
+    if (!this.speech || !answer) {
+      this.setPhase('idle')
+      this.scheduleHide()
+      return
+    }
+    // TTS 全失败时兜底回 idle
+    const speech = this.speech
+    setTimeout(() => {
+      if (turn !== this.turnId || audioStarted) return
+      if (this.phase !== 'thinking') return
+      speech.abort()
+      this.setPhase('idle')
+      this.scheduleHide()
+    }, 5000)
+    void this.maybeSummarize()
+  }
   private pushAudio(seq: number, pcm: Buffer | null): void {
     const win = getBallWindow()
     if (!win) return

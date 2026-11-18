@@ -78,10 +78,15 @@ contextBridge.exposeInMainWorld('bwu', {
     pick: (id: string) => ipcRenderer.send(IPC.menuPick, id),
     close: () => ipcRenderer.send(IPC.menuClose)
   },
+  /** Agent 审批 */
+  agent: {
+    approve: (id: string, allow: boolean) => ipcRenderer.send(IPC.agentApprove, id, allow)
+  },
   /** 仅测试用：BWU_AGENT_TEST=1 启动时才由主进程注册 handler */
   agentTest: {
     list: () => ipcRenderer.invoke(IPC.agentTestList),
-    call: (id: string, args: Record<string, unknown>) => ipcRenderer.invoke(IPC.agentTestCall, id, args)
+    call: (id: string, args: Record<string, unknown>) => ipcRenderer.invoke(IPC.agentTestCall, id, args),
+    run: (text: string, autoApprove?: boolean) => ipcRenderer.invoke(IPC.agentTestRun, text, autoApprove)
   },
   bubble: {
     onUpdate: (cb: (u: BubbleUpdate) => void) => on<BubbleUpdate>(IPC.bubbleUpdate, cb),

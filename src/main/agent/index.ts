@@ -1,6 +1,9 @@
 /** Agent 能力入口：注册内置工具、暴露统一调用接口 */
 import { getTool, listTools } from './registry'
 import { registerInputTools } from './tools/input'
+import { registerShellTools } from './tools/shell'
+import { registerFileTools } from './tools/files'
+import { registerSystemTools } from './tools/system'
 import type { ToolContext, ToolResult } from './types'
 import { log } from '../logger'
 import { workerPing } from '../services/input-inject'
@@ -11,6 +14,9 @@ export function registerBuiltinTools(): void {
   if (registered) return
   registered = true
   registerInputTools()
+  registerFileTools()
+  registerSystemTools()
+  registerShellTools()
   // 预热键鼠工作进程（utilityProcess），让第一次注入不用等冷启动
   void workerPing().catch(() => undefined)
   log('agent: 内置工具已注册', listTools().map((t) => t.id).join(', '))

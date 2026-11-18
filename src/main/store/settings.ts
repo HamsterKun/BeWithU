@@ -149,6 +149,22 @@ class SettingsStore {
     // 名字允许留空（气泡里会显示为 TA），不要在这里强行填回默认值，
     // 否则用户清空输入框时会被"变回小伴"，根本改不了名
     s.ui.assistantName = (s.ui.assistantName || '').trim()
+    // Agent 配置兜底（老配置没有这个字段时用默认值）
+    const agent = s.agent ?? DEFAULT_SETTINGS.agent
+    s.agent = {
+      enabled: Boolean(agent.enabled),
+      shellEnabled: Boolean(agent.shellEnabled),
+      maxSteps: clamp(Number(agent.maxSteps) || 10, 3, 30, 10),
+      stepTimeoutMs: clamp(Number(agent.stepTimeoutMs) || 20000, 5000, 120000, 20000),
+      audit: agent.audit !== false,
+      files: {
+        fullAccess: Boolean(agent.files?.fullAccess),
+        dirs: Array.isArray(agent.files?.dirs)
+          ? agent.files.dirs.map((d) => String(d).trim()).filter(Boolean).slice(0, 20)
+          : []
+      },
+      disabledTools: Array.isArray(agent.disabledTools) ? agent.disabledTools.map(String).slice(0, 100) : []
+    }
     return s
   }
 

@@ -11,6 +11,8 @@ import { testLlm } from './services/llm'
 import { testAsr } from './services/asr'
 import { captureScreen } from './services/vision'
 import { callTool, listTools, registerBuiltinTools } from './agent'
+import { resolveApproval } from './agent/approval'
+import { runAgentTask } from './agent/runner'
 import { deleteModel, downloadModel, modelStatus } from './services/asr-model'
 import { warmupLocalAsr } from './services/local-asr'
 import {
@@ -462,6 +464,22 @@ export function registerIpc(getQuit: () => void): void {
     ipcMain.handle(IPC.agentTestCall, (_e, id: string, args: Record<string, unknown>) =>
       callTool(String(id ?? ''), (args ?? {}) as Record<string, unknown>)
     )
+    ipcMain.handle(IPC.agentTestRun, async (_e, text: string, autoApprove?: boolean) => {
+      const controller = new AbortController()
+      const tools: Array<{ toolId: string; ok: boolean; summary: string }> = []
+      const res = await runAgentTask(String(text ?? ''), {
+        signal: controller.signal,
+        events: {
+          onText: () => undefined,
+          onStep: () => undefined,
+          onStepDone: (info) =>
+            tools.push({ toolId: info.toolId, ok: info.ok, summary: info.summary.slice(0, 300) }),
+          onApproval: () =>
+            Promise.resolve(autoApprove ?? process.env['BWU_AGENT_AUTO_APPROVE'] === '1')
+        }
+      })
+      return { ...res, tools }
+    })
     log('agent: 测试通道已开启')
   }
 }

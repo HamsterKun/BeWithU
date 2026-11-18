@@ -15,6 +15,8 @@ interface State {
   name: string
   hotkey: string
   animKey: number
+  step: { text: string; done: boolean; ok: boolean } | null
+  approve: { id: string; title: string; detail: string } | null
 }
 
 const initial: State = {
@@ -29,7 +31,9 @@ const initial: State = {
   side: 'right',
   name: '小伴',
   hotkey: '开麦键',
-  animKey: 0
+  animKey: 0,
+  step: null,
+  approve: null
 }
 
 function reduce(state: State, u: BubbleUpdate): State {
@@ -45,7 +49,7 @@ function reduce(state: State, u: BubbleUpdate): State {
     case 'user':
       return { ...state, user: u.text, userFinal: u.final }
     case 'assistant-reset':
-      return { ...state, assistant: '', streaming: true }
+      return { ...state, assistant: '', streaming: true, step: null, approve: null }
     case 'assistant-delta':
       return { ...state, assistant: state.assistant + u.text, streaming: true }
     case 'assistant-end':
@@ -56,6 +60,10 @@ function reduce(state: State, u: BubbleUpdate): State {
       return { ...state, pinned: u.pinned }
     case 'anchor':
       return { ...state, side: u.side }
+    case 'agent-step':
+      return { ...state, step: { text: `${u.text}`, done: u.done, ok: u.ok === true } }
+    case 'approve':
+      return { ...state, approve: u.req }
     case 'meta':
       return { ...state, name: u.assistantName, hotkey: u.hotkey || state.hotkey }
     default:
@@ -201,6 +209,33 @@ export default function Bubble(): React.ReactElement {
         </header>
 
         <div className="card__body" ref={bodyRef}>
+          {state.approve ? (
+            <div className="approve">
+              <span className="approve__title">需要你确认：{state.approve.title}</span>
+              <pre className="approve__detail">{state.approve.detail}</pre>
+              <div className="approve__actions">
+                <button className="approve__ok" onClick={() => window.bwu.agent.approve(state.approve!.id, true)}>
+                  允许
+                </button>
+                <button
+                  className="approve__no"
+                  onClick={() => window.bwu.agent.approve(state.approve!.id, false)}
+                >
+                  拒绝
+                </button>
+                <span className="approve__hint">也可以直接说“同意”</span>
+              </div>
+            </div>
+          ) : null}
+          {state.step ? (
+            <div className="card__step" data-done={state.step.done} data-ok={state.step.ok}>
+              <span className="card__step-dot" />
+              <span className="card__step-text">
+                {state.step.done ? (state.step.ok ? '已完成' : '失败') : '正在'}：{state.step.text}
+              </span>
+            </div>
+          ) : null}
+
           {state.user ? (
             <div className="row row--user">
               <span className="row__label">你说</span>
