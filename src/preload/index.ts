@@ -98,6 +98,7 @@ contextBridge.exposeInMainWorld('bwu', {
     remove: (id: string) => ipcRenderer.invoke(IPC.agentSkillDelete, id),
     openDir: () => ipcRenderer.invoke(IPC.agentSkillOpenDir)
   },
+  searchTest: (query: string) => ipcRenderer.invoke(IPC.searchTest, query),
   /** Agent 审批 */
   agent: {
     approve: (id: string, allow: boolean) => ipcRenderer.send(IPC.agentApprove, id, allow)

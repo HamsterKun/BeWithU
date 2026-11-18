@@ -192,7 +192,9 @@ async function runOne(
   const danger = checkDangerous(dangerText)
   if (!danger.ok) return { ok: false, summary: danger.reason ?? '被安全策略拒绝' }
 
-  if (def.risk === 'high') {
+  // shell 开启 = 完全信任：不再逐次弹确认卡（硬红线仍在上面拦过）
+  const trustedShell = def.id === 'shell.ps' && cfg.shellEnabled
+  if (def.risk === 'high' && !trustedShell) {
     const approved = opts.events.onApproval
       ? await opts.events.onApproval({ toolId: def.id, title: def.name, detail: summarizeArgs(def, args) })
       : false

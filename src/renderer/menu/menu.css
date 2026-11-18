@@ -21,6 +21,8 @@ body,
   flex-direction: column;
   min-width: 168px;
   padding: 6px;
+  /* 与主进程 MENU_PAD 对应：给投影留出空间，避免圆角外出现直角阴影 */
+  margin: 14px;
   border-radius: 12px;
   background: rgba(22, 26, 38, 0.96);
   border: 1px solid rgba(255, 255, 255, 0.1);

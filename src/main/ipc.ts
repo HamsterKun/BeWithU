@@ -26,6 +26,7 @@ import {
   writeToolTemplate
 } from './agent/custom-tools'
 import { deleteSkill, importSkill, scanSkills, writeSkillTemplate } from './agent/skills'
+import { webSearch } from './services/web-search'
 import { deleteModel, downloadModel, modelStatus } from './services/asr-model'
 import { warmupLocalAsr } from './services/local-asr'
 import {
@@ -60,6 +61,8 @@ import {
   setBubblePinned,
   setMenuSize,
   showBallMenu,
+  showBallWindow,
+  hideAllWindows,
   toggleBubble
 } from './windows'
 import { log, logPath } from './logger'
@@ -420,6 +423,15 @@ export function registerIpc(getQuit: () => void): void {
         }
         break
       }
+      case 'show-ball':
+        showBallWindow()
+        break
+      case 'hide-all':
+        hideAllWindows()
+        break
+      case 'clear-context':
+        conversation.clearContext()
+        break
       case 'hide-ball':
         hideBallWindow()
         break
@@ -554,6 +566,23 @@ export function registerIpc(getQuit: () => void): void {
   })
   ipcMain.handle(IPC.agentSkillOpenDir, async () => {
     await shell.openPath(writeSkillTemplate())
+  })
+
+  /* ---------------------------------------------------------------- 搜索 ---- */
+
+  ipcMain.handle(IPC.searchTest, async (_e, query: string) => {
+    const q = String(query ?? '').trim() || 'DeepSeek'
+    try {
+      const { provider, hits } = await webSearch(q)
+      if (!hits.length) return { ok: false, message: `（${provider}）没有搜到结果` }
+      const head = hits
+        .slice(0, 3)
+        .map((h, i) => `${i + 1}. ${h.title}`)
+        .join('\n')
+      return { ok: true, message: `${provider} · ${hits.length} 条\n${head}` }
+    } catch (e) {
+      return { ok: false, message: e instanceof Error ? e.message : String(e) }
+    }
   })
   // 气泡里点「允许/拒绝」
   ipcMain.on(IPC.agentApprove, (_e, id: string, allow: boolean) => {

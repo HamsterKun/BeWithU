@@ -451,6 +451,33 @@ $d = "$env:USERPROFILE\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies"
 
 ---
 
+## 14. 11-18 晚三轮：6 个体验 bug + 联网搜索 + 记忆口吻
+
+**bug 修复**
+
+| 问题 | 根因 | 修法 |
+|---|---|---|
+| 大/特大尺寸阴影被切出直角 | 球窗 200px，152 的球只剩 24px 余量，`0 14px 36px` 的投影被窗口边缘裁断 | `BALL_WIN_SIZE` 200 → **260**，默认位置按中心补偿（`pad`） |
+| 菜单开着时拖球，菜单不跟 | 只在 show/size 变化时布局一次 | 监听球窗 `move` 事件实时 `layoutMenu()`，另留 200ms 兜底轮询；show 后 60ms 再钉一次（Windows 从屏幕外移回是异步的） |
+| 托盘菜单左右间距不对 | 系统 `Menu.popup` 的勾选列留白与 App 风格割裂 | 托盘右键改用**自绘菜单**（`showBallMenu(items, anchor)`），右对齐图标、向上展开 |
+| 隐藏球后用侧键只出气泡 | `startListening` 没检查球可见性 | 开头加 `if (!isBallVisible()) showBallWindow()` |
+| 菜单圆角外有直角阴影 | 窗口刚好等于卡片，`box-shadow` 被窗口裁 | 窗口四周留 `MENU_PAD = 14`，`.menu` 加 `margin: 14px`，布局按"卡片坐标 - PAD"换算 |
+| 开了 Shell 仍每次确认 | `runOne` 只按 `risk === 'high'` 判断 | `def.id === 'shell.ps' && cfg.shellEnabled` 时跳过确认；工具列表徽标改成**已信任**，并写清两个开关的区别 |
+
+**联网搜索**（`services/web-search.ts` + `agent/tools/web.ts`）
+- Tavily：`POST {base}/search`；DeepSeek：`POST {base}/v1/tools/search`（Bearer，返回 summary/rerank_score/authority）
+- 设置 → Agent 能力 → 联网搜索：开关 / 服务商 / Key（走 DPAPI 加密）/ 返回条数 / 试搜
+- 工具总数 20 → **21**（`web.search`），未开启时给"去打开"的引导，不编造
+- 测试：`tools/search-test.mjs` 4/4（本地假服务覆盖两条通路 + 未开启引导）
+
+**记忆摘要口吻**
+- `summarizer.ts` 的 `SUMMARY_SYSTEM_PROMPT` 从"要点式备忘录"改成"讲故事的回忆"：
+  每件事交代起因/经过/结果，保留情绪、称呼、雷区、约定，不许列条目
+
+**打包**：`release/` 已更新为新包（见 `LastWriteTime`），koffi / tool-worker 均在包内。
+
+---
+
 ## 13. 11-18 晚二轮：发消息没响应（已修）
 
 **现象**：气泡里打字发送后完全没有回复。

@@ -93,5 +93,14 @@ export const DEFAULT_SETTINGS: Settings = {
     disabledTools: [],
     trustedTools: [],
     skillsEnabled: true
+  },
+  search: {
+    enabled: false,
+    provider: 'tavily',
+    tavilyBaseUrl: 'https://api.tavily.com',
+    tavilyApiKey: '',
+    deepseekBaseUrl: 'https://api.deepseek.com',
+    deepseekApiKey: '',
+    maxResults: 5
   }
 }

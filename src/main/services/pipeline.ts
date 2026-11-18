@@ -30,10 +30,12 @@ import {
   broadcastPhase,
   getBallWindow,
   hideBubble,
+  isBallVisible,
   isBubbleFocused,
   isBubblePinned,
   sendAgentProgress,
   sendBubble,
+  showBallWindow,
   showBubble
 } from '../windows'
 import { prettyChord } from '../input/hotkey'
@@ -192,6 +194,8 @@ class Conversation {
   async startListening(): Promise<void> {
     const s = settingsStore.get()
     this.clearHideTimer()
+    // 球可能被「隐藏悬浮球 / 隐藏全部窗口」收起来了，用侧键唤醒时一起叫回来
+    if (!isBallVisible()) showBallWindow()
 
     if (this.phase === 'speaking' || this.phase === 'thinking') {
       if (s.voice.bargeIn) this.interrupt()

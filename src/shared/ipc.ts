@@ -126,6 +126,7 @@ export const IPC = {
   agentSkillImport: 'agent:skill-import',
   agentSkillDelete: 'agent:skill-delete',
   agentSkillOpenDir: 'agent:skill-open-dir',
+  searchTest: 'search:test',
   appPickDir: 'app:pick-dir'
 } as const
 
@@ -238,6 +239,8 @@ export interface BwuApi {
     remove(id: string): Promise<AgentSkill[]>
     openDir(): Promise<void>
   }
+  /** 联网搜索测试 */
+  searchTest(query: string): Promise<{ ok: boolean; message: string }>
   /** Agent 审批（气泡里点允许/拒绝） */
   agent: {
     approve(id: string, allow: boolean): void

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { AgentCustomTool, AgentSkill } from '@shared/types'
-import { Btn, Field, NumberInput, Section, Toggle } from '../ui'
+import { Btn, Field, NumberInput, Section, SecretInput, Segmented, TestRow, Toggle } from '../ui'
 import type { PaneProps } from './types'
 
 interface ToolInfo {
@@ -130,7 +130,7 @@ export default function AgentPane({ s, patch }: PaneProps): React.ReactElement {
         </Field>
         <Field
           label="允许执行 PowerShell"
-          hint="完全信任模式：开启后不再逐次确认，只拦截 rm -rf、格式化磁盘等极高危命令"
+          hint="这是总开关：开启后不再逐次确认（下面工具列表里的「执行 PowerShell」只管这个工具开不开）"
         >
           <Toggle checked={shellOn} onChange={(v) => patch({ agent: { shellEnabled: v } })} />
         </Field>
@@ -188,7 +188,13 @@ export default function AgentPane({ s, patch }: PaneProps): React.ReactElement {
                 <span className="agent-tool__name">{t.name}</span>
                 <span className="agent-tool__id">{t.id}</span>
                 <span className={t.risk === 'high' ? 'agent-tool__risk is-high' : 'agent-tool__risk'}>
-                  {t.risk === 'high' ? '需确认' : '只读'}
+                  {t.id === 'shell.ps'
+                    ? shellOn
+                      ? '已信任'
+                      : '需确认'
+                    : t.risk === 'high'
+                      ? '需确认'
+                      : '只读'}
                 </span>
               </div>
               <Toggle checked={t.enabled} onChange={(v) => toggleTool(t.id, v)} />
@@ -277,6 +283,62 @@ export default function AgentPane({ s, patch }: PaneProps): React.ReactElement {
             导入技能…
           </Btn>
           <Btn onClick={() => void window.bwu.agentSkills.openDir()}>打开技能目录</Btn>
+        </div>
+      </Section>
+
+      <Section
+        title="联网搜索"
+        desc="让 Agent 查实时信息（新闻、赛事、价格、版本）。按成功次数计费，搜不到不收费。"
+      >
+        <Field label="启用联网搜索" hint="关掉后 web.search 会引导用户去打开">
+          <Toggle
+            checked={s.search.enabled}
+            onChange={(v) => patch({ search: { enabled: v } }, true)}
+          />
+        </Field>
+        <Field label="服务商" hint="DeepSeek 的 Key 可以和对话共用">
+          <Segmented
+            value={s.search.provider}
+            options={[
+              { value: 'tavily' as const, label: 'Tavily' },
+              { value: 'deepseek' as const, label: 'DeepSeek Search' }
+            ]}
+            onChange={(v) => patch({ search: { provider: v } }, true)}
+          />
+        </Field>
+
+        {s.search.provider === 'tavily' ? (
+          <Field label="Tavily API Key" hint="app.tavily.com 里创建">
+            <SecretInput
+              path="search.tavilyApiKey"
+              saved={s.secretSet['search.tavilyApiKey']}
+              onSave={(v) => patch({ search: { tavilyApiKey: v } }, true)}
+              onClear={() => patch({ clearSecrets: ['search.tavilyApiKey'] }, true)}
+            />
+          </Field>
+        ) : (
+          <Field label="DeepSeek API Key" hint="和「大模型」里那个是同一个">
+            <SecretInput
+              path="search.deepseekApiKey"
+              saved={s.secretSet['search.deepseekApiKey']}
+              onSave={(v) => patch({ search: { deepseekApiKey: v } }, true)}
+              onClear={() => patch({ clearSecrets: ['search.deepseekApiKey'] }, true)}
+            />
+          </Field>
+        )}
+
+        <Field label="每次返回" hint="条数越多越费 token">
+          <NumberInput
+            value={s.search.maxResults}
+            min={1}
+            max={10}
+            onChange={(v) => patch({ search: { maxResults: Math.max(1, Math.min(10, v)) } })}
+            suffix="条"
+          />
+        </Field>
+
+        <div className="field field--wide">
+          <TestRow label="试搜一下" onTest={() => window.bwu.searchTest('今天的热点新闻')} />
         </div>
       </Section>
 

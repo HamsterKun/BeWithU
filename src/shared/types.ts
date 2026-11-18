@@ -178,6 +178,18 @@ export interface AgentSettings {
   skillsEnabled: boolean
 }
 
+export interface SearchSettings {
+  /** 总开关：关掉后 web.search 会引导用户去打开 */
+  enabled: boolean
+  provider: 'tavily' | 'deepseek'
+  tavilyBaseUrl: string
+  tavilyApiKey: string
+  deepseekBaseUrl: string
+  deepseekApiKey: string
+  /** 一次返回几条 */
+  maxResults: number
+}
+
 export interface Settings {
   llm: LlmSettings
   tts: TtsSettings
@@ -187,6 +199,7 @@ export interface Settings {
   bubble: BubbleSettings
   ui: UiSettings
   agent: AgentSettings
+  search: SearchSettings
   meta?: MetaSettings
 }
 
@@ -198,6 +211,8 @@ export type SecretPath =
   | 'tts.breeze.apiKey'
   | 'asr.accessToken'
   | 'asr.apiKey'
+  | 'search.tavilyApiKey'
+  | 'search.deepseekApiKey'
 
 export interface PublicSettings extends Settings {
   secretSet: Record<SecretPath, boolean>

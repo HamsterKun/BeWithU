@@ -5,6 +5,7 @@ import { registerShellTools } from './tools/shell'
 import { registerFileTools } from './tools/files'
 import { registerSystemTools } from './tools/system'
 import { registerSkillTools } from './tools/skills'
+import { registerWebTools } from './tools/web'
 import { registerCustomTools } from './custom-tools'
 import type { ToolContext, ToolResult } from './types'
 import { log } from '../logger'
@@ -21,6 +22,7 @@ export function registerBuiltinTools(): void {
   registerSystemTools()
   registerShellTools()
   registerSkillTools()
+  registerWebTools()
   // 已信任的第三方工具
   registerCustomTools()
   // 预热键鼠工作进程（utilityProcess），让第一次注入不用等冷启动

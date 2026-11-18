@@ -7,10 +7,11 @@ import { prettyChord } from './input/hotkey'
 import { log } from './logger'
 
 /**
- * 悬浮球窗口边长。必须容得下最大球体（152px）加上外圈光弧（+26px）
- * 再叠上音量放大（×1.12）≈ 200px，否则球体和光弧会被窗口裁掉。
+ * 悬浮球窗口边长。必须容得下最大球体（152px）+ 外圈光弧（+26px）×1.12，
+ * 还要留出投影的模糊半径（36px）+ 下偏移（14px），否则大尺寸时阴影会被窗口直角裁断。
+ * 200 时 152 的球只剩 24px 余量，阴影会被切出"断裂感"，所以放到 260。
  */
-export const BALL_WIN_SIZE = 200
+export const BALL_WIN_SIZE = 260
 export const BUBBLE_PAD = 20
 /** 气泡卡片与外圈光弧之间的横向留白 */
 const BUBBLE_GAP = 18
@@ -52,9 +53,11 @@ function baseWebPrefs(): Electron.WebPreferences {
 
 export function defaultBallPosition(): { x: number; y: number } {
   const { workArea } = screen.getPrimaryDisplay()
+  // 窗口变大后按中心补偿，保证球在默认位置看起来没变（原 48 / 150 是按 200 算的）
+  const pad = (BALL_WIN_SIZE - 200) / 2
   return {
-    x: Math.round(workArea.x + workArea.width - BALL_WIN_SIZE - 48),
-    y: Math.round(workArea.y + workArea.height - BALL_WIN_SIZE - 150)
+    x: Math.round(workArea.x + workArea.width - BALL_WIN_SIZE - 48 + pad),
+    y: Math.round(workArea.y + workArea.height - BALL_WIN_SIZE - 150 + pad)
   }
 }
 
@@ -119,6 +122,10 @@ export function createBallWindow(): BrowserWindow {
   })
   ballWin.on('closed', () => {
     ballWin = null
+  })
+  // 菜单开着时拖球：实时跟着走（move 事件比定时轮询更跟手）
+  ballWin.on('move', () => {
+    if (menuVisible) layoutMenu()
   })
   return ballWin
 }
@@ -411,12 +418,17 @@ function sendBubbleMeta(): void {
 
 let menuWin: BrowserWindow | null = null
 let menuVisible = false
+/** 菜单卡片的内容尺寸（不含投影留白） */
 let menuSize = { w: 190, h: 300 }
+/** 卡片四周留白：给投影留空间，否则圆角外会出现直角阴影 */
+const MENU_PAD = 14
+let menuAnchor: Electron.Rectangle | null = null
+let followTimer: NodeJS.Timeout | null = null
 
 function createMenuWindow(): BrowserWindow {
   menuWin = new BrowserWindow({
-    width: menuSize.w,
-    height: menuSize.h,
+    width: menuSize.w + MENU_PAD * 2,
+    height: menuSize.h + MENU_PAD * 2,
     show: false,
     frame: false,
     transparent: true,
@@ -464,24 +476,46 @@ export function setMenuSize(w: number, h: number): void {
   layoutMenu()
 }
 
-/** 菜单贴在球的外侧，优先放右边，放不下改左边，并夹在工作区内 */
+function clampNum(v: number, min: number, max: number): number {
+  return Math.max(min, Math.min(v, max))
+}
+
+/**
+ * 菜单布局：
+ * - 有 anchor（托盘）时贴着图标右对齐、向上展开
+ * - 否则贴在球的外侧，优先右边、放不下改左边；菜单开着时跟着球走
+ * 窗口比卡片大 MENU_PAD*2，投影画在留白里，圆角才不会被切出直角。
+ */
 function layoutMenu(): void {
   const win = getMenuWindow()
+  if (!win) return
+  const cardW = menuSize.w
+  const cardH = menuSize.h
+  const totalW = cardW + MENU_PAD * 2
+  const totalH = cardH + MENU_PAD * 2
+
+  if (menuAnchor) {
+    const wa = screen.getDisplayNearestPoint({ x: menuAnchor.x, y: menuAnchor.y }).workArea
+    const cardX = Math.round(menuAnchor.x + menuAnchor.width - cardW)
+    const cardY = Math.round(menuAnchor.y - cardH - 10)
+    const cx = clampNum(cardX, wa.x + 4, wa.x + wa.width - cardW - 4)
+    const cy = clampNum(cardY, wa.y + 4, wa.y + wa.height - cardH - 4)
+    win.setBounds({ x: cx - MENU_PAD, y: cy - MENU_PAD, width: totalW, height: totalH })
+    return
+  }
+
   const center = ballCenter()
-  if (!win || !center) return
+  if (!center) return
   const s = settingsStore.get()
   const radius = s.ball.size / 2 + 18
-  const display = screen.getDisplayNearestPoint({ x: Math.round(center.x), y: Math.round(center.y) })
-  const wa = display.workArea
+  const wa = screen.getDisplayNearestPoint({ x: Math.round(center.x), y: Math.round(center.y) }).workArea
   const spaceRight = wa.x + wa.width - (center.x + radius)
-  const side = spaceRight >= menuSize.w + 8 ? 'right' : 'left'
-  const x = Math.round(
-    side === 'right' ? center.x + radius : center.x - radius - menuSize.w
-  )
-  let y = Math.round(center.y - menuSize.h / 2)
-  const cx = Math.max(wa.x + 4, Math.min(x, wa.x + wa.width - menuSize.w - 4))
-  const cy = Math.max(wa.y + 4, Math.min(y, wa.y + wa.height - menuSize.h - 4))
-  win.setBounds({ x: cx, y: cy, width: menuSize.w, height: menuSize.h })
+  const side = spaceRight >= cardW + 8 ? 'right' : 'left'
+  const cardX = Math.round(side === 'right' ? center.x + radius : center.x - radius - cardW)
+  const cardY = Math.round(center.y - cardH / 2)
+  const cx = clampNum(cardX, wa.x + 4, wa.x + wa.width - cardW - 4)
+  const cy = clampNum(cardY, wa.y + 4, wa.y + wa.height - cardH - 4)
+  win.setBounds({ x: cx - MENU_PAD, y: cy - MENU_PAD, width: totalW, height: totalH })
 }
 
 export function preloadMenu(): void {
@@ -491,12 +525,13 @@ export function preloadMenu(): void {
   })
 }
 
-export function showBallMenu(items: BallMenuItem[]): void {
+export function showBallMenu(items: BallMenuItem[], anchor?: Electron.Rectangle): void {
   log('menu: show')
   // 气泡和菜单都是置顶窗口，气泡在上面会吃掉菜单的点击，先收起来
   if (bubbleVisible) hideBubble()
   const win = getMenuWindow() ?? createMenuWindow()
   menuVisible = true
+  menuAnchor = anchor ?? null
   const push = (): void => {
     if (win.isDestroyed()) return
     win.webContents.send(IPC.menuItems, items)
@@ -511,6 +546,18 @@ export function showBallMenu(items: BallMenuItem[]): void {
   forceRelayout(win)
   win.moveTop()
   layoutMenu()
+  // Windows 把窗口从屏幕外移回来是异步的，会覆盖我们刚设的位置；稍后再钉一次
+  setTimeout(() => {
+    if (menuVisible && !win.isDestroyed()) layoutMenu()
+  }, 60)
+  // 菜单开着时跟着球走（move 事件是主路径，这里只做兜底）
+  if (!menuAnchor) {
+    if (followTimer) clearInterval(followTimer)
+    followTimer = setInterval(() => {
+      if (!menuVisible) return
+      layoutMenu()
+    }, 200)
+  }
   win.focus()
 }
 
@@ -518,6 +565,11 @@ export function hideBallMenu(): void {
   const win = getMenuWindow()
   if (!menuVisible || !win) return
   menuVisible = false
+  menuAnchor = null
+  if (followTimer) {
+    clearInterval(followTimer)
+    followTimer = null
+  }
   log('menu: hide')
   // 和气泡一样：别用 hide()，挪到屏幕外更稳
   const b = win.getBounds()
@@ -605,6 +657,11 @@ export function showBallWindow(): void {
   win.showInactive()
   // 之前可能被隐藏过，强制重排一次，避免"看得见但点不动"
   forceRelayout(win)
+}
+
+export function isBallVisible(): boolean {
+  const win = getBallWindow()
+  return Boolean(win && win.isVisible())
 }
 
 export function allWindows(): BrowserWindow[] {

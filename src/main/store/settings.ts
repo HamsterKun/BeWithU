@@ -13,7 +13,9 @@ const SECRET_PATHS: SecretPath[] = [
   'tts.apiKey',
   'tts.breeze.apiKey',
   'asr.accessToken',
-  'asr.apiKey'
+  'asr.apiKey',
+  'search.tavilyApiKey',
+  'search.deepseekApiKey'
 ]
 
 function clone<T>(v: T): T {
@@ -146,6 +148,11 @@ class SettingsStore {
     s.bubble.holdMs = clamp(s.bubble.holdMs, 0, 60000, 6000)
     s.voice.minHoldMs = clamp(s.voice.minHoldMs, 100, 3000, 250)
     if (!s.llm.systemPrompt?.trim()) s.llm.systemPrompt = DEFAULT_SETTINGS.llm.systemPrompt
+    // 联网搜索
+    if (s.search.provider !== 'deepseek') s.search.provider = 'tavily'
+    s.search.maxResults = clamp(s.search.maxResults, 1, 10, 5)
+    s.search.tavilyBaseUrl = (s.search.tavilyBaseUrl || '').trim() || 'https://api.tavily.com'
+    s.search.deepseekBaseUrl = (s.search.deepseekBaseUrl || '').trim() || 'https://api.deepseek.com'
     // 名字允许留空（气泡里会显示为 TA），不要在这里强行填回默认值，
     // 否则用户清空输入框时会被"变回小伴"，根本改不了名
     s.ui.assistantName = (s.ui.assistantName || '').trim()
