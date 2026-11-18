@@ -1,7 +1,19 @@
 import { useEffect, useState } from 'react'
 import { LLM_PRESETS } from '@shared/presets'
 import type { LlmPreset, MemoryInfo } from '@shared/types'
-import { Btn, Field, NumberInput, Range, SecretInput, Section, Select, TestRow, TextInput, Toggle } from '../ui'
+import {
+  Btn,
+  Field,
+  NumberInput,
+  Range,
+  SecretInput,
+  Section,
+  Segmented,
+  Select,
+  TestRow,
+  TextInput,
+  Toggle
+} from '../ui'
 import type { PaneProps } from './types'
 
 export default function ModelPane({ s, patch }: PaneProps): React.ReactElement {
@@ -152,6 +164,76 @@ export default function ModelPane({ s, patch }: PaneProps): React.ReactElement {
         <div className="tipbox">
           只截取鼠标所在的那块屏幕，画面仅发送给你自己配置的 AI 服务。
           独占全屏的游戏可能截不到画面，改成「无边框窗口」即可。
+        </div>
+      </Section>
+
+      <Section
+        title="联网搜索"
+        desc="查实时信息（新闻、赛事、价格、版本）。闲聊和 Agent 都能用，按成功次数计费，搜不到不收费。"
+      >
+        <Field label="启用联网搜索" hint="关掉后既不自动搜，Agent 的 web.search 也会引导去打开">
+          <Toggle
+            checked={s.search.enabled}
+            onChange={(v) => patch({ search: { enabled: v } }, true)}
+          />
+        </Field>
+        <Field label="服务商" hint="DeepSeek 的 Key 和对话共用同一个，不用再填">
+          <Segmented
+            value={s.search.provider}
+            options={[
+              { value: 'tavily' as const, label: 'Tavily' },
+              { value: 'deepseek' as const, label: 'DeepSeek Search' }
+            ]}
+            onChange={(v) => patch({ search: { provider: v } }, true)}
+          />
+        </Field>
+
+        {s.search.provider === 'tavily' ? (
+          <Field label="Tavily API Key" hint="app.tavily.com 里创建">
+            <SecretInput
+              key="tavily"
+              path="search.tavilyApiKey"
+              saved={s.secretSet['search.tavilyApiKey']}
+              onSave={(v) => patch({ search: { tavilyApiKey: v } }, true)}
+              onClear={() => patch({ clearSecrets: ['search.tavilyApiKey'] }, true)}
+            />
+          </Field>
+        ) : (
+          <Field label="DeepSeek API Key" hint="和上面「大模型」里那个是同一个 Key">
+            <SecretInput
+              key="deepseek"
+              path="search.deepseekApiKey"
+              saved={s.secretSet['search.deepseekApiKey']}
+              onSave={(v) => patch({ search: { deepseekApiKey: v } }, true)}
+              onClear={() => patch({ clearSecrets: ['search.deepseekApiKey'] }, true)}
+            />
+          </Field>
+        )}
+
+        <Field label="闲聊时自动搜索" hint="命中「最新/今天/新闻/比分/价格」这类词就先查再答">
+          <Toggle
+            checked={s.search.auto}
+            onChange={(v) => patch({ search: { auto: v } }, true)}
+          />
+        </Field>
+
+        <Field label="每次返回" hint="条数越多越费 token">
+          <NumberInput
+            value={s.search.maxResults}
+            min={1}
+            max={10}
+            onChange={(v) => patch({ search: { maxResults: Math.max(1, Math.min(10, v)) } })}
+            suffix="条"
+          />
+        </Field>
+
+        <div className="field field--wide">
+          <TestRow label="试搜一下" onTest={() => window.bwu.searchTest('今天的热点新闻')} />
+        </div>
+
+        <div className="tipbox">
+          开了 Agent 时，模型会自己按需调用 <code>web.search</code>；
+          没开 Agent 的闲聊模式，则由「闲聊时自动搜索」按关键词判断。
         </div>
       </Section>
 

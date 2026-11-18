@@ -10,6 +10,9 @@
   --warn-text: #fde68a;
   --card-1: rgba(22, 26, 40, 0.93);
   --card-2: rgba(12, 15, 24, 0.95);
+  --text-2: #c3cddd;
+  --muted-ink: 148, 163, 184;
+  --text2-ink: 203, 213, 225;
 }
 
 [data-theme='light'] {
@@ -23,6 +26,9 @@
   --warn-text: #92400e;
   --card-1: rgba(255, 255, 255, 0.97);
   --card-2: rgba(246, 248, 252, 0.98);
+  --text-2: #334155;
+  --muted-ink: 100, 116, 139;
+  --text2-ink: 51, 65, 85;
 }
 
 [data-theme='light'] .card {
@@ -143,7 +149,7 @@ body {
   box-shadow:
     0 2px 16px rgba(0, 0, 0, 0.45),
     0 0 0 1px rgba(var(--ink), 0.03) inset;
-  backdrop-filter: blur(22px) saturate(1.35);
+  /* 透明窗口里 backdrop-filter 会画出一层灰底，去掉更干净 */
   overflow: hidden;
   transform-origin: left center;
 }
@@ -178,7 +184,7 @@ body {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: #64748b;
+  background: var(--muted);
   box-shadow: 0 0 0 0 rgba(103, 232, 249, 0.5);
   transition: background 0.2s ease;
 }
@@ -244,7 +250,7 @@ body {
   padding: 0;
   border: 0;
   border-radius: 6px;
-  color: rgba(203, 213, 225, 0.85);
+  color: rgba(var(--text2-ink), 0.85);
   background: transparent;
   cursor: pointer;
   transition:
@@ -268,7 +274,7 @@ body {
   max-height: 302px;
   padding-bottom: 4px;
   scrollbar-width: thin;
-  scrollbar-color: rgba(148, 163, 184, 0.35) transparent;
+  scrollbar-color: rgba(var(--muted-ink), 0.35) transparent;
 }
 
 .card__body::-webkit-scrollbar {
@@ -276,7 +282,7 @@ body {
 }
 
 .card__body::-webkit-scrollbar-thumb {
-  background: rgba(148, 163, 184, 0.3);
+  background: rgba(var(--muted-ink), 0.3);
   border-radius: 3px;
 }
 
@@ -287,7 +293,7 @@ body {
 .row__label {
   font-size: 9.5px;
   letter-spacing: 0.06em;
-  color: rgba(148, 163, 184, 0.8);
+  color: rgba(var(--muted-ink), 0.8);
   text-transform: uppercase;
 }
 
@@ -302,7 +308,7 @@ body {
 
 .row--user .row__text {
   font-size: 13px;
-  color: rgba(203, 213, 225, 0.94);
+  color: rgba(var(--text2-ink), 0.94);
   background: rgba(var(--ink), 0.055);
   border: 1px solid rgba(var(--ink), 0.05);
   border-radius: 10px;
@@ -332,12 +338,12 @@ body {
 .empty p {
   margin: 0 0 4px;
   font-size: 13px;
-  color: rgba(226, 232, 240, 0.92);
+  color: rgba(var(--text2-ink), 0.92);
 }
 
 .empty span {
   font-size: 11px;
-  color: rgba(148, 163, 184, 0.85);
+  color: rgba(var(--muted-ink), 0.85);
   line-height: 1.5;
 }
 
@@ -356,9 +362,9 @@ body {
 }
 
 .notice[data-kind='info'] {
-  color: #cbd5e1;
-  background: rgba(148, 163, 184, 0.12);
-  border-color: rgba(148, 163, 184, 0.2);
+  color: var(--text-2);
+  background: rgba(var(--muted-ink), 0.12);
+  border-color: rgba(var(--muted-ink), 0.2);
 }
 
 .notice[data-kind='success'] {
@@ -428,7 +434,7 @@ body {
 }
 
 .composer__input::placeholder {
-  color: rgba(148, 163, 184, 0.65);
+  color: rgba(var(--muted-ink), 0.65);
 }
 
 .composer__send {
@@ -458,7 +464,7 @@ body {
 
 .hint-text {
   font-size: 10.5px;
-  color: rgba(148, 163, 184, 0.82);
+  color: rgba(var(--muted-ink), 0.82);
   letter-spacing: 0.01em;
 }
 
@@ -523,7 +529,7 @@ body {
   margin-left: auto;
   border: 1px solid rgba(var(--ink), 0.14);
   background: rgba(var(--ink), 0.05);
-  color: rgba(226, 232, 240, 0.9);
+  color: rgba(var(--text2-ink), 0.9);
   font-size: 11px;
   padding: 4px 10px;
   border-radius: 999px;
@@ -538,7 +544,7 @@ body {
 .ghost-btn--sm {
   font-size: 10px;
   padding: 3px 8px;
-  color: rgba(203, 213, 225, 0.72);
+  color: rgba(var(--text2-ink), 0.72);
 }
 
 .ghost-btn--sm:hover {

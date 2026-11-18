@@ -217,6 +217,15 @@ export function SecretInput(props: {
     }
   }, [])
 
+  // 同一个输入框会在不同密钥之间切换（TTS 的 API Key↔Token、搜索的 Tavily↔DeepSeek），
+  // 换 path 时必须把本地状态清干净，否则会把上一个密钥的明文/已保存状态带过来。
+  useEffect(() => {
+    setValue('')
+    setRevealed(false)
+    setFlash('')
+    stored.current = ''
+  }, [props.path])
+
   const toggle = async (): Promise<void> => {
     if (!revealed) {
       if (!value) {

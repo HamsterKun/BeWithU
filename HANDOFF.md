@@ -503,6 +503,21 @@ $d = "$env:USERPROFILE\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies"
 
 ---
 
+## 16. 11-18 晚五轮：亮色可读性 / 徽标 / 搜索归位 / 密钥输入
+
+| 反馈 | 修法 |
+|---|---|
+| 亮色下标签几乎看不清 | 第二轮令牌化（`tools/theme-tokens-2.py`）：`rgba(148,163,184,a)`→`rgba(var(--muted-ink),a)`、`rgba(203/226…)`→`--text2-ink`，浅灰 hex 按亮度映射到 `--text-2`/`--muted`；`.field__label` 等全部跟着变 |
+| 自定义窗口周围有淡黑底 | 透明窗口里 `backdrop-filter` 会画一层灰底 → 气泡/菜单去掉它，只留 box-shadow |
+| 徽标不跟球大小走 | `.work-badge` 从 `bottom: 2px` 改成 `top: calc(50% + var(--size)/2 + 8px)`，实测 72px 球 gap=8px |
+| 只要"工作中"，且结束后徽标消失 | 徽标改成两态：`💬 思考中…`（闲聊思考，青色）/ `💻 工作中…`（跑工具，琥珀）；气泡头部那行状态文字删掉（图四） |
+| 搜索应独立、不开 Agent 也能用 | 设置里整块搬到「大模型」页；新增 `search.auto`：闲聊模式命中时效词就先搜，把结果塞进 system；Agent 模式仍走 `web.search` |
+| 换服务商后 Key 输入框状态串味 | `SecretInput` 加 `useEffect([path])` 重置本地状态 + 调用处加 `key`；TTS 的 API Key↔Token、ASR 的两套凭证同样受益 |
+
+**验证**：亮色设置页（标签可读）、徽标 gap=8（72px 球）、菜单无灰底、密钥切换后输入框清空；测试 10/10、2/2、4/4、7/7、8/8。
+
+---
+
 ## 13. 11-18 晚二轮：发消息没响应（已修）
 
 **现象**：气泡里打字发送后完全没有回复。

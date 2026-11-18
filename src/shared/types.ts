@@ -188,6 +188,8 @@ export interface SearchSettings {
   deepseekApiKey: string
   /** 一次返回几条 */
   maxResults: number
+  /** 闲聊模式（未开 Agent）时，遇到时效性问题自动搜 */
+  auto: boolean
 }
 
 export interface Settings {

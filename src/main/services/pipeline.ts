@@ -39,6 +39,17 @@ import {
   showBubble
 } from '../windows'
 import { prettyChord } from '../input/hotkey'
+import { formatHits, webSearch } from './web-search'
+
+/** 闲聊模式判断"这句话要不要联网"：够不够像时效性问题 */
+const SEARCH_HINT =
+  /(最新|今天|今日|昨天|前天|最近|这几天|这周|本周|本月|今年|新闻|热搜|头条|比分|赛果|赛程|排名|价格|多少钱|汇率|股价|票房|发布|上线|发售|开售|新版本|更新了什么|谁是|怎么样了|发生了什么|有没有出|什么时候出|夺冠|冠军|销量)/
+
+function shouldSearch(text: string): boolean {
+  const t = text.trim()
+  if (t.length < 4 || t.length > 200) return false
+  return SEARCH_HINT.test(t)
+}
 
 const MAX_HOLD_MS = 60000
 
@@ -401,9 +412,24 @@ class Conversation {
         : s.llm.systemPrompt
     const memory = memoryStore.get()
     // 摘要并进同一条 system，兼容只接受单条 system 的服务端
-    const systemContent = memory
+    let systemContent = memory
       ? `${systemPrompt}\n\n【长期记忆摘要】以下是更早之前聊过的要点，回答时当作你已经知道：\n${memory}`
       : systemPrompt
+
+    // 闲聊模式（没开 Agent）也能用联网搜索：命中时效性关键词就先查，再把资料塞进 system
+    if (s.search.enabled && s.search.auto && shouldSearch(userText)) {
+      try {
+        const { provider, hits } = await webSearch(userText)
+        if (hits.length) {
+          systemContent +=
+            `\n\n【联网搜索结果 · ${provider}】以下是刚为你检索到的资料，回答时优先采用，并在末尾附上来源链接：\n` +
+            formatHits(hits).slice(0, 4000)
+        }
+        log('search: 闲聊自动搜索', `${provider} ${hits.length} 条`)
+      } catch (e) {
+        log('search: 自动搜索失败', e instanceof Error ? e.message : e)
+      }
+    }
     historyStore.add('user', userText)
 
     // 屏幕理解：截当前正在看的那块屏，失败就纯文字继续

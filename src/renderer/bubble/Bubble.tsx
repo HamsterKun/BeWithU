@@ -197,7 +197,6 @@ export default function Bubble(): React.ReactElement {
         <header className="card__head">
           <span className="pulse" data-phase={state.phase} />
           <span className="card__name">{state.name}</span>
-          <span className="card__state">{stateText}</span>
           <div className="card__actions">
             <button
               className={state.pinned ? 'icon-btn active' : 'icon-btn'}

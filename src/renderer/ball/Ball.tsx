@@ -165,6 +165,8 @@ export default function Ball(): React.ReactElement {
     window.bwu.ball.click(!isClick)
   }, [])
 
+  const thinking = !agent && phase === 'thinking'
+
   return (
     <div
       className="stage"
@@ -173,11 +175,17 @@ export default function Ball(): React.ReactElement {
       style={{ ['--size' as string]: `${size}px`, ['--opacity' as string]: opacity }}
     >
       <div className="ring" />
-      {agent ? (
-        <div className="work-badge">
+      {agent || thinking ? (
+        <div className={agent ? 'work-badge' : 'work-badge is-think'}>
           <span className="work-badge__dot" />
-          <span className="work-badge__text">💻 工作中…</span>
-          {agent.total ? <span className="work-badge__count">{agent.step}/{agent.total}</span> : null}
+          <span className="work-badge__text">
+            {agent ? '💻 工作中…' : '💬 思考中…'}
+          </span>
+          {agent && agent.total ? (
+            <span className="work-badge__count">
+              {agent.step}/{agent.total}
+            </span>
+          ) : null}
         </div>
       ) : null}
       <div

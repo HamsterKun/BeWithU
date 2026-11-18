@@ -41,7 +41,7 @@ body,
   box-shadow:
     0 18px 40px rgba(0, 0, 0, 0.55),
     0 2px 8px rgba(0, 0, 0, 0.4);
-  backdrop-filter: blur(14px);
+  /* 同上：透明窗口不做背景模糊，避免菜单周围出现淡黑底 */
   user-select: none;
 }
 

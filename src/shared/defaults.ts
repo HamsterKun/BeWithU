@@ -101,6 +101,7 @@ export const DEFAULT_SETTINGS: Settings = {
     tavilyApiKey: '',
     deepseekBaseUrl: 'https://api.deepseek.com',
     deepseekApiKey: '',
-    maxResults: 5
+    maxResults: 5,
+    auto: true
   }
 }

@@ -153,6 +153,7 @@ class SettingsStore {
     s.search.maxResults = clamp(s.search.maxResults, 1, 10, 5)
     s.search.tavilyBaseUrl = (s.search.tavilyBaseUrl || '').trim() || 'https://api.tavily.com'
     s.search.deepseekBaseUrl = (s.search.deepseekBaseUrl || '').trim() || 'https://api.deepseek.com'
+    s.search.auto = s.search.auto !== false
     // 名字允许留空（气泡里会显示为 TA），不要在这里强行填回默认值，
     // 否则用户清空输入框时会被"变回小伴"，根本改不了名
     s.ui.assistantName = (s.ui.assistantName || '').trim()
