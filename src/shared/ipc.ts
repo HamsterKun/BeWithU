@@ -112,7 +112,6 @@ export const IPC = {
   agentApprove: 'agent:approve',
   // 测试用：跑一次 Agent 任务
   agentTestRun: 'agent:test-run',
-  agentTestClassify: 'agent:test-classify',
   agentTestBubble: 'agent:test-bubble',
   agentTestProgress: 'agent:test-progress',
   agentTestImportTool: 'agent:test-import-tool',
@@ -290,7 +289,6 @@ export interface BwuApi {
     importToolZip(path: string): Promise<unknown>
     importSkillZip(path: string): Promise<unknown>
     mcpTools(): Promise<string[]>
-    classify(text: string): Promise<{ route: 'chat' | 'task'; reason: string }>
     bubbleVisible(): Promise<boolean>
     progress(p: { active: boolean; mode?: 'thinking' | 'working'; step?: number; total?: number }): Promise<boolean>
     run(

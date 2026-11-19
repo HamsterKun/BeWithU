@@ -1,4 +1,4 @@
-# BeWithU 交接文档（2026-11-19，v1.0.8）
+# BeWithU 交接文档（2026-11-19，v1.0.9）
 
 > 给接手的 Agent：**先读 §0、§1，再读 §8 环境坑**，其余按需查。
 > 本文覆盖「白天那版交接文档」的全部内容，并加上今晚的全部改动，可当作唯一版本。
@@ -10,9 +10,9 @@
 | 项 | 值 |
 |---|---|
 | 代码位置 | `C:\Users\jiangchengrui\Desktop\BeWithU` |
-| 版本 | **1.0.8**（`package.json` 的 `version`） |
+| 版本 | **1.0.9**（`package.json` 的 `version`） |
 | HEAD | 见 `git log`（1.0.3 提交已推送） |
-| 产物 | `release/BeWithU-1.0.8-x64.exe`、`BeWithU-1.0.8-portable.exe` |
+| 产物 | `release/BeWithU-1.0.9-x64.exe`、`BeWithU-1.0.9-portable.exe` |
 | 工作区 | 干净，无遗留进程/临时目录 |
 
 **白天那版**：Agent 能力层 M1（键鼠注入）+ M2（工具循环/审批/审计）+ 设置页，19 个内置工具。
@@ -230,6 +230,20 @@
 
 验证：`agent-ui 18/18`，新增三条断言：`bodyStillScrollable`（滚动 body 生效）、`thinkExpandNoGrow`（展开思考后卡片 ≤520）、`approveSpacing`（审批卡与分割线间距 ≥8px，实测 12px）。
 截图：`agent-approve.png`。
+
+---
+
+## 1.18 v1.0.9（本次）：把决策权还回模型
+
+| 改动 | 说明 |
+|---|---|
+| **删除意图路由** | `src/main/agent/router.ts`、`tools/router-test.mjs`、IPC `agent:test-classify` 全部删除。开了 Agent 后**所有话都进 Agent**，由模型自己决定"只回一句"还是"调工具" |
+| **删除关键词匹配** | 闲聊截图不再要求命中"看/屏幕"等词；关键词自动搜索（`search.auto` + `shouldSearch`）整段删除（设置项、类型、默认值、UI 一并清掉） |
+| **删除束缚模型的视觉提示** | 删掉 Agent 提示词第 9 条、`screen.capture` 里"你能否看到取决于模型"的措辞、图片被拒时弹给模型的"不支持看图"文字、`vision-state` 模块 |
+| **提示词全部可改** | 新增 `Settings.prompts`：`agent`（支持 `{{max_steps}}` / `{{shell_rule}}` 占位符）、`closing`、`summary`、`visionNote`；设置 → 提示词页四个区块都能看、能改、能恢复默认 |
+| **收起时机** | 不再"任务一开始就收起"，改为**模型第一次真的调工具时**才收起；纯聊天保持窗口可见（审核卡临时弹出后按需再收起） |
+
+验证：`prompts-test 4/4`（默认值存在、四个区块可见、自定义能持久化、请求里真的用上自定义内容）、`agent-ui 18/18`、`agent-run 8/8`、`thinking 6/6`、`app 16/16`。
 
 ---
 

@@ -265,13 +265,6 @@ export default function ModelPane({ s, patch }: PaneProps): React.ReactElement {
           </Field>
         )}
 
-        <Field label="闲聊时自动搜索" hint="命中「最新/今天/新闻/比分/价格」这类词就先查再答">
-          <Toggle
-            checked={s.search.auto}
-            onChange={(v) => patch({ search: { auto: v } }, true)}
-          />
-        </Field>
-
         <Field label="每次返回" hint="条数越多越费 token">
           <NumberInput
             value={s.search.maxResults}

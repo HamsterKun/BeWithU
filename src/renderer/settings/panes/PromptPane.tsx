@@ -1,5 +1,11 @@
 import { useEffect, useState } from 'react'
-import { DEFAULT_SYSTEM_PROMPT } from '@shared/defaults'
+import {
+  DEFAULT_AGENT_PROMPT,
+  DEFAULT_CLOSING_PROMPT,
+  DEFAULT_SUMMARY_PROMPT,
+  DEFAULT_SYSTEM_PROMPT,
+  DEFAULT_VISION_NOTE
+} from '@shared/defaults'
 import { PROMPT_TEMPLATES } from '@shared/presets'
 import { Btn, Field, Section, TextArea, TextInput } from '../ui'
 import type { PaneProps } from './types'
@@ -56,6 +62,65 @@ export default function PromptPane({ s, patch }: PaneProps): React.ReactElement 
             >
               清空对话历史
             </Btn>
+          </div>
+        </div>
+      </Section>
+
+      <Section
+        title="Agent 提示词"
+        desc="开启 Agent 后与上面的系统提示词拼在一起发给模型。支持两个占位符：{{max_steps}}（最大步数）、{{shell_rule}}（完全信任/需确认的说明）"
+      >
+        <TextArea
+          value={s.prompts.agent}
+          rows={14}
+          onChange={(v) => patch({ prompts: { agent: v } })}
+        />
+        <div className="prompt-foot">
+          <span className="muted">{s.prompts.agent.length} 字</span>
+          <div className="prompt-foot__actions">
+            <Btn onClick={() => patch({ prompts: { agent: DEFAULT_AGENT_PROMPT } }, true)}>恢复默认</Btn>
+          </div>
+        </div>
+      </Section>
+
+      <Section title="收尾提示词" desc="模型跑完工具却没写结果时，用这句话再问它一次">
+        <TextArea
+          value={s.prompts.closing}
+          rows={3}
+          onChange={(v) => patch({ prompts: { closing: v } })}
+        />
+        <div className="prompt-foot">
+          <span className="muted">{s.prompts.closing.length} 字</span>
+          <div className="prompt-foot__actions">
+            <Btn onClick={() => patch({ prompts: { closing: DEFAULT_CLOSING_PROMPT } }, true)}>恢复默认</Btn>
+          </div>
+        </div>
+      </Section>
+
+      <Section title="记忆总结提示词" desc="把旧对话压缩成长期记忆时用的规则；只在触发自动整理时生效">
+        <TextArea
+          value={s.prompts.summary}
+          rows={10}
+          onChange={(v) => patch({ prompts: { summary: v } })}
+        />
+        <div className="prompt-foot">
+          <span className="muted">{s.prompts.summary.length} 字</span>
+          <div className="prompt-foot__actions">
+            <Btn onClick={() => patch({ prompts: { summary: DEFAULT_SUMMARY_PROMPT } }, true)}>恢复默认</Btn>
+          </div>
+        </div>
+      </Section>
+
+      <Section title="截图附加说明" desc="开启屏幕理解时，这句会跟在你的消息后面一起发给模型">
+        <TextArea
+          value={s.prompts.visionNote}
+          rows={2}
+          onChange={(v) => patch({ prompts: { visionNote: v } })}
+        />
+        <div className="prompt-foot">
+          <span className="muted">{s.prompts.visionNote.length} 字</span>
+          <div className="prompt-foot__actions">
+            <Btn onClick={() => patch({ prompts: { visionNote: DEFAULT_VISION_NOTE } }, true)}>恢复默认</Btn>
           </div>
         </div>
       </Section>

@@ -1,5 +1,6 @@
 /** Agent 主循环：LLM ⇄ 工具，带步数上限、超时、确认与中断 */
 import { settingsStore } from '../store/settings'
+import { DEFAULT_SETTINGS } from '../../shared/defaults'
 import { historyStore } from '../store/history'
 import { log } from '../logger'
 import { listTools, toOpenAiTools, buildWireMap } from './registry'
@@ -7,7 +8,6 @@ import { callTool } from './index'
 import { ensureMcpTools } from './index'
 import { chatWithTools, type AgentToolCall } from './llm-agent'
 import { checkDangerous } from './policy'
-import { markVisionUnsupported } from './vision-state'
 import { resolvePendingByText } from './approval'
 import { skillsPromptSection } from './skills'
 import type { ToolDef, ToolResult } from './types'
@@ -61,31 +61,13 @@ export function stripReasoningLeak(text: string, reasoning?: string): string {
 function buildSystemPrompt(maxSteps: number, shellEnabled: boolean): string {
   const s = settingsStore.get()
   const skills = s.agent.skillsEnabled ? skillsPromptSection() : ''
-  const searchOn = s.search.enabled
-  return [
-    s.llm.systemPrompt,
-    '',
-    '【你现在可以使用工具直接操作这台电脑】',
-    '工作规则：',
-    '1. 改文件、处理文档、批量操作时优先用文件工具或 shell，不要用模拟键鼠去打字编辑文本；键鼠只用来操作图形界面（点按钮、切窗口、拖拽）。',
-    '2. 一步只做一件小事，看结果再决定下一步；不要重复同样的失败尝试。',
-    `3. 本次任务最多 ${maxSteps} 步，做完用 1-3 句话汇报结果。`,
-    shellEnabled
-      ? '4. 完全信任模式已开启：所有工具（Shell、文件写入、键鼠）都直接执行，不会再有确认卡。删盘/格式化这类硬红线仍然执行不了。'
-      : '4. 高风险操作会弹确认卡；看到"用户拒绝"就停下并说明。如果用户嫌麻烦，可以让 TA 去「设置 → Agent 能力」开「完全信任模式」。',
-    '5. 高风险操作需要用户确认；看到"用户拒绝"就停下并说明，不要绕过。',
-    '6. 不要编造工具结果，只根据工具返回汇报。',
-    '7. 调用工具之前不要写"我先把…打开"这类过程叙述；直接用工具，最后一次性汇报结果。',
-    '8. 汇报时不要复述用户的原话，不要描述你的思考过程或用了哪个工具。',
-    '9. 关于看屏幕：只有当前模型支持视觉时，任务开始才会附一张截图；看不到图就不要声称自己有截图能力，' +
-      '需要截图时用 screen.capture 保存成文件并把路径告诉用户。',,
-    searchOn
-      ? '7. 遇到时效性问题（今天/最近/最新、新闻、比分、价格、版本、发布会、谁赢了、有没有出新东西）先调 web.search 查，再基于结果回答，并带上来源链接；日常闲聊、情感陪伴、写代码、常识问题不要搜。'
-      : '7. 现在没有联网搜索能力：涉及最新消息时如实说查不到，不要编造。',
-    skills ? `\n${skills}` : ''
-  ]
-    .filter(Boolean)
-    .join('\n')
+  const shellRule = shellEnabled
+    ? '4. 完全信任模式已开启：所有工具（Shell、文件写入、键鼠）都直接执行，不会再有确认卡。删盘/格式化这类硬红线仍然执行不了。'
+    : '4. 高风险操作会弹确认卡；看到"用户拒绝"就停下并说明。如果用户嫌麻烦，可以让 TA 去「设置 → Agent 能力」开「完全信任模式」。'
+  const rules = (s.prompts?.agent || DEFAULT_SETTINGS.prompts.agent)
+    .replaceAll('{{max_steps}}', String(maxSteps))
+    .replaceAll('{{shell_rule}}', shellRule)
+  return [s.llm.systemPrompt, '', rules, skills ? `\n${skills}` : ''].filter(Boolean).join('\n')
 }
 
 function parseArgs(raw: string): Record<string, unknown> {
@@ -183,10 +165,8 @@ export async function runAgentTask(
       if (useImage && !retriedNoImage && /image|vision|multi-?modal|content[ _-]?type|unsupported/i.test(msg)) {
         retriedNoImage = true
         useImage = false
-        markVisionUnsupported()
         messages[userIndex] = { role: 'user', content: userText }
         log('vision: Agent 模型拒绝图片，降级为纯文字', msg)
-        opts.events.onText('（这个模型不支持看图，这次先不看了）')
         continue
       }
       log('agent: LLM 调用失败', msg)
@@ -257,7 +237,7 @@ export async function runAgentTask(
             ...messages,
             {
               role: 'user',
-              content: '现在用 1-3 句话直接告诉用户结果（做了什么、结果如何、下一步建议），不要再调用任何工具。'
+              content: settingsStore.get().prompts?.closing || DEFAULT_SETTINGS.prompts.closing
             }
           ],
           tools: [],

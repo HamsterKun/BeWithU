@@ -16,7 +16,6 @@ import { clearAudit, recentAudit } from './agent/audit'
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { runAgentTask } from './agent/runner'
-import { classifyIntent } from './agent/router'
 import {
   deleteCustomTool,
   importCustomTool,
@@ -719,7 +718,6 @@ export function registerIpc(getQuit: () => void): void {
       })
       return true
     })
-    ipcMain.handle(IPC.agentTestClassify, (_e, text: string) => classifyIntent(String(text ?? '')))
     ipcMain.handle(IPC.agentTestRun, async (_e, text: string, autoApprove?: boolean) => {
       const controller = new AbortController()
       const tools: Array<{ toolId: string; ok: boolean; summary: string }> = []

@@ -159,7 +159,6 @@ class SettingsStore {
     s.search.maxResults = clamp(s.search.maxResults, 1, 10, 5)
     s.search.tavilyBaseUrl = (s.search.tavilyBaseUrl || '').trim() || 'https://api.tavily.com'
     s.search.deepseekBaseUrl = (s.search.deepseekBaseUrl || '').trim() || 'https://api.deepseek.com'
-    s.search.auto = s.search.auto !== false
     // MCP 服务器
     const rawServers = Array.isArray(s.mcp?.servers) ? s.mcp.servers : []
     s.mcp = {
@@ -180,6 +179,15 @@ class SettingsStore {
     // 名字允许留空（气泡里会显示为 TA），不要在这里强行填回默认值，
     // 否则用户清空输入框时会被"变回小伴"，根本改不了名
     s.ui.assistantName = (s.ui.assistantName || '').trim()
+    // 提示词兜底（老配置没有这些字段）
+    const prompts = s.prompts ?? DEFAULT_SETTINGS.prompts
+    s.prompts = {
+      agent: (prompts.agent ?? '').trim() || DEFAULT_SETTINGS.prompts.agent,
+      closing: (prompts.closing ?? '').trim() || DEFAULT_SETTINGS.prompts.closing,
+      summary: (prompts.summary ?? '').trim() || DEFAULT_SETTINGS.prompts.summary,
+      visionNote: (prompts.visionNote ?? '').trim() || DEFAULT_SETTINGS.prompts.visionNote
+    }
+
     // Agent 配置兜底（老配置没有这个字段时用默认值）
     const agent = s.agent ?? DEFAULT_SETTINGS.agent
     s.agent = {

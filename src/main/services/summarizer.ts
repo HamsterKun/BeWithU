@@ -1,5 +1,7 @@
 import type { HistoryMessage, LlmSettings } from '../../shared/types'
 import { streamChat } from './llm'
+import { settingsStore } from '../store/settings'
+import { DEFAULT_SETTINGS } from '../../shared/defaults'
 
 /* 总结提示词写死：记忆压缩需要稳定一致的规则，不开放用户自定义 */
 const SUMMARY_SYSTEM_PROMPT = `你负责记住「你和这个人之间发生过什么」。把【已有记忆】和【新增对话】合并成一段自然、连贯的回忆，之后的对话会把它当成你已经知道的事。
@@ -46,7 +48,7 @@ export async function summarizeConversation(opts: {
     .join('\n')
 
   const content =
-    `${SUMMARY_SYSTEM_PROMPT}${summary.trim() || '（无）'}\n\n【新增对话】\n${transcript}`
+    `${settingsStore.get().prompts?.summary || SUMMARY_SYSTEM_PROMPT}${summary.trim() || '（无）'}\n\n【新增对话】\n${transcript}`
 
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), 45000)

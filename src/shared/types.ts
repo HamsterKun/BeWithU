@@ -242,7 +242,17 @@ export interface SearchSettings {
   /** 一次返回几条 */
   maxResults: number
   /** 闲聊模式（未开 Agent）时，遇到时效性问题自动搜 */
-  auto: boolean
+}
+
+export interface PromptSettings {
+  /** Agent 工具使用规则；支持 {{max_steps}} 与 {{shell_rule}} 占位符 */
+  agent: string
+  /** 模型跑完工具却没写收尾时的补问指令 */
+  closing: string
+  /** 长期记忆总结提示词 */
+  summary: string
+  /** 附截图时追加在用户消息后面的说明 */
+  visionNote: string
 }
 
 export interface Settings {
@@ -254,6 +264,7 @@ export interface Settings {
   bubble: BubbleSettings
   ui: UiSettings
   agent: AgentSettings
+  prompts: PromptSettings
   search: SearchSettings
   mcp: McpSettings
   meta?: MetaSettings

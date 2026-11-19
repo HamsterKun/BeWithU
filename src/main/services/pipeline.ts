@@ -13,8 +13,6 @@ import { captureScreen, type ScreenCapture } from './vision'
 import { LocalAsrSession } from './local-asr'
 import { modelReady } from './local-asr'
 import { runAgentTask } from '../agent/runner'
-import { classifyIntent, wantsScreenReference } from '../agent/router'
-import { isVisionUnsupported, markVisionUnsupported } from '../agent/vision-state'
 import { requestApproval, resolvePendingByText } from '../agent/approval'
 
 /** 云端 / 本地识别共用的会话接口 */
@@ -46,12 +44,6 @@ import { formatHits, webSearch } from './web-search'
 /** 闲聊模式判断"这句话要不要联网"：够不够像时效性问题 */
 const SEARCH_HINT =
   /(最新|今天|今日|昨天|前天|最近|这几天|这周|本周|本月|今年|新闻|热搜|头条|比分|赛果|赛程|排名|价格|多少钱|汇率|股价|票房|发布|上线|发售|开售|新版本|更新了什么|谁是|怎么样了|发生了什么|有没有出|什么时候出|夺冠|冠军|销量)/
-
-function shouldSearch(text: string): boolean {
-  const t = text.trim()
-  if (t.length < 4 || t.length > 200) return false
-  return SEARCH_HINT.test(t)
-}
 
 const MAX_HOLD_MS = 60000
 
@@ -147,8 +139,6 @@ class SpeechQueue {
 }
 
 class Conversation {
-  /** 上一轮走的是聊天还是干活（用于「继续/改成」这类续说） */
-  private lastRoute: 'chat' | 'task' = 'chat'
   private phase: Phase = 'idle'
   private listening = false
   private holdStartedAt = 0
@@ -406,15 +396,10 @@ class Conversation {
     sendBubble({ type: 'user', text: userText, final: true })
     sendBubble({ type: 'assistant-reset' })
 
-    // Agent 总开关打开时：先判断这句是「聊天」还是「要干活」
+    // 开了 Agent：所有话都交给模型，由它自己决定是回一句还是调工具
     if (s.agent.enabled) {
-      const route = classifyIntent(userText, { lastWasTask: this.lastRoute === 'task' })
-      this.lastRoute = route.route
-      log('route:', `${route.route}(${route.reason}) ${userText.slice(0, 40)}`)
-      if (route.route === 'task') {
-        await this.respondWithAgent(userText, turn, s)
-        return
-      }
+      await this.respondWithAgent(userText, turn, s)
+      return
     }
 
     this.setPhase('thinking', '思考中')
@@ -440,25 +425,11 @@ class Conversation {
       ? `${systemPrompt}\n\n【长期记忆摘要】以下是更早之前聊过的要点，回答时当作你已经知道：\n${memory}`
       : systemPrompt
 
-    // 闲聊模式（没开 Agent）也能用联网搜索：命中时效性关键词就先查，再把资料塞进 system
-    if (s.search.enabled && s.search.auto && shouldSearch(userText)) {
-      try {
-        const { provider, hits } = await webSearch(userText)
-        if (hits.length) {
-          systemContent +=
-            `\n\n【联网搜索结果 · ${provider}】以下是刚为你检索到的资料，回答时优先采用，并在末尾附上来源链接：\n` +
-            formatHits(hits).slice(0, 4000)
-        }
-        log('search: 闲聊自动搜索', `${provider} ${hits.length} 条`)
-      } catch (e) {
-        log('search: 自动搜索失败', e instanceof Error ? e.message : e)
-      }
-    }
     historyStore.add('user', userText)
 
-    // 屏幕理解：只有用户这句话确实指向屏幕时才截图，避免闲聊被"看图说话"
+    // 屏幕理解：开着就截图，看/不看由模型自己决定
     let shot: ScreenCapture | null = null
-    if (s.llm.vision.enabled && wantsScreenReference(userText)) {
+    if (s.llm.vision.enabled) {
       const res = await captureScreen()
       if (turn !== this.turnId) return
       if (res.ok) {
@@ -481,7 +452,7 @@ class Conversation {
         list.push({
           role: 'user',
           content: [
-            { type: 'text', text: `${userText}\n\n（附一张当前屏幕截图，仅作参考：只有当用户问的是屏幕/界面/画面里的内容时才用它回答，不要主动描述屏幕上有什么。）` },
+            { type: 'text', text: `${userText}\n\n${s.prompts?.visionNote || '（附上我此刻的屏幕截图）'}` },
             { type: 'image_url', image_url: { url: shot.dataUrl } }
           ]
         })
@@ -549,7 +520,6 @@ class Conversation {
         if (!controller.signal.aborted && useImage && !attemptedWithoutImage && !answer && isVisionReject(msg)) {
           attemptedWithoutImage = true
           useImage = false
-          markVisionUnsupported()
           messages = buildMessages(false)
           sendBubble({ type: 'assistant-reset' })
           this.notify('info', '当前模型不支持图片，已自动改成纯文字（可在设置里关掉屏幕理解）')
@@ -606,8 +576,8 @@ class Conversation {
   private async respondWithAgent(userText: string, turn: number, s: Settings): Promise<void> {
     this.setPhase('acting', '工作中')
     sendBubble({ type: 'reasoning-reset' })
-    // 任务可能要跑一会儿：先收起气泡别挡视线（用户手动钉住时不动）
-    if (!isBubblePinned()) hideBubble()
+    // 不在这里收：等模型真的开始调工具再收（纯聊天不该把窗口藏起来）
+    let hiddenForTask = false
     sendAgentProgress({ active: true, step: 0, total: s.agent.maxSteps, mode: 'thinking' })
     const controller = new AbortController()
     this.abortLlm = controller
@@ -634,9 +604,9 @@ class Conversation {
       this.speech = null
     }
 
-    // 屏幕理解：Agent 模式下也要带截图；但模型已经明确拒绝过图片就不再抓（省一次抓屏）
+    // 屏幕理解：Agent 模式同样附截图
     let agentShot: ScreenCapture | null = null
-    if (s.llm.vision.enabled && !isVisionUnsupported()) {
+    if (s.llm.vision.enabled) {
       const cap = await captureScreen()
       if (turn !== this.turnId) return
       if (cap.ok) {
@@ -666,6 +636,10 @@ class Conversation {
           },
           onStep: (info) => {
             if (turn !== this.turnId) return
+            if (!hiddenForTask && !isBubblePinned()) {
+              hiddenForTask = true
+              hideBubble()
+            }
             sendAgentProgress({
               active: true,
               step: info.index,
@@ -703,7 +677,7 @@ class Conversation {
           onApproval: async (req) => {
             showBubble()
             const ok = await requestApproval(req)
-            if (!isBubblePinned()) hideBubble()
+            if (hiddenForTask && !isBubblePinned()) hideBubble()
             return ok
           }
         }

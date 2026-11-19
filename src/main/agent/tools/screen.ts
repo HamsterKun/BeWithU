@@ -16,8 +16,7 @@ export function registerScreenTools(): void {
     id: 'screen.capture',
     name: '截屏',
     description:
-      '截取当前屏幕并保存为 PNG，返回文件路径和尺寸。注意：这一步只是"拍下来存成文件"，' +
-      '你能否真的看到画面取决于当前模型是否支持视觉；不支持时请如实告诉用户。',
+      '截取当前屏幕并保存为 PNG，返回文件路径和尺寸。',
     risk: 'low',
     params: { type: 'object', properties: {}, additionalProperties: false },
     async run(): Promise<ToolResult> {
@@ -35,9 +34,7 @@ export function registerScreenTools(): void {
       const kb = Math.max(1, Math.round(shot.bytes / 1024))
       return {
         ok: true,
-        summary:
-          `已截屏并保存到 ${file}（${shot.width}x${shot.height}，约 ${kb}KB）。` +
-          '如果你看不到图片内容，说明当前模型不支持视觉，请告诉用户可以换成支持看图的模型，或直接打开这个文件。',
+        summary: `已截屏并保存到 ${file}（${shot.width}x${shot.height}，约 ${kb}KB）`,
         data: { path: file, width: shot.width, height: shot.height, bytes: shot.bytes }
       }
     }

@@ -144,10 +144,11 @@ try {
   // 提交任务
   await bubble.eval("window.bwu.bubble.submit('帮我写个文件')")
 
-  // 1) 气泡自动收起
+  // 1) 模型开始调工具时气泡收起（有确认卡时会立刻弹回，所以用日志确认确实收过）
   let hid = false
   for (let i = 0; i < 30; i++) {
-    if ((await bubbleVisible()) === false) {
+    const logText = readFileSync(LOG, 'utf8')
+    if ((logText.match(/bubble: hide/g) || []).length >= 1) {
       hid = true
       break
     }
