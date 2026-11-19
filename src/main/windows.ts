@@ -1,5 +1,6 @@
-import { BrowserWindow, screen } from 'electron'
+import { app, BrowserWindow, screen } from 'electron'
 import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import type { BallMenuItem, Phase, PublicSettings } from '../shared/types'
 import { IPC, type AgentProgress } from '../shared/ipc'
 import { settingsStore } from './store/settings'
@@ -25,20 +26,43 @@ let bubblePinned = false
 let bubbleVisible = false
 let bubbleVisibleAt = 0
 
-const devUrl = process.env['ELECTRON_RENDERER_URL']
+const devUrl = app.isPackaged ? undefined : process.env['ELECTRON_RENDERER_URL']
 
 function preloadPath(): string {
   return join(__dirname, '../preload/index.js')
 }
 
-function loadRenderer(win: BrowserWindow, page: 'ball' | 'bubble' | 'settings' | 'menu'): void {
+export type RendererRole = 'ball' | 'bubble' | 'settings' | 'menu'
+
+export function rendererFrameMatches(frame: Electron.WebFrameMain | null, win: BrowserWindow | null, page: RendererRole): boolean {
+  if (!frame || !win || win.isDestroyed() || frame !== win.webContents.mainFrame) return false
+  try {
+    const expected = devUrl
+      ? new URL(`${devUrl}/${page}/index.html`)
+      : pathToFileURL(join(__dirname, `../renderer/${page}/index.html`))
+    const actual = new URL(frame.url)
+    if (actual.protocol !== expected.protocol || actual.host !== expected.host || actual.search !== expected.search) return false
+    if (actual.protocol === 'file:' && process.platform === 'win32') {
+      return actual.pathname.toLowerCase() === expected.pathname.toLowerCase()
+    }
+    return actual.pathname === expected.pathname
+  } catch {
+    return false
+  }
+}
+
+function loadRenderer(win: BrowserWindow, page: RendererRole): void {
+  win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+  win.webContents.on('will-navigate', (event) => event.preventDefault())
   if (devUrl) void win.loadURL(`${devUrl}/${page}/index.html`)
   else void win.loadFile(join(__dirname, `../renderer/${page}/index.html`))
 }
 
-function baseWebPrefs(): Electron.WebPreferences {
+function baseWebPrefs(role: RendererRole): Electron.WebPreferences {
+  const test = !app.isPackaged && process.env.BWU_AGENT_TEST === '1'
   return {
     preload: preloadPath(),
+    additionalArguments: [`--bwu-role=${role}`, ...(test ? ['--bwu-test-bridge'] : [])],
     contextIsolation: true,
     nodeIntegration: false,
     sandbox: false,
@@ -103,7 +127,7 @@ export function createBallWindow(): BrowserWindow {
     focusable: false,
     roundedCorners: false,
     title: 'BeWithU',
-    webPreferences: baseWebPrefs()
+    webPreferences: baseWebPrefs('ball')
   })
 
   ballWin.setAlwaysOnTop(true, 'screen-saver')
@@ -187,7 +211,7 @@ function createBubbleWindow(): BrowserWindow {
     focusable: false,
     roundedCorners: false,
     title: 'BeWithU Bubble',
-    webPreferences: baseWebPrefs()
+    webPreferences: baseWebPrefs('bubble')
   })
   bubbleWin.setAlwaysOnTop(true, 'screen-saver')
   bubbleWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
@@ -470,7 +494,7 @@ function createMenuWindow(): BrowserWindow {
     focusable: true,
     roundedCorners: false,
     title: 'BeWithU Menu',
-    webPreferences: baseWebPrefs()
+    webPreferences: baseWebPrefs('menu')
   })
   menuWin.setAlwaysOnTop(true, 'screen-saver')
   menuWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
@@ -661,7 +685,7 @@ export function openSettingsWindow(tab?: string): BrowserWindow {
       ...TITLEBAR_COLORS[settingsStore.get().ui.theme === 'light' ? 'light' : 'dark'],
       height: 44
     },
-    webPreferences: baseWebPrefs()
+    webPreferences: baseWebPrefs('settings')
   })
   loadRenderer(settingsWin, 'settings')
   // 新建窗口时页面可能已经加载完，once('did-finish-load') 会错过，这里两种都覆盖

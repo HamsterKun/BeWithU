@@ -23,6 +23,26 @@ const ok = (k, cond, detail) => {
   console.log(`${cond ? '✓' : '✗'} ${k} ${detail === undefined ? '' : JSON.stringify(detail)}`)
 }
 
+async function waitForBubble() {
+  for (let i = 0; i < 30; i++) {
+    const list = await jget('/json')
+    const target = list.find((x) => x.type === 'page' && x.url.includes('/bubble/'))
+    if (target) return target
+    await sleep(200)
+  }
+  throw new Error('bubble window did not open')
+}
+
+async function waitForSettings() {
+  for (let i = 0; i < 30; i++) {
+    const list = await jget('/json')
+    const target = list.find((x) => x.type === 'page' && x.url.includes('/settings/'))
+    if (target) return target
+    await sleep(200)
+  }
+  throw new Error('settings window did not open')
+}
+
 async function jget(p) {
   const c = new AbortController()
   const t = setTimeout(() => c.abort(), 3000)
@@ -64,7 +84,7 @@ class Conn {
   }
   async eval(expression) {
     const r = await this.call('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true })
-    if (r.result?.exceptionDetails) throw new Error(r.result.exceptionDetails.text)
+    if (r.result?.exceptionDetails) throw new Error(JSON.stringify(r.result.exceptionDetails))
     return r.result?.result?.value
   }
   close() {
@@ -90,13 +110,21 @@ writeFileSync(
       写: [
         {
           text: '我来写这个文件。',
-          toolCalls: [{ name: 'file.write', args: { path: target, content: '你好，这是 Agent 写入的内容。' } }]
+          toolCalls: [{ name: 'file_write', args: { path: target, content: '你好，这是 Agent 写入的内容。' } }]
         },
         { text: '已完成：已经把内容写进 note.txt。' }
       ],
       几点: [
-        { text: '需要执行命令。', toolCalls: [{ name: 'shell.ps', args: { script: 'Get-Date', purpose: '测试时间' } }] },
+        { text: '需要执行命令。', toolCalls: [{ name: 'shell_ps', args: { script: 'Get-Date', purpose: '测试时间' } }] },
         { text: 'Shell 没有开启，我已经提醒你去设置里打开。' }
+      ],
+      预算: [
+        { text: '执行多个安全工具。', toolCalls: Array.from({ length: 5 }, (_, i) => ({ name: 'notify', args: { title: `budget-${i}`, body: 'budget test' } })) },
+        { text: '预算结束。' }
+      ],
+      未知: [
+        { text: '执行未开放工具。', toolCalls: [{ name: 'not_in_this_turn', args: {} }] },
+        { text: '未知工具已拒绝。' }
       ]
     }
   })
@@ -104,6 +132,8 @@ writeFileSync(
 
 let app
 let ball
+let bubble
+let settings
 try {
   const exe = join(ROOT, 'node_modules', 'electron', 'dist', 'electron.exe')
   app = spawn(exe, ['.', '--no-sandbox', '--disable-gpu', `--user-data-dir=${ud}`, `--remote-debugging-port=${PORT}`], {
@@ -131,18 +161,25 @@ try {
     await sleep(300)
   }
 
-  // 开启 agent + 允许 work 目录
-  await ball.eval(
+  // 管理设置只允许设置窗口发起；通过气泡公开的入口打开设置页。
+  await ball.eval('window.bwu.ball.click(false)')
+  const bubbleTarget = await waitForBubble()
+  bubble = await Conn.open(bubbleTarget.webSocketDebuggerUrl)
+  await bubble.eval("window.bwu.settings.open('agent')")
+  const settingsTarget = await waitForSettings()
+  settings = await Conn.open(settingsTarget.webSocketDebuggerUrl)
+  await settings.eval(
     `window.bwu.settings.update({ llm: { apiKey: 'sk-mock' }, agent: { enabled: true, files: { dirs: ${JSON.stringify([work])} } } })`
   )
   await sleep(600)
-  const cfg = await ball.eval('window.bwu.settings.get()')
+  await settings.eval("window.bwu.settings.update({ agent: { maxSteps: 3 } })")
+  const cfg = await settings.eval('window.bwu.settings.get()')
   ok('agentEnabled', cfg?.agent?.enabled === true && cfg.agent.files.dirs.includes(work), {
     enabled: cfg?.agent?.enabled,
     maxSteps: cfg?.agent?.maxSteps,
     shell: cfg?.agent?.shellEnabled
   })
-  ok('defaultMaxSteps', cfg?.agent?.maxSteps === 30, cfg?.agent?.maxSteps)
+  ok('maxStepsCanBeConfigured', cfg?.agent?.maxSteps === 3, cfg?.agent?.maxSteps)
   ok('shellOffByDefault', cfg?.agent?.shellEnabled === false, cfg?.agent?.shellEnabled)
 
   const call = (id, args) => ball.eval(`window.bwu.agentTest.call(${JSON.stringify(id)}, ${JSON.stringify(args ?? {})})`)
@@ -180,6 +217,14 @@ try {
     shellSummary.slice(0, 120)
   )
 
+  // One model response cannot exceed the configured tool-call budget.
+  const budget = await ball.eval("window.bwu.agentTest.run('执行预算检查', true)")
+  ok('toolCallBudget', budget?.steps === 3 && budget?.tools?.length === 3, budget)
+
+  // A model cannot invoke names outside the published tool list.
+  const unknown = await ball.eval("window.bwu.agentTest.run('执行未知工具', true)")
+  ok('unknownToolRejected', unknown?.steps === 1 && unknown?.tools?.length === 0, unknown)
+
   // 4) 工具清单完整
   const tools = await ball.eval('window.bwu.agentTest.list()')
   const ids = (tools || []).map((t) => t.id)
@@ -194,6 +239,8 @@ try {
   ok('fatal', false, String(e && e.message ? e.message : e))
 } finally {
   ball?.close()
+  bubble?.close()
+  settings?.close()
   try {
     app && process.kill(app.pid)
   } catch {}

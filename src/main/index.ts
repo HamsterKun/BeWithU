@@ -19,6 +19,8 @@ import { startHotkey, stopHotkey } from './input/hotkey'
 import { conversation } from './services/pipeline'
 import { createTray } from './tray'
 import { log } from './logger'
+import { consumeWgcPermission, getPendingWgcPermission, isWgcPermissionRequest } from './vision-grab'
+import { getBallWindow, rendererFrameMatches } from './windows'
 
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required')
 // 尽量走 Windows Graphics Capture（WGC）：它能抓被遮挡/独占合成的窗口，
@@ -65,18 +67,24 @@ async function boot(): Promise<void> {
 
   // getDisplayMedia 走 WGC：由主进程直接指定"光标所在那块屏"，不弹选择器
   session.defaultSession.setDisplayMediaRequestHandler(
-    (_request, callback) => {
+    (request, callback) => {
+      if (!isWgcPermissionRequest()) {
+        callback({})
+        return
+      }
+      const frame = request.frame
+      const ball = getBallWindow()
+      const pending = getPendingWgcPermission()
+      if (!pending || !rendererFrameMatches(frame, ball, 'ball')) {
+        callback({})
+        return
+      }
+      consumeWgcPermission()
       desktopCapturer
         .getSources({ types: ['screen'], thumbnailSize: { width: 8, height: 8 } })
         .then((sources) => {
-          if (!sources.length) {
-            callback({})
-            return
-          }
-          const cursor = screen.getCursorScreenPoint()
-          const display = screen.getDisplayNearestPoint(cursor)
-          const match = sources.find((s) => s.display_id === String(display.id)) ?? sources[0]
-          callback({ video: match })
+          const match = sources.find((source) => source.display_id === pending.displayId)
+          callback(match && pending.isActive() && rendererFrameMatches(frame, getBallWindow(), 'ball') ? { video: match } : {})
         })
         .catch(() => callback({}))
     },

@@ -12,8 +12,8 @@
  *   所以真正的闸门是「导入时的信任勾选」，UI 必须把这句话说给用户听。
  */
 import { app, Notification } from 'electron'
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { utilityProcess } from 'electron'
 import { registerTool, unregisterTool, getTool } from './registry'
 import { resolveAgentPath } from './tools/files'
@@ -92,22 +92,44 @@ export function scanCustomTools(): CustomToolInfo[] {
     .sort((a, b) => a.id.localeCompare(b.id))
 }
 
+function validateToolEntry(dir: string, entry: string): string {
+  if (!entry || isAbsolute(entry)) throw new Error('工具入口必须是工具目录内的相对路径')
+  const root = realpathSync(dir)
+  const candidate = resolve(root, entry)
+  const rel = relative(root, candidate)
+  if (!rel || rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
+    throw new Error('工具入口必须位于工具目录内')
+  }
+  const stat = lstatSync(candidate)
+  if (!stat.isFile() || stat.isSymbolicLink() || !/\.(c?js)$/i.test(candidate)) {
+    throw new Error('工具入口必须是目录内的普通 .js / .cjs 文件（不接受链接）')
+  }
+  const realEntry = realpathSync(candidate)
+  const realRel = relative(root, realEntry)
+  if (realRel.startsWith(`..${sep}`) || realRel === '..' || isAbsolute(realRel)) {
+    throw new Error('工具入口不能指向工具目录外')
+  }
+  return realEntry
+}
+
 /** 从任意目录导入（目录里要有 manifest.json + 入口文件） */
 export function importCustomTool(srcDir: string): CustomToolInfo {
   const manifest = readManifest(srcDir)
   if (!manifest) throw new Error('这个目录里没有合法的 manifest.json（需要 id / name / description）')
   if (getTool(manifest.id)) throw new Error(`工具 id「${manifest.id}」和内置工具冲突，请换一个 id`)
-  const entryFile = join(srcDir, manifest.entry)
-  if (!existsSync(entryFile)) throw new Error(`找不到入口文件：${manifest.entry}`)
-  if (!/\.(c?js)$/i.test(manifest.entry)) throw new Error('入口只支持 .js / .cjs')
+  validateToolEntry(srcDir, manifest.entry)
 
   const safeId = manifest.id.replace(/[^\w.-]+/g, '-')
+  if (safeId === '.' || safeId === '..' || safeId.endsWith('.') || safeId.startsWith('mcp.')) {
+    throw new Error('工具 ID 不能用作安全的目录名，或使用了保留前缀')
+  }
   const dest = join(toolsDir(), safeId)
   if (existsSync(dest)) throw new Error(`已经存在同名工具：${safeId}`)
   cpSync(srcDir, dest, { recursive: true, force: true })
   log('custom-tool: 已导入', safeId)
   const info = readManifest(dest)
   if (!info) throw new Error('导入后解析失败')
+  validateToolEntry(dest, info.entry)
   return info
 }
 
@@ -121,10 +143,12 @@ export async function importCustomToolArchive(zipPath: string): Promise<CustomTo
   }
 }
 
-export function deleteCustomTool(id: string): void {  const dir = join(toolsDir(), id)
-  if (!dir.startsWith(toolsDir())) return
+export function deleteCustomTool(id: string): void {
+  const tool = scanCustomTools().find((item) => item.id === id)
+  if (!tool || !lstatSync(tool.dir).isDirectory()) return
   unregisterCustomTool(id)
-  if (existsSync(dir)) rmSync(dir, { recursive: true, force: true })
+  setToolTrusted(id, false)
+  rmSync(tool.dir, { recursive: true, force: true })
   log('custom-tool: 已删除', id)
 }
 
@@ -175,6 +199,7 @@ interface RunReply {
 }
 
 function runCustomTool(tool: CustomToolInfo, args: Record<string, unknown>): Promise<ToolResult> {
+  const entry = relative(realpathSync(tool.dir), validateToolEntry(tool.dir, tool.entry))
   return new Promise<ToolResult>((resolve) => {
     let settled = false
     const finish = (r: ToolResult): void => {
@@ -235,7 +260,7 @@ function runCustomTool(tool: CustomToolInfo, args: Record<string, unknown>): Pro
     child.postMessage({
       type: 'run',
       toolDir: tool.dir,
-      entry: tool.entry,
+      entry,
       args,
       permissions: tool.permissions
     })
@@ -261,14 +286,16 @@ async function handleApiCall(
       }
       case 'fs.read': {
         if (!tool.permissions.includes('fs.read')) return deny('fs.read')
-        const file = resolveAgentPath(String(params.path ?? ''))
+        const file = await resolveAgentPath(String(params.path ?? ''))
         return { ok: true, value: readFileSync(file, 'utf8').slice(0, 20000) }
       }
       case 'fs.write': {
         if (!tool.permissions.includes('fs.write')) return deny('fs.write')
-        const file = resolveAgentPath(String(params.path ?? ''))
+        const file = await resolveAgentPath(String(params.path ?? ''), { allowMissing: true })
         const content = String(params.content ?? '')
         mkdirSync(join(file, '..'), { recursive: true })
+        await resolveAgentPath(join(file, '..'))
+        await resolveAgentPath(file, { allowMissing: true })
         writeFileSync(file, content, 'utf8')
         return { ok: true, value: file }
       }

@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
-import { IPC, type AgentProgress, type BubbleUpdate } from '../shared/ipc'
+import { IPC, type AgentProgress, type BubbleUpdate, type GrabRequest } from '../shared/ipc'
 import type {
   AudioChunk,
   BallMenuItem,
@@ -18,7 +18,7 @@ function on<T = unknown>(channel: string, cb: (payload: T) => void): () => void 
 const invoke = <T>(channel: string, ...args: unknown[]): Promise<T> =>
   ipcRenderer.invoke(channel, ...args) as Promise<T>
 
-contextBridge.exposeInMainWorld('bwu', {
+const api = {
   settings: {
     get: () => invoke<PublicSettings>(IPC.settingsGet),
     update: (patch: SettingsPatch) => invoke<PublicSettings>(IPC.settingsUpdate, patch),
@@ -30,6 +30,7 @@ contextBridge.exposeInMainWorld('bwu', {
       invoke<TestResult>(IPC.settingsPreviewVoice, speaker, resourceId),
     testAsr: () => invoke<TestResult>(IPC.settingsTestAsr),
     pickImage: () => invoke<string | null>(IPC.settingsPickImage),
+    pickDir: () => invoke<string | null>(IPC.appPickDir),
     clearHistory: () => invoke<void>(IPC.settingsClearHistory),
     appInfo: () => invoke(IPC.settingsAppInfo),
     revealSecret: (path: string) => invoke<string>(IPC.settingsRevealSecret, path),
@@ -69,7 +70,7 @@ contextBridge.exposeInMainWorld('bwu', {
     onAudioStop: (cb: () => void) => on(IPC.audioStop, cb),
     sendPcm: (buf: ArrayBuffer) => ipcRenderer.send(IPC.voicePcm, buf),
     audioDrained: () => ipcRenderer.send(IPC.audioDrained),
-    onGrab: (cb: () => void) => on(IPC.visionGrab, cb),
+    onGrab: (cb: (request: GrabRequest) => void) => on<GrabRequest>(IPC.visionGrab, cb),
     grabResult: (result: unknown) => ipcRenderer.send(IPC.visionGrabResult, result)
   },
   menu: {
@@ -146,4 +147,19 @@ contextBridge.exposeInMainWorld('bwu', {
   voice: {
     onTranscript: (cb: (t: { text: string; final: boolean }) => void) => on(IPC.voiceTranscript, cb)
   }
-})
+}
+
+const role = process.argv.find((arg) => arg.startsWith('--bwu-role='))?.slice('--bwu-role='.length)
+const testBridge = process.argv.includes('--bwu-test-bridge')
+if (process.isMainFrame) {
+  const { agentTest, ...normalApi } = api
+  const themeSettings = { get: api.settings.get, onChanged: api.settings.onChanged }
+  let scoped: Record<string, unknown> | undefined
+  switch (role) {
+    case 'settings': scoped = { ...normalApi, ball: { resetPosition: api.ball.resetPosition }, menu: undefined, bubble: undefined, agent: undefined }; break
+    case 'ball': scoped = { settings: themeSettings, ball: api.ball }; break
+    case 'bubble': scoped = { settings: { ...themeSettings, open: api.settings.open }, bubble: api.bubble, agent: api.agent }; break
+    case 'menu': scoped = { settings: themeSettings, menu: api.menu }; break
+  }
+  if (scoped) contextBridge.exposeInMainWorld('bwu', testBridge ? { ...scoped, agentTest } : scoped)
+}

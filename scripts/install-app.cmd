@@ -1,30 +1,12 @@
 @echo off
-rem Launch the latest BeWithU installer after removing the "downloaded from internet"
-rem mark (Zone.Identifier). Without that mark Windows SmartScreen usually shows
-rem "Windows protected your PC" even for a per-user installer.
-setlocal
-cd /d "%~dp0.."
+setlocal DisableDelayedExpansion
+if "%~1"=="" goto :usage
+if not "%~2"=="" goto :usage
 
-set "EXE=%~1"
-if "%EXE%"=="" (
-  for /f "delims=" %%f in ('dir /b /o-d "release\BeWithU-*-x64.exe" 2^>nul') do (
-    set "EXE=release\%%f"
-    goto :found
-  )
-)
-:found
-if "%EXE%"=="" (
-  echo [x] No installer found in release\
-  pause
-  exit /b 1
-)
+"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -File "%~dp0check-installer.ps1" -Path "%~f1" -Launch
+exit /b %ERRORLEVEL%
 
-if not exist "%EXE%" (
-  echo [x] Not found: %EXE%
-  pause
-  exit /b 1
-)
-
-powershell -NoProfile -ExecutionPolicy Bypass -Command "Unblock-File -LiteralPath '%EXE%' -ErrorAction SilentlyContinue"
-echo [ok] Unblocked: %EXE%
-start "" "%EXE%"
+:usage
+>&2 echo Usage: install-app.cmd "path\to\installer.exe"
+>&2 echo Set BEWITHU_INSTALLER_SHA256 from a trusted release manifest or BEWITHU_PUBLISHER_CERT_SHA256 to a trusted publisher certificate pin.
+exit /b 2

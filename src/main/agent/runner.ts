@@ -3,12 +3,13 @@ import { settingsStore } from '../store/settings'
 import { DEFAULT_SETTINGS } from '../../shared/defaults'
 import { historyStore } from '../store/history'
 import { log } from '../logger'
-import { listTools, toOpenAiTools, buildWireMap } from './registry'
+import { getTool, listTools, toOpenAiTools, buildWireMap } from './registry'
 import { callTool } from './index'
 import { ensureMcpTools } from './index'
 import { chatWithTools, type AgentToolCall } from './llm-agent'
 import { checkDangerous } from './policy'
 import { resolvePendingByText } from './approval'
+import { planToolCalls } from './tool-budget'
 import { skillsPromptSection } from './skills'
 import type { ToolDef, ToolResult } from './types'
 
@@ -62,8 +63,8 @@ function buildSystemPrompt(maxSteps: number, shellEnabled: boolean): string {
   const s = settingsStore.get()
   const skills = s.agent.skillsEnabled ? skillsPromptSection() : ''
   const shellRule = shellEnabled
-    ? '4. 完全信任模式已开启：所有工具（Shell、文件写入、键鼠）都直接执行，不会再有确认卡。删盘/格式化这类硬红线仍然执行不了。'
-    : '4. 高风险操作会弹确认卡；看到"用户拒绝"就停下并说明。如果用户嫌麻烦，可以让 TA 去「设置 → Agent 能力」开「完全信任模式」。'
+    ? '4. 部分本地工具免确认；MCP 仍须确认。用户拒绝或任务停止后不得继续。'
+    : '4. 高风险操作需要确认。用户拒绝或任务停止后不得继续。'
   const rules = (s.prompts?.agent || DEFAULT_SETTINGS.prompts.agent)
     .replaceAll('{{max_steps}}', String(maxSteps))
     .replaceAll('{{shell_rule}}', shellRule)
@@ -199,13 +200,30 @@ export async function runAgentTask(
       }))
     })
 
-    for (const call of turn.toolCalls) {
+    const callPlan = planToolCalls(maxSteps - steps, turn.toolCalls)
+    for (let callIndex = 0; callIndex < turn.toolCalls.length; callIndex++) {
+      const call = turn.toolCalls[callIndex]
       if (opts.signal.aborted) {
+        for (const skipped of turn.toolCalls.slice(callIndex)) {
+          messages.push({ role: 'tool', tool_call_id: skipped.id, content: JSON.stringify({ ok: false, result: '任务已取消，未执行' }) })
+        }
+        stopped = true
+        break
+      }
+      if (callIndex >= callPlan.allowed.length) {
+        for (const skipped of callPlan.skipped) {
+          messages.push({ role: 'tool', tool_call_id: skipped.id, content: JSON.stringify({ ok: false, result: '已达到本轮工具调用步数上限，未执行' }) })
+        }
         stopped = true
         break
       }
       steps += 1
-      const realId = wireToReal.get(call.name) ?? call.name
+      const realId = wireToReal.get(call.name)
+      if (!realId) {
+        opts.events.onNarration?.('模型返回了本轮未开放的工具名，已拒绝执行。')
+        messages.push({ role: 'tool', tool_call_id: call.id, content: JSON.stringify({ ok: false, result: '工具未在本轮授权列表中' }) })
+        continue
+      }
       const def = listTools().find((t) => t.id === realId)
       const args = parseArgs(call.args)
       opts.events.onStep({
@@ -281,6 +299,7 @@ async function runOne(
   cfg: ReturnType<typeof settingsStore.get>['agent'],
   opts: { signal: AbortSignal; events: AgentEvents }
 ): Promise<ToolResult> {
+  if (opts.signal.aborted) return { ok: false, summary: '任务已取消，工具未执行' }
   if (!def) return { ok: false, summary: `没有这个工具：${call.name}` }
   if (cfg.disabledTools.includes(def.id)) return { ok: false, summary: `工具 ${def.id} 已被用户禁用` }
 
@@ -289,22 +308,39 @@ async function runOne(
   const danger = checkDangerous(dangerText)
   if (!danger.ok) return { ok: false, summary: danger.reason ?? '被安全策略拒绝' }
 
-  // 完全信任模式：所有工具（含 Shell / 写文件 / 键鼠）直接执行，不再逐次确认。
-  // 硬红线（policy.ts）仍然在上面拦过，删盘/格式化这类永远执行不了。
-  if (def.risk === 'high' && !cfg.shellEnabled) {
+  // MCP 未知副作用始终需要确认。命令检查只是补充，不构成隔离。
+  const requiresApproval = def.risk === 'high' && (!settingsStore.get().agent.shellEnabled || def.id.startsWith('mcp.'))
+  if (requiresApproval) {
     const approved = opts.events.onApproval
       ? await opts.events.onApproval({ toolId: def.id, title: def.name, detail: summarizeArgs(def, args) })
       : false
+    if (opts.signal.aborted) return { ok: false, summary: '任务已取消，工具未执行' }
     if (!approved) return { ok: false, summary: '用户拒绝了这次操作，请停下来并向用户说明' }
   }
 
-  const timeout = new Promise<ToolResult>((resolve) =>
-    setTimeout(() => resolve({ ok: false, summary: '工具执行超时' }), cfg.stepTimeoutMs)
-  )
+  const currentAgent = settingsStore.get().agent
+  if (!currentAgent.enabled || currentAgent.disabledTools.includes(def.id) || getTool(def.id) !== def) {
+    return { ok: false, summary: '工具权限或配置已变更，本次操作未执行' }
+  }
+  if (opts.signal.aborted) return { ok: false, summary: '任务已取消，工具未执行' }
+  const operation = new AbortController()
+  const signal = AbortSignal.any([opts.signal, operation.signal])
+  let timer: NodeJS.Timeout | undefined
+  let timedOut = false
+  const timeout = new Promise<ToolResult>((resolve) => {
+    timer = setTimeout(() => {
+      timedOut = true
+      operation.abort()
+      resolve({ ok: false, summary: '工具超时；操作已请求取消，外部副作用结果未知' })
+    }, cfg.stepTimeoutMs)
+  })
   try {
-    return await Promise.race([callTool(def.id, args, { signal: opts.signal }), timeout])
+    return await Promise.race([callTool(def.id, args, { signal }), timeout])
   } catch (e) {
-    return { ok: false, summary: e instanceof Error ? e.message : String(e) }
+    return { ok: false, summary: timedOut ? '工具超时；外部副作用结果未知' : (e instanceof Error ? e.message : String(e)) }
+  } finally {
+    if (timer) clearTimeout(timer)
+    operation.abort()
   }
 }
 

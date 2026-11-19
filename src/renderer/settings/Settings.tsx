@@ -45,9 +45,10 @@ function Icon({ d }: { d: string }): React.ReactElement {
 export default function Settings(): React.ReactElement {
   const [s, setS] = useState<PublicSettings | null>(null)
   const [tab, setTab] = useState<Tab>('model')
-  const [status, setStatus] = useState<'idle' | 'saving' | 'saved'>('idle')
+  const [status, setStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const pending = useRef<SettingsPatch>({})
   const timer = useRef<number | null>(null)
+  const saveRevision = useRef(0)
 
   useEffect(() => {
     void window.bwu.settings.get().then(setS)
@@ -74,15 +75,22 @@ export default function Settings(): React.ReactElement {
     const p = pending.current
     if (Object.keys(p).length === 0) return
     pending.current = {}
+    const revision = ++saveRevision.current
     setStatus('saving')
     try {
       const res = await window.bwu.settings.update(p)
+      if (revision !== saveRevision.current) return
       setS((prev) => (prev ? { ...prev, secretSet: res.secretSet } : prev))
       setStatus('saved')
-      window.setTimeout(() => setStatus('idle'), 1400)
+      window.setTimeout(() => {
+        if (revision === saveRevision.current) setStatus('idle')
+      }, 1400)
     } catch {
-      setStatus('idle')
+      pending.current = merge(p, pending.current)
+      if (revision === saveRevision.current) setStatus('error')
+      return
     }
+    if (Object.keys(pending.current).length) window.setTimeout(() => void flush(), 0)
   }, [])
 
   const patch = useCallback(
@@ -148,8 +156,14 @@ export default function Settings(): React.ReactElement {
       <main className="main">
         <header className="main__head">
           <h1>{current.title}</h1>
-          <span className={status === 'idle' ? 'save-state' : 'save-state is-active'}>
-            {status === 'saving' ? '保存中…' : status === 'saved' ? '已保存' : '改动会自动保存'}
+          <span className={`save-state${status === 'idle' ? '' : ' is-active'}${status === 'error' ? ' is-error' : ''}`}>
+            {status === 'saving'
+              ? '保存中…'
+              : status === 'saved'
+                ? '已保存'
+                : status === 'error'
+                  ? '保存失败，请检查磁盘空间或权限'
+                  : '改动会自动保存'}
           </span>
         </header>
         <div className="main__body">

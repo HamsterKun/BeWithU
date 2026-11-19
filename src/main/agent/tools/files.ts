@@ -1,7 +1,17 @@
 /** 文件读写工具：默认限制在 桌面/文档/下载 + 用户添加的目录，可开完全访问 */
 import { app } from 'electron'
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync, copyFileSync } from 'node:fs'
-import { basename, join, resolve, sep } from 'node:path'
+import {
+  copyFileSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  realpathSync,
+  statSync,
+  writeFileSync
+} from 'node:fs'
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { settingsStore } from '../../store/settings'
 import { registerTool } from '../registry'
 import type { ToolResult } from '../types'
@@ -16,18 +26,56 @@ function allowedRoots(): string[] {
   return [...defs, ...cfg.files.dirs].map((d) => resolve(d))
 }
 
-export function resolveAgentPath(p: string): string {
+function isWithin(root: string, target: string): boolean {
+  const rel = relative(root, target)
+  return rel === '' || (rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel))
+}
+
+function realPathWithMissingTail(path: string): string {
+  const abs = resolve(path)
+  let cursor = abs
+  const tail: string[] = []
+  while (true) {
+    try {
+      const stat = lstatSync(cursor)
+      if (stat.isSymbolicLink()) throw new Error(`不允许通过符号链接访问：${cursor}`)
+      if (tail.length && !stat.isDirectory()) throw new Error(`路径的上级不是目录：${cursor}`)
+      return resolve(realpathSync(cursor), ...tail)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    }
+    const parent = dirname(cursor)
+    if (parent === cursor) throw new Error(`无法解析路径：${abs}`)
+    tail.unshift(basename(cursor))
+    cursor = parent
+  }
+}
+
+export async function resolveAgentPath(p: string, options: { allowMissing?: boolean } = {}): Promise<string> {
   const cfg = settingsStore.get().agent
   const abs = resolve(p)
   if (cfg.files.fullAccess) return abs
-  const roots = allowedRoots()
-  const ok = roots.some((r) => abs === r || abs.startsWith(r.endsWith(sep) ? r : r + sep))
-  if (!ok) {
+  const targetReal = realPathWithMissingTail(abs)
+  const inAllowedDir = allowedRoots().some((root) => {
+    if (!isWithin(root, abs)) return false
+    try {
+      const canonical = realPathWithMissingTail(root)
+      if (!isWithin(canonical, targetReal)) return false
+      for (let cursor = abs; relative(root, cursor) !== ''; cursor = dirname(cursor)) {
+        if (lstatSync(cursor, { throwIfNoEntry: false })?.isSymbolicLink()) return false
+      }
+      return true
+    } catch {
+      return false
+    }
+  })
+  if (!inAllowedDir) {
     throw new Error(
       `路径不在允许范围内：${abs}\n可以在「设置 → Agent 能力」里添加这个目录，或者开启「完全访问」。`
     )
   }
-  return abs
+  if (!options.allowMissing && !existsSync(abs)) throw new Error(`路径不存在：${abs}`)
+  return targetReal
 }
 
 export function registerFileTools(): void {
@@ -43,7 +91,7 @@ export function registerFileTools(): void {
       additionalProperties: false
     },
     async run(args): Promise<ToolResult> {
-      const dir = resolveAgentPath(String(args.dir ?? ''))
+      const dir = await resolveAgentPath(String(args.dir ?? ''))
       if (!existsSync(dir)) return { ok: false, summary: `目录不存在：${dir}` }
       const entries = readdirSync(dir, { withFileTypes: true }).slice(0, 200)
       const lines = entries.map((e) => {
@@ -78,7 +126,7 @@ export function registerFileTools(): void {
       additionalProperties: false
     },
     async run(args): Promise<ToolResult> {
-      const file = resolveAgentPath(String(args.path ?? ''))
+      const file = await resolveAgentPath(String(args.path ?? ''))
       if (!existsSync(file)) return { ok: false, summary: `文件不存在：${file}` }
       const max = Math.min(MAX_READ, Math.max(200, Number(args.maxChars) || MAX_READ))
       const text = readFileSync(file, 'utf8').slice(0, max)
@@ -106,14 +154,17 @@ export function registerFileTools(): void {
       additionalProperties: false
     },
     async run(args): Promise<ToolResult> {
-      const file = resolveAgentPath(String(args.path ?? ''))
+      const file = await resolveAgentPath(String(args.path ?? ''), { allowMissing: true })
       const content = String(args.content ?? '')
       if (content.length > MAX_WRITE) return { ok: false, summary: `内容太长（上限 ${MAX_WRITE} 字）` }
       const mode = args.mode === 'append' ? 'append' : 'overwrite'
       mkdirSync(resolve(file, '..'), { recursive: true })
+      await resolveAgentPath(resolve(file, '..'))
       let backup = ''
       if (existsSync(file) && mode === 'overwrite') {
+        await resolveAgentPath(file)
         backup = `${file}.bak`
+        await resolveAgentPath(backup, { allowMissing: true })
         copyFileSync(file, backup)
       }
       writeFileSync(file, content, { encoding: 'utf8', flag: mode === 'append' ? 'a' : 'w' })

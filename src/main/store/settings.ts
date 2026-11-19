@@ -18,6 +18,9 @@ const SECRET_PATHS: SecretPath[] = [
   'search.deepseekApiKey'
 ]
 
+type McpHeadersPath = `mcp.${string}.headers`
+const mcpHeadersPath = (id: string): McpHeadersPath => `mcp.${id}.headers`
+
 function clone<T>(v: T): T {
   return JSON.parse(JSON.stringify(v)) as T
 }
@@ -112,17 +115,23 @@ class SettingsStore {
         for (const p of SECRET_PATHS) {
           const enc = map[p]
           if (!enc) continue
-          let value = ''
-          if (enc.startsWith('plain:')) {
-            value = Buffer.from(enc.slice(6), 'base64').toString('utf8')
-          } else if (safeStorage.isEncryptionAvailable()) {
-            value = safeStorage.decryptString(Buffer.from(enc, 'base64'))
-          }
+          const value = this.decryptSecret(enc)
           if (value) setPath(this.data as unknown as Record<string, unknown>, p, value)
+        }
+        for (const server of this.data.mcp.servers) {
+          const value = map[mcpHeadersPath(server.id)]
+          if (value) server.headers = this.decryptSecret(value)
         }
       }
     } catch (e) {
       log('settings: 密钥读取失败', e)
+    }
+    if (this.data.mcp.servers.some((server) => server.headers)) {
+      try {
+        this.save()
+      } catch (e) {
+        log('settings: MCP 凭据迁移失败，保留原设置文件', e)
+      }
     }
   }
 
@@ -214,6 +223,19 @@ class SettingsStore {
     return this.data
   }
 
+  mcpServers(): Settings['mcp']['servers'] {
+    this.init()
+    return clone(this.data.mcp.servers)
+  }
+
+  publicMcpServers(): Settings['mcp']['servers'] {
+    return this.mcpServers().map((server) => ({
+      ...server,
+      headersConfigured: Boolean(server.headers),
+      headers: ''
+    }))
+  }
+
   public(): PublicSettings {
     const s = clone(this.data)
     const secretSet = {} as Record<SecretPath, boolean>
@@ -221,12 +243,20 @@ class SettingsStore {
       secretSet[p] = Boolean(getPath(s, p))
       setPath(s as unknown as Record<string, unknown>, p, '')
     }
+    for (const server of s.mcp.servers) {
+      server.headersConfigured = Boolean(server.headers)
+      server.headers = ''
+    }
     return { ...s, secretSet }
   }
 
   /** 设置页"显示"按钮用：按需取回明文（仅本机 IPC，不外传） */
   reveal(path: SecretPath): string {
     this.init()
+    if (path.startsWith('mcp.')) {
+      const match = /^mcp\.([\w.-]+)\.headers$/.exec(path)
+      return match ? this.data.mcp.servers.find((server) => server.id === match[1])?.headers ?? '' : ''
+    }
     if (!SECRET_PATHS.includes(path)) return ''
     return getPath(this.data, path) || ''
   }
@@ -236,6 +266,10 @@ class SettingsStore {
     const { clearSecrets, ...rest } = patch as SettingsPatch & { clearSecrets?: SecretPath[] }
     const cur = clone(this.data)
     const merged = deepMerge(cur, rest) as Settings
+    for (const server of merged.mcp.servers) {
+      const previous = cur.mcp.servers.find((item) => item.id === server.id)
+      if (server.headers === '' && previous?.headers) server.headers = previous.headers
+    }
 
     // 空字符串代表"不修改已保存的密钥"
     for (const p of SECRET_PATHS) {
@@ -247,6 +281,11 @@ class SettingsStore {
     if (Array.isArray(clearSecrets)) {
       for (const p of clearSecrets) {
         if (SECRET_PATHS.includes(p)) setPath(merged as unknown as Record<string, unknown>, p, '')
+        else if (p.startsWith('mcp.')) {
+          const match = /^mcp\.([\w.-]+)\.headers$/.exec(p)
+          const server = match && merged.mcp.servers.find((item) => item.id === match[1])
+          if (server) server.headers = ''
+        }
       }
     }
 
@@ -258,42 +297,77 @@ class SettingsStore {
     }
 
     this.data = this.normalize(merged)
-    this.save()
+    try {
+      this.save()
+    } catch (e) {
+      this.data = cur
+      throw e
+    }
     return this.public()
   }
 
   reset(): PublicSettings {
     this.init()
     const secrets = SECRET_PATHS.map((p) => ({ p, v: getPath(this.data, p) }))
+    const previous = this.data
     this.data = clone(DEFAULT_SETTINGS)
     for (const { p, v } of secrets) setPath(this.data as unknown as Record<string, unknown>, p, v)
-    this.save()
+    try {
+      this.save()
+    } catch (e) {
+      this.data = previous
+      throw e
+    }
     return this.public()
   }
 
   save(): void {
-    this.init()
-    try {
-      const onDisk = clone(this.data)
-      for (const p of SECRET_PATHS) setPath(onDisk as unknown as Record<string, unknown>, p, '')
-      mkdirSync(dirname(this.settingsFile), { recursive: true })
-      const tmp = `${this.settingsFile}.tmp`
-      writeFileSync(tmp, JSON.stringify(onDisk, null, 2), 'utf8')
-      renameSync(tmp, this.settingsFile)
-      this.saveSecrets()
-    } catch (e) {
-      log('settings: 保存失败', e)
+    if (!this.initialized && this.dir) {
+      this.writeSettings()
+      return
     }
+    this.init()
+    this.writeSettings()
+  }
+
+  private writeSettings(): void {
+    const onDisk = clone(this.data)
+    for (const p of SECRET_PATHS) setPath(onDisk as unknown as Record<string, unknown>, p, '')
+    for (const server of onDisk.mcp.servers) {
+      server.headersConfigured = Boolean(server.headers)
+      server.headers = ''
+    }
+    mkdirSync(dirname(this.settingsFile), { recursive: true })
+    this.saveSecrets()
+    const tmp = `${this.settingsFile}.tmp`
+    writeFileSync(tmp, JSON.stringify(onDisk, null, 2), 'utf8')
+    renameSync(tmp, this.settingsFile)
+  }
+
+  private encryptSecret(value: string): string {
+    if (!safeStorage.isEncryptionAvailable()) {
+      throw new Error('系统加密不可用，拒绝以可逆 Base64 明文保存凭据')
+    }
+    return safeStorage.encryptString(value).toString('base64')
+  }
+
+  private decryptSecret(value: string): string {
+    if (value.startsWith('plain:')) {
+      log('settings: 检测到旧版未加密凭据，保留在内存中并在下次成功保存时迁移')
+      return Buffer.from(value.slice(6), 'base64').toString('utf8')
+    }
+    if (!safeStorage.isEncryptionAvailable()) return ''
+    return safeStorage.decryptString(Buffer.from(value, 'base64'))
   }
 
   private saveSecrets(): void {
     const map: Record<string, string> = {}
     for (const p of SECRET_PATHS) {
       const v = getPath(this.data, p)
-      if (!v) continue
-      map[p] = safeStorage.isEncryptionAvailable()
-        ? safeStorage.encryptString(v).toString('base64')
-        : `plain:${Buffer.from(v, 'utf8').toString('base64')}`
+      if (v) map[p] = this.encryptSecret(v)
+    }
+    for (const server of this.data.mcp.servers) {
+      if (server.headers) map[mcpHeadersPath(server.id)] = this.encryptSecret(server.headers)
     }
     const tmp = `${this.secretsFile}.tmp`
     writeFileSync(tmp, JSON.stringify(map), 'utf8')

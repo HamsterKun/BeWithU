@@ -171,7 +171,13 @@ export type BubbleUpdate =
   | { type: 'anchor'; side: 'left' | 'right' }
   | { type: 'meta'; assistantName: string; silent: boolean; hotkey?: string }
 
+export interface GrabRequest {
+  requestId: string
+  displayId: string
+}
+
 export interface GrabResult {
+  requestId: string
   ok: boolean
   dataUrl?: string
   width?: number
@@ -231,7 +237,7 @@ export interface BwuApi {
     sendPcm(buf: ArrayBuffer): void
     audioDrained(): void
     /** 主进程让渲染进程用 WGC 抓一帧（普通抓屏黑屏时的兜底） */
-    onGrab(cb: () => void): () => void
+    onGrab(cb: (request: GrabRequest) => void): () => void
     grabResult(result: GrabResult): void
   }
   /** 悬浮球右键菜单（自绘窗口） */

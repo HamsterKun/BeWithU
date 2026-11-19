@@ -85,6 +85,7 @@ class StdioConn {
   }
 
   request(method: string, params: unknown): Promise<any> {
+    if (this.closed) return Promise.reject(new Error('MCP 连接已关闭'))
     const id = ++this.seq
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -101,7 +102,7 @@ class StdioConn {
   }
 
   close(): void {
-    this.closed = true
+    this.failAll('MCP 连接已撤销')
     try {
       this.proc.kill()
     } catch {
@@ -112,6 +113,7 @@ class StdioConn {
 
 class HttpConn {
   private seq = 0
+  private lifetime = new AbortController()
   constructor(
     private url: string,
     private headers: Record<string, string>
@@ -130,7 +132,7 @@ class HttpConn {
           ...this.headers
         },
         body: JSON.stringify({ jsonrpc: '2.0', id, method, params }),
-        signal: controller.signal
+        signal: AbortSignal.any([controller.signal, this.lifetime.signal])
       })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const type = res.headers.get('content-type') ?? ''
@@ -185,13 +187,17 @@ class HttpConn {
   }
 
   close(): void {
-    /* 无长连接 */
+    this.lifetime.abort()
   }
 }
 
 type Conn = StdioConn | HttpConn
 
-const conns = new Map<string, Conn>()
+const conns = new Map<string, { key: string; conn: Conn; ready: Promise<Conn> }>()
+
+export function mcpConfigKey(server: McpServerConfig): string {
+  return JSON.stringify([server.enabled, server.name, server.transport, server.command, server.args, server.url, server.headers])
+}
 
 function parseArgs(raw: string): string[] {
   // 支持带引号的参数，例如: "-y @modelcontextprotocol/server-filesystem C:\docs"
@@ -213,8 +219,10 @@ function parseHeaders(raw: string): Record<string, string> {
 }
 
 async function connect(server: McpServerConfig): Promise<Conn> {
+  const key = mcpConfigKey(server)
   const cached = conns.get(server.id)
-  if (cached) return cached
+  if (cached?.key === key) return cached.ready
+  if (cached) disconnectMcp(server.id)
   let conn: Conn
   if (server.transport === 'http') {
     conn = new HttpConn(server.url.trim(), parseHeaders(server.headers))
@@ -223,21 +231,30 @@ async function connect(server: McpServerConfig): Promise<Conn> {
     if (!cmd) throw new Error('没有配置启动命令')
     conn = new StdioConn(cmd, parseArgs(server.args))
   }
-  await conn.request('initialize', {
-    protocolVersion: PROTOCOL_VERSION,
-    capabilities: {},
-    clientInfo: { name: 'BeWithU', version: '0.1.0' }
-  })
-  conn.notify('notifications/initialized', {})
-  conns.set(server.id, conn)
-  return conn
+  const ready = (async () => {
+    try {
+      await conn.request('initialize', {
+        protocolVersion: PROTOCOL_VERSION,
+        capabilities: {},
+        clientInfo: { name: 'BeWithU', version: '0.1.0' }
+      })
+      if (conns.get(server.id)?.conn !== conn) throw new Error('MCP 连接已撤销')
+      conn.notify('notifications/initialized', {})
+      return conn
+    } catch (error) {
+      if (conns.get(server.id)?.conn === conn) disconnectMcp(server.id)
+      throw error
+    }
+  })()
+  conns.set(server.id, { key, conn, ready })
+  return ready
 }
 
 export function disconnectMcp(serverId: string): void {
   const c = conns.get(serverId)
   if (c) {
-    c.close()
     conns.delete(serverId)
+    c.conn.close()
   }
 }
 

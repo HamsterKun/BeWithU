@@ -3,6 +3,7 @@ import { execFileSync, spawn } from 'node:child_process'
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { openSettingsWindow } from './lib/settings-window.mjs'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const PORT = Number(process.env.CDP_PORT || 9285)
@@ -62,6 +63,7 @@ writeFileSync(mockFile, JSON.stringify({ responses: [{ text: 'ok' }] }))
 
 let app
 let ball
+let admin
 try {
   const exe = join(ROOT, 'node_modules', 'electron', 'dist', 'electron.exe')
   app = spawn(exe, ['.', '--no-sandbox', '--disable-gpu', `--user-data-dir=${ud}`, `--remote-debugging-port=${PORT}`], {
@@ -82,7 +84,8 @@ try {
     if (await ball.eval('Boolean(window.bwu && window.bwu.agentTest)')) break
     await sleep(300)
   }
-  await ball.eval("window.bwu.settings.update({ llm: { apiKey: 'sk-enc' }, agent: { enabled: true, shellEnabled: true } })")
+  admin = await openSettingsWindow({ Conn, jget, sleep, ball })
+  await admin.update({ llm: { apiKey: 'sk-enc' }, agent: { enabled: true, shellEnabled: true } })
   await sleep(600)
 
   const call = (id, args) => ball.eval(`window.bwu.agentTest.call(${JSON.stringify(id)}, ${JSON.stringify(args ?? {})})`)
@@ -115,6 +118,7 @@ try {
   ok('fatal', false, String(e && e.message ? e.message : e))
 } finally {
   ball?.close()
+  admin?.close()
   try {
     app && process.kill(app.pid)
   } catch {}

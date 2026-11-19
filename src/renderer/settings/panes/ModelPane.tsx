@@ -197,11 +197,14 @@ export default function ModelPane({ s, patch }: PaneProps): React.ReactElement {
         </div>
       </Section>
 
-      <Section title="屏幕理解" desc="让 TA 看见你的屏幕，回答更贴合当前画面">
+      <Section title="屏幕理解" desc="可选功能，默认关闭。开启后，每次闲聊或 Agent 任务都会截取鼠标所在显示器，并将画面与问题发送给下方配置的 AI 服务。">
         <Field label="开启截屏" hint="看敏感内容时建议先关闭">
           <Toggle
             checked={s.llm.vision.enabled}
-            onChange={(v) => patch({ llm: { vision: { enabled: v } } }, true)}
+            onChange={(v) => {
+              if (v && !window.confirm('开启后，每次闲聊或 Agent 任务都会截取鼠标所在显示器，并把截图发送给你配置的 AI 服务。确定开启？')) return
+              patch({ llm: { vision: { enabled: v } } }, true)
+            }}
           />
         </Field>
 

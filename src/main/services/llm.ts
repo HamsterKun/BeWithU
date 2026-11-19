@@ -1,6 +1,7 @@
 import type { LlmSettings } from '../../shared/types'
 import { log } from '../logger'
 import { recordTokens } from '../store/usage'
+import { HttpStatusError } from './http-error'
 
 export type ContentPart =
   | { type: 'text'; text: string }
@@ -139,7 +140,7 @@ export async function* streamChat(opts: {
       res = await send({})
     } else {
       log('llm: http error', res.status, body.replace(/\s+/g, ' ').slice(0, 400))
-      throw new Error(friendlyError(res.status))
+      throw new HttpStatusError(friendlyError(res.status), res.status, 'llm')
     }
   }
 

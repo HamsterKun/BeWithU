@@ -1,20 +1,36 @@
 import { app, utilityProcess } from 'electron'
 import { join } from 'node:path'
-import { existsSync, statSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { closeSync, existsSync, openSync, readSync, statSync } from 'node:fs'
 import { log } from '../logger'
+import { ASR_MODEL_FILES } from './asr-model-manifest'
 
-const MODEL_FILES = ['model.int8.onnx', 'tokens.txt']
+const MODEL_FILES = ASR_MODEL_FILES
 const IDLE_MS = 5 * 60 * 1000
 
 export function modelDir(): string {
   return join(app.getPath('userData'), 'models', 'sensevoice-2024-07-17')
 }
 
+function hashFile(path: string): string {
+  const fd = openSync(path, 'r')
+  try {
+    const hash = createHash('sha256')
+    const buffer = Buffer.allocUnsafe(1024 * 1024)
+    let bytes: number
+    while ((bytes = readSync(fd, buffer, 0, buffer.length, null)) > 0) hash.update(buffer.subarray(0, bytes))
+    return hash.digest('hex')
+  } finally {
+    closeSync(fd)
+  }
+}
+
 export function modelReady(): boolean {
   try {
-    return MODEL_FILES.every((f) => {
-      const p = join(modelDir(), f)
-      return existsSync(p) && statSync(p).size > 0
+    return MODEL_FILES.every((file) => {
+      const path = join(modelDir(), file.name)
+      if (!existsSync(path) || !statSync(path).isFile() || statSync(path).size !== file.size) return false
+      return hashFile(path) === file.sha256
     })
   } catch {
     return false

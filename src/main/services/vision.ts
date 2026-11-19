@@ -48,9 +48,8 @@ function currentDisplay(): Electron.Display {
 }
 
 /** 第一选择：desktopCapturer 缩略图（快，一般 100ms 内） */
-async function captureThumbnail(): Promise<CaptureResult> {
+async function captureThumbnail(display: Electron.Display): Promise<CaptureResult> {
   try {
-    const display = currentDisplay()
     const scale = display.scaleFactor || 1
     const width = Math.min(MAX_WIDTH, Math.round(display.size.width * scale))
     const height = Math.max(
@@ -67,7 +66,10 @@ async function captureThumbnail(): Promise<CaptureResult> {
       return { ok: false, reason: 'empty', message: '没有拿到任何屏幕源' }
     }
 
-    const source = sources.find((s) => s.display_id === String(display.id)) ?? sources[0]
+    const source = sources.find((s) => s.display_id === String(display.id))
+    if (!source) {
+      return { ok: false, reason: 'empty', message: '找不到光标所在显示器的抓屏源，已跳过截图' }
+    }
     const image = source.thumbnail
     if (!image || image.isEmpty()) {
       return { ok: false, reason: 'empty', message: '缩略图为空' }
@@ -96,20 +98,30 @@ async function captureThumbnail(): Promise<CaptureResult> {
 }
 
 /** 兜底：让渲染进程走 Windows Graphics Capture 抓一帧（独占全屏通常只有它能出图） */
-async function captureWgc(): Promise<CaptureResult> {
-  const res = await grabViaWgc()
+async function captureWgc(displayId: string): Promise<CaptureResult> {
+  const res = await grabViaWgc(displayId)
   if (!res || !res.ok || !res.dataUrl) {
     return { ok: false, reason: 'blank', message: res?.error ? `WGC 抓帧失败：${res.error}` : 'WGC 抓帧失败' }
   }
-  const base64 = res.dataUrl.split(',')[1] ?? ''
+  const match = /^data:image\/(jpeg|png);base64,([A-Za-z0-9+/]*={0,2})$/.exec(res.dataUrl)
+  const width = res.width
+  const height = res.height
+  if (!match || !width || !height || !Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1 || width > MAX_WIDTH || height > 12000) {
+    return { ok: false, reason: 'empty', message: 'WGC 返回了无效的图像' }
+  }
+  const base64 = match[2]
+  const bytes = Math.floor((base64.length * 3) / 4) - (base64.endsWith('==') ? 2 : base64.endsWith('=') ? 1 : 0)
+  if (!bytes || bytes > 32 * 1024 * 1024) {
+    return { ok: false, reason: 'empty', message: 'WGC 图像大小无效' }
+  }
   return {
     ok: true,
     shot: {
       dataUrl: res.dataUrl,
-      width: res.width ?? 0,
-      height: res.height ?? 0,
-      bytes: Math.round((base64.length * 3) / 4),
-      displayId: '',
+      width,
+      height,
+      bytes,
+      displayId,
       displayLabel: 'WGC',
       via: 'wgc'
     }
@@ -121,10 +133,12 @@ async function captureWgc(): Promise<CaptureResult> {
  * 先走快的缩略图；黑屏（独占全屏）时自动用 WGC 再试一次。
  */
 export async function captureScreen(): Promise<CaptureResult> {
-  const first = await captureThumbnail()
+  const display = currentDisplay()
+  const displayId = String(display.id)
+  const first = await captureThumbnail(display)
   if (first.ok) return first
 
-  const wgc = await captureWgc()
+  const wgc = await captureWgc(displayId)
   if (wgc.ok) {
     log('vision: 缩略图不可用，已用 WGC 抓到画面')
     return wgc

@@ -116,6 +116,10 @@ async function main() {
   )
   const ball = await Conn.open((await waitTarget('ball/index.html')).webSocketDebuggerUrl)
   await sleep(1800)
+  await ball.eval('window.bwu.ball.click(false)')
+  const bubble = await Conn.open((await waitTarget('/bubble/')).webSocketDebuggerUrl)
+  await bubble.eval("window.bwu.settings.open('agent')")
+  const settings = await Conn.open((await waitTarget('/settings/')).webSocketDebuggerUrl)
 
   const q = (p) => JSON.stringify(p)
 
@@ -130,13 +134,13 @@ async function main() {
   // 3) 添加 MCP 服务器（用当前 node 跑假服务）
   const server = join(ROOT, 'tools', 'fixtures', 'mcp-server.cjs')
   const list = JSON.parse(
-    await ball.eval(`window.bwu.mcp.add({ name:'假MCP', transport:'stdio', command:${q(process.execPath)}, args:${q(server)} }).then(l => JSON.stringify(l))`)
+    await settings.eval(`window.bwu.mcp.add({ name:'假MCP', transport:'stdio', command:${q(process.execPath)}, args:${q(server)} }).then(l => JSON.stringify(l))`)
   )
   const added = list.find((x) => x.name === '假MCP')
   check('添加 MCP 服务器', Boolean(added), list.map((x) => x.name))
 
   // 4) 测试连接
-  r = JSON.parse(await ball.eval(`window.bwu.mcp.test(${q(added.id)}).then(r => JSON.stringify(r))`))
+  r = JSON.parse(await settings.eval(`window.bwu.mcp.test(${q(added.id)}).then(r => JSON.stringify(r))`))
   check('MCP 连接并列出工具', r.ok && r.tools?.includes('echo'), r)
 
   // 5) 注册进工具表
@@ -149,7 +153,7 @@ async function main() {
   )
   check('MCP 工具调用成功', r.ok && r.summary.includes('MCP echo: 你好'), r.summary)
 
-  ball.ws.close()
+  for (const connection of [ball, bubble, settings]) connection.ws.close()
   proc.kill()
   await sleep(700)
   rmSync(TMP, { recursive: true, force: true })

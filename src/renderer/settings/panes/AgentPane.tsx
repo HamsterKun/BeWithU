@@ -201,13 +201,13 @@ export default function AgentPane({ s, patch }: PaneProps): React.ReactElement {
         </Field>
         <Field
           label="完全信任模式"
-          hint="开启后所有工具和 Skill 直接执行，不再逐次弹确认卡（Shell、写文件、键鼠、MCP 都算）；只保留删盘/格式化这类硬红线"
+          hint="开启后内置高风险工具不再逐次确认；MCP 远端工具仍逐次确认，危险命令检查只是补充，不是安全隔离"
         >
           <Toggle checked={shellOn} onChange={(v) => patch({ agent: { shellEnabled: v } })} />
         </Field>
         {shellOn ? (
           <p className="agent-warn">
-            已开启最高权限：模型可以直接改文件、执行 PowerShell、操作键鼠、调用 MCP。
+            已开启内置工具免确认：模型可以直接改文件、执行 PowerShell、操作键鼠。远端 MCP 调用仍需逐次确认。
             不确定模型靠不靠谱时，建议用完就关掉。
           </p>
         ) : null}
@@ -261,10 +261,10 @@ export default function AgentPane({ s, patch }: PaneProps): React.ReactElement {
                 <span className="agent-tool__id">{t.id}</span>
                 <span
                   className={
-                    t.risk === 'high' && !shellOn ? 'agent-tool__risk is-high' : 'agent-tool__risk is-trusted'
+                    t.risk === 'high' && (!shellOn || t.id.startsWith('mcp.')) ? 'agent-tool__risk is-high' : 'agent-tool__risk is-trusted'
                   }
                 >
-                  {t.risk === 'high' ? (shellOn ? '已信任' : '需确认') : '只读'}
+                  {t.risk === 'high' ? (shellOn && !t.id.startsWith('mcp.') ? '免确认' : '需确认') : '低风险'}
                 </span>
               </div>
               <Toggle checked={t.enabled} onChange={(v) => toggleTool(t.id, v)} />
@@ -275,7 +275,7 @@ export default function AgentPane({ s, patch }: PaneProps): React.ReactElement {
 
       <Section
         title="自定义工具"
-        desc="从目录导入（manifest.json + index.js）。工具代码会在你的电脑上运行，只导入你信任的来源。"
+        desc="从目录导入（manifest.json + index.js）。自定义工具以完整 Node 子进程运行，拥有当前用户权限；这里的权限声明不会限制子进程本身。"
       >
         <div className="agent-tools">
           {custom.length === 0 ? (
@@ -306,7 +306,7 @@ export default function AgentPane({ s, patch }: PaneProps): React.ReactElement {
         {err ? <p className="agent-warn">{err}</p> : null}
         {custom.some((t) => !t.trusted) ? (
           <p className="agent-warn">
-            未信任的工具不会注册给模型。勾选「信任」等于允许它在你的电脑上执行代码。
+            未信任的工具不会注册给模型。勾选「信任」等于允许任意工具代码以当前用户权限执行；permissions 只是 API 的声明/提示，不是操作系统沙箱。
           </p>
         ) : null}
         <div className="agent-actions">
@@ -377,6 +377,7 @@ export default function AgentPane({ s, patch }: PaneProps): React.ReactElement {
                   <span className="agent-tool__id">
                     {srv.transport === 'http' ? srv.url : `${srv.command} ${srv.args}`.trim()}
                   </span>
+                  {srv.headersConfigured ? <span className="agent-tool__risk">请求头已配置</span> : null}
                   {mcpStatus[srv.id] ? (
                     <span className={mcpStatus[srv.id].ok ? 'agent-tool__risk is-trusted' : 'agent-tool__risk is-high'}>
                       {mcpStatus[srv.id].ok ? `已连接 · ${mcpStatus[srv.id].tools?.length ?? 0}` : '连接失败'}

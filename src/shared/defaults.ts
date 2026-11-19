@@ -59,7 +59,7 @@ export const DEFAULT_SETTINGS: Settings = {
       effort: 'medium'
     },
     vision: {
-      enabled: true
+      enabled: false
     }
   },
   tts: {

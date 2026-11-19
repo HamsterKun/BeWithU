@@ -1,7 +1,6 @@
-# BeWithU 交接文档（2026-11-19，v1.0.10）
+# BeWithU 交接文档（2026-11-19，1.0.11 开发中）
 
-> 给接手的 Agent：**先读 §0、§1，再读 §8 环境坑**，其余按需查。
-> 本文覆盖「白天那版交接文档」的全部内容，并加上今晚的全部改动，可当作唯一版本。
+> 接手先读 §0 和 §10。工作区包含未提交源码改动、未跟踪测试及发布文档；不要仅从 HEAD 导出。
 
 ---
 
@@ -9,11 +8,11 @@
 
 | 项 | 值 |
 |---|---|
-| 代码位置 | `C:\Users\jiangchengrui\Desktop\BeWithU` |
-| 版本 | **1.0.10**（`package.json` 的 `version`） |
-| HEAD | 见 `git log`（1.0.3 提交已推送） |
-| 产物 | `release/BeWithU-1.0.10-x64.exe`、`BeWithU-1.0.10-portable.exe` |
-| 工作区 | 干净，无遗留进程/临时目录 |
+| 代码位置 | `D:\coding\BeWithU` |
+| 版本 | **1.0.11**（安全与可靠性修复开发中，尚未打包/发布） |
+| HEAD | `2b2a24d`（1.0.10 基线） |
+| 产物 | `out/` 是本轮源码 bundle；`release/` 仍只有 1.0.10 旧安装器/便携包，未生成 1.0.11 产物 |
+| 工作区 | 有未提交的源码和文档改动，也有未跟踪的测试、安装校验脚本和审查报告。带回家应打包工作区文件，不能只导出 HEAD |
 
 **白天那版**：Agent 能力层 M1（键鼠注入）+ M2（工具循环/审批/审计）+ 设置页，19 个内置工具。
 **今晚这版**：把 Agent 能力补完整（自定义工具、Skill、MCP、联网搜索），修掉一批把功能打到不可用的 bug，
@@ -122,7 +121,7 @@
 
 - **1.0.0 正式版**（`2dacc16`）→ **1.0.1**（`feab632`）→ **1.0.2**（`62bea6f`）。
 - 规则：**每次更新都改 `package.json` 的 `version`**，打包前**先清空 `release/`**。
-- 新增 `scripts/install-app.cmd`：`Unblock-File` 后再启动安装包，绕过 SmartScreen 的"已保护你的电脑"。
+- 历史版本曾自动解除安装包下载标记；该行为已在第一批修复中移除。当前用法以 [安装校验说明](README.md) 和 §10 为准。
 
 ---
 
@@ -308,7 +307,7 @@ scripts/install-app.cmd ★
   想加自动路由的话，建议「关键词 + 手动三档（始终 Agent / 始终聊天 / 自动）」。
 - **一轮 Agent**：`respondWithAgent` → 截图 → `runAgentTask`（最多 `maxSteps`）→ 每步 `runOne`
   （禁用检查 → 硬红线 → 信任模式/审批 → 执行带超时）→ 结果回填 → 没有文本就**收尾轮**。
-- **审批**：`risk:'high'` 且没开完全信任 → 气泡确认卡，15s 超时默认拒绝；也可直接说「同意/拒绝」。
+- **审批**：高风险工具默认提示确认，MCP 不受本地免确认设置影响；15 秒超时默认拒绝。确认绑定当前对话，停止或切换对话会撤销待确认请求。文字/语音只接受完整确认短句。
 - **审计**：`<userData>/agent/runs/YYYY-MM-DD.jsonl`，保留 7 天。
 - **键鼠注入**：koffi 只能在 `utilityProcess`（`input-worker.ts`）里跑，主进程调用会 0xC0000005。
 - **用量**：只统计本机调用，不上报；本地 TTS/本地识别不产生费用。
@@ -438,9 +437,28 @@ $d = "$env:USERPROFILE\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies"
 
 ---
 
-## 10. 收尾状态
+## 10. 当前状态：安全与可靠性修复
 
-- 版本 **1.0.2**，HEAD `62bea6f`，已推送，工作区干净
-- `release/` 只有 1.0.2 的两个包，`win-unpacked` 也在（本地可跑）
-- 无遗留 electron / 打包进程，无 `.tmp-*` 目录
-- 今晚所有改动都有对应测试或实拍验证，截图在 `.shots/`
+### 已完成，未提交、未发布
+
+- **审批与 MCP**：停止或切换对话会撤销待确认操作；执行前复核权限和取消状态。MCP 配置变更会撤销旧工具和连接，远端工具仍逐次确认。[审批](src/main/agent/approval.ts) · [MCP 注册](src/main/agent/index.ts) · [执行入口](src/main/agent/runner.ts)
+- **文件与窗口权限**：校验允许目录和实际落点，包括备份与自定义工具入口；preload 按窗口角色暴露接口，主进程核验窗口和主框架，生产版不开放测试 IPC。路径检查和子进程均不是操作系统沙箱。[文件工具](src/main/agent/tools/files.ts) · [IPC](src/main/ipc.ts) · [preload](src/preload/index.ts)
+- **截图隐私**：新配置默认关闭，启用时提示截图范围和传输对象；已有配置原样保留。普通截图和 WGC 使用同一目标显示器，无法匹配时不换屏；WGC 回包带请求 ID。[视觉服务](src/main/services/vision.ts) · [WGC](src/main/vision-grab.ts)
+- **迁移与安装**：迁移包含用量和 Agent 数据，经 SHA-256 校验后才切换，源目录保留；恢复默认时先归档之前的默认应用数据。安装脚本不解除下载标记，要求显式路径和可信摘要或发布者证书指纹。[迁移](src/main/data-dir.ts) · [安装脚本](scripts/install-app.cmd) · [校验脚本](scripts/check-installer.ps1)
+- **本轮追加**：ASR 会话 generation 防止跨轮回写；MCP headers 加密落盘且公开 DTO 脱敏；Agent 单次多工具调用按剩余步数截断，拒绝未知工具并在超时请求取消；LLM 400 视觉回退与 Breeze 429 重试改用结构化 HTTP 状态；设置保存失败显式显示并保留 patch。
+
+### 已验证与待验证
+
+- 交接前验证记录：主进程及渲染端 TypeScript 检查通过，Electron/Vite 生产构建成功（输出到系统临时目录），四个新增测试 **14/14** 通过。该记录对应交接生成时的环境，不代表下方本次复验。
+- 本轮环境：Node.js **v24.21.0**、pnpm **11.28.5**；依赖按 frozen lock 恢复，`pnpm-lock.yaml` 未修改。主/渲染 TypeScript 检查通过，Electron/Vite bundle 构建通过（输出至 `out/`）。最新全量结果：unit/security **21/21**、Agent runner E2E **10/10**、扩展/Skill E2E **10/10**、MCP ZIP E2E **6/6**、播放器 **6/6**；另新增 `asr-model-manifest.test.mjs`（2 assertions grouped in 1 test），单独通过。`git diff --check` 通过。
+- E2E 管理操作使用最小权限窗口：Agent runner 设置通过设置窗，Skill/MCP 管理通过气泡打开设置窗；没有放宽生产 IPC。
+- 安装校验脚本正反例曾用一次性 `-ExecutionPolicy Bypass` 子进程验证；未改系统执行策略，也未启动安装器。
+- 版本为 **1.0.11**，但尚未完成该版本生产打包/安装器验收。`release/` 保留原 1.0.10 产物；本轮未清理或覆盖。
+- **ASR 当前进度**：已从官方 sherpa-onnx GitHub release `asr-models` 的 `checksum.txt` 找到 int8 archive SHA-256 `7d1efa2138a65b0b488df37f8b89e3d91a60676e416f515b952358d83dfd347e`；官方 release API 中该 checksum 清单的 asset digest 为 `sha256:a96a8ecfa4377305cce41cf5cc3833552477e547ff7ad10a2c9615b3e6921f1a`，上传者为 `github-actions[bot]`。代码已改为固定官方 release archive、校验归档和两个文件 hash/size 后再 staging 发布，`modelReady()` 也校验每个文件 hash。**未完成实测**：归档下载因网络速度低而停止，临时文件 `%TEMP%\\bwu-sensevoice-int8-2024-07-17.tar.bz2` 仅约 16 MB（完整 163,002,883 bytes），不可解包/使用；需续下后比对 archive SHA、检查 tar 清单和文件 hash，再测试提取流程。不要把该 partial 当作模型。
+- **下一步**：先续传并完整校验上述官方 ASR archive；运行 ASR manifest/download/extraction tests。随后执行 typecheck、全量 E2E，再启动本轮 `out/` 对应源码 GUI 做隔离冒烟。确认 `koffi` 可用于当前 Node/Electron ABI 后，将 builder 输出设到独立 staging，不清理旧 `release/`；校验 app.asar 时间、koffi unpacked 文件、版本与 exe，再算 SHA-256。只有全部通过后才将 1.0.11 产物放入 `release/` 并生成独立发布清单。
+- **发布阻塞**：1.0.11 新安装器和 portable 尚未生成；需验证 koffi 原生模块被 builder 正确打入，并做新包隔离启动、测试和 SHA-256 发布清单。真实多屏/WGC、ASR 设备、代码签名及外部发布也未完成。
+
+### 源码搬运
+
+- 打包当前工作区，不要用仅包含已提交内容的 `git archive HEAD`。务必带上这份交接、[审查报告](REVIEW.md)、[安装校验脚本](scripts/check-installer.ps1)和所有未跟踪测试文件（包含审批、迁移、文件边界、抓屏、MCP 密钥、ASR manifest/retry、工具预算及 ASR generation 测试；仅按 Git 跟踪文件打包会漏掉它们）。
+- 可排除 `node_modules/`、`.pnpm-store/`、`.cache/`、`out/`、`release/`、`.shots/` 和本地日志/录音样本；保留源码、脚本、资源、构建配置及锁文件。不要打入真实应用数据目录、API Key 或凭据。是否带 `.git/` 按是否需要保留历史决定。

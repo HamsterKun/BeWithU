@@ -210,8 +210,9 @@ export interface McpServerConfig {
   /** 命令行参数，支持引号 */
   args: string
   url: string
-  /** 每行一个 "Key: Value" */
+  /** 每行一个 "Key: Value"；公开设置只返回空值并通过 headersConfigured 指示状态 */
   headers: string
+  headersConfigured?: boolean
 }
 
 export interface McpToolDef {
@@ -280,6 +281,7 @@ export type SecretPath =
   | 'asr.apiKey'
   | 'search.tavilyApiKey'
   | 'search.deepseekApiKey'
+  | `mcp.${string}.headers`
 
 export interface PublicSettings extends Settings {
   secretSet: Record<SecretPath, boolean>

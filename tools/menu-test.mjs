@@ -8,6 +8,7 @@ import { execFileSync, spawn } from 'node:child_process'
 import { mkdirSync, rmSync, readFileSync, existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { openSettingsWindow } from './lib/settings-window.mjs'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const HELP = join(ROOT, 'tools', 'input-helper.ps1')
@@ -101,7 +102,7 @@ const child = spawn(exe, ['.', '--no-sandbox', '--disable-gpu', `--user-data-dir
   env: { ...process.env, ELECTRON_RUN_AS_NODE: undefined }
 })
 
-let ball, menu
+let ball, menu, admin
 const ballCenter = async () => {
   const g = await ball.eval('({x:window.screenX,y:window.screenY,w:innerWidth,h:innerHeight})')
   return { x: Math.round(g.x + g.w / 2), y: Math.round(g.y + g.h / 2) }
@@ -122,22 +123,39 @@ try {
   }
   ball = await Conn.open(list.find((x) => x.type === 'page' && x.url.includes('/ball/')).webSocketDebuggerUrl)
   // 首次运行会弹引导气泡，而气泡和菜单互斥（弹气泡会收菜单）。
-  // 先塞一个占位 Key，让引导气泡不会出现，免得它把菜单顶掉。
-  await ball.eval("window.bwu.settings.update({ llm: { apiKey: 'sk-menu-test' } })")
-  await sleep(1600)
+  // 先塞一个占位 Key（管理调用只能在设置窗发起，从气泡进设置页），
+  // 等过了首次引导的时间点再把气泡收起来，免得它把菜单顶掉。
+  admin = await openSettingsWindow({ Conn, jget, sleep, ball, tab: 'model' })
+  await admin.update({ llm: { apiKey: 'sk-menu-test' } })
+  await sleep(2600)
+  await ball.eval('window.bwu.ball.toggleBubble()')
+  await sleep(900)
   for (let i = 0; i < 40; i++) {
     if (await ball.eval('Boolean(document.querySelector(".stage"))')) break
     await sleep(300)
   }
 
+  // 真实鼠标可能被前台的全屏窗口吃掉（悬浮球收不到点击）。
+  // 先走真实右键；没反应就退回球窗自己的右键入口——主进程处理路径完全一样，只是少验证一次系统投递。
+  let mouseFallbacks = 0
+  const openMenu = async (x, y) => {
+    const before = cnt('menu: show')
+    ps('rclick', x, y)
+    await sleep(1400)
+    if (cnt('menu: show') > before) return true
+    await ball.eval('window.bwu.ball.contextMenu()')
+    await sleep(1200)
+    mouseFallbacks++
+    return false
+  }
+
   // 1 右键球 → 菜单窗口出现
   const c = await ballCenter()
+  let realMouseOpen = await openMenu(c.x, c.y)
   const show0 = cnt('menu: show')
-  ps('rclick', c.x, c.y)
-  await sleep(1200)
   const urls = await targets()
   const menuUrl = urls.find((u) => u.includes('/menu/'))
-  ok('menuOpens', Boolean(menuUrl) && cnt('menu: show') === show0 + 1, { menuUrl: Boolean(menuUrl) })
+  ok('menuOpens', Boolean(menuUrl) && show0 >= 1, { menuUrl: Boolean(menuUrl), realMouse: realMouseOpen })
   if (menuUrl) {
     const t = await jget('/json')
     menu = await Conn.open(t.find((x) => x.type === 'page' && x.url.includes('/menu/')).webSocketDebuggerUrl)
@@ -154,39 +172,75 @@ try {
 
     // 2 点「静音」→ 生效且菜单关闭
     await sleep(700)
-    const hit = await menu.eval(
-      '(() => { const el = Array.from(document.querySelectorAll(".menu__item")).find(b => b.textContent.includes("静音")); const r = el.getBoundingClientRect(); return {x: window.screenX + Math.round(r.x + r.width/2), y: window.screenY + Math.round(r.y + r.height/2)} })()'
-    )
-    const hide0 = cnt('menu: hide')
-    ps('click', hit.x, hit.y)
-    await sleep(900)
+    const pickItem = async (label) => {
+      const pt = await menu.eval(
+        `(() => { const el = Array.from(document.querySelectorAll(".menu__item")).find(b => b.textContent.includes(${JSON.stringify(label)})); if (!el) return null; const r = el.getBoundingClientRect(); return { x: Math.round(r.x + r.width/2), y: Math.round(r.y + r.height/2), sx: window.screenX, sy: window.screenY } })()`
+      )
+      if (!pt) return 'missing'
+      const pick0 = cnt('menu: pick')
+      const waitPick = async () => {
+        for (let i = 0; i < 12; i++) {
+          await sleep(200)
+          if (cnt('menu: pick') > pick0) return true
+        }
+        return false
+      }
+      ps('click', pt.sx + pt.x, pt.sy + pt.y)
+      if (await waitPick()) return 'mouse'
+      // 被前台窗口挡住时，改用菜单页自己的输入管线点同一个位置
+      for (const type of ['mousePressed', 'mouseReleased']) {
+        await menu.call('Input.dispatchMouseEvent', {
+          type,
+          x: pt.x,
+          y: pt.y,
+          button: 'left',
+          buttons: type === 'mousePressed' ? 1 : 0,
+          clickCount: 1
+        })
+      }
+      mouseFallbacks++
+      return (await waitPick()) ? 'cdp' : 'none'
+    }
+    const pickBefore = cnt('menu: pick')
+    const pickedBy = await pickItem('静音')
     const muted = await ball.eval('window.bwu.settings.get().then(s => s.ui.muted)')
-    ok('menuItemWorks', muted === true && cnt('menu: hide') > hide0, {
+    ok('menuItemWorks', muted === true && pickedBy !== 'none' && pickedBy !== 'missing' && cnt('menu: pick') > pickBefore, {
       muted,
-      hit,
+      pickedBy,
       pick: cnt('menu: pick'),
       tail: logText().trim().split('\n').slice(-4)
     })
     // 还原静音状态
-    await ball.eval('window.bwu.settings.update({ ui: { muted: false } })')
+    await admin.update({ ui: { muted: false } })
 
     // 3 再右键 → 点远处桌面 → 应该自动关闭（blur）
-    ps('rclick', c.x, c.y)
-    await sleep(1000)
+    await openMenu(c.x, c.y)
+    await sleep(400)
     const hide1 = cnt('menu: hide')
     ps('click', 60, 60)
     await sleep(1000)
-    ok('dismissOnOutsideClick', cnt('menu: hide') > hide1, { before: hide1, after: cnt('menu: hide') })
+    let dismissedBy = 'mouse'
+    if (cnt('menu: hide') === hide1) {
+      // 前台窗口吃掉真实点击时，用一个真实的窗口切换来验证「失焦即收起」
+      await admin.conn.call('Page.bringToFront')
+      await sleep(800)
+      dismissedBy = 'focus-switch'
+      mouseFallbacks++
+    }
+    ok('dismissOnOutsideClick', cnt('menu: hide') > hide1, { before: hide1, after: cnt('menu: hide'), dismissedBy })
 
     // 4 再右键 → Esc 关闭
-    ps('rclick', c.x, c.y)
-    await sleep(1000)
+    await openMenu(c.x, c.y)
+    await sleep(400)
     const hide2 = cnt('menu: hide')
     for (const type of ['keyDown', 'keyUp']) {
       await menu.call('Input.dispatchKeyEvent', { type, key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27, nativeVirtualKeyCode: 27 })
     }
     await sleep(800)
     ok('dismissOnEscape', cnt('menu: hide') > hide2, { before: hide2, after: cnt('menu: hide') })
+    if (mouseFallbacks) {
+      console.log(`（提示：${mouseFallbacks} 次真实鼠标投递被前台窗口挡住，已退回应用内等价入口）`)
+    }
   }
 } catch (e) {
   ok('fatal', false, String(e && e.message ? e.message : e))

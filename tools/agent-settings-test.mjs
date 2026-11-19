@@ -3,6 +3,7 @@ import { execFileSync, spawn } from 'node:child_process'
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { openSettingsWindow } from './lib/settings-window.mjs'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const PORT = Number(process.env.CDP_PORT || 9276)
@@ -68,6 +69,7 @@ const mockFile = join(tmp, 'mock.json')
 let app
 let ball
 let settings
+let admin
 try {
   writeFileSync(mockFile, JSON.stringify({ responses: [{ text: 'ok' }] }))
   const exe = join(ROOT, 'node_modules', 'electron', 'dist', 'electron.exe')
@@ -90,15 +92,10 @@ try {
     if (await ball.eval('Boolean(window.bwu && window.bwu.agentTest)')) break
     await sleep(300)
   }
-  await ball.eval("window.bwu.settings.update({ llm: { apiKey: 'sk-mock' } })")
-  await sleep(400)
-
-  // 打开设置页的 Agent 标签
-  await ball.eval("window.bwu.settings.open('agent')")
-  await sleep(2000)
-  const list2 = await jget('/json')
-  const target = list2.find((x) => x.type === 'page' && x.url.includes('/settings/'))
-  settings = await Conn.open(target.webSocketDebuggerUrl)
+  // 管理调用只允许设置窗发起：点球出气泡，再从气泡打开设置页的 Agent 标签
+  admin = await openSettingsWindow({ Conn, jget, sleep, ball })
+  settings = admin.conn
+  await admin.update({ llm: { apiKey: 'sk-mock' } })
   await sleep(600)
 
   const title = await settings.eval("document.querySelector('.main__head h1')?.textContent || ''")
@@ -133,7 +130,7 @@ try {
   ok('maxStepsEditable', cfg?.agent?.maxSteps === 12, cfg?.agent?.maxSteps)
 
   // 4) 目录列表（走真实设置接口，选择器用系统对话框无法自动化）
-  await ball.eval(`window.bwu.settings.update({ agent: { files: { dirs: ${JSON.stringify([extraDir])} } } })`)
+  await admin.update({ agent: { files: { dirs: [extraDir] } } })
   await sleep(800)
   const dirRow = await settings.eval("document.querySelector('.agent-dir__path')?.textContent || ''")
   ok('dirListed', dirRow.includes('工作目录'), dirRow)
@@ -169,6 +166,7 @@ try {
 } finally {
   ball?.close()
   settings?.close()
+  admin?.bubble.close()
   try {
     app && process.kill(app.pid)
   } catch {}

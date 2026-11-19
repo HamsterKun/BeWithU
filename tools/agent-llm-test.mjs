@@ -14,6 +14,7 @@ import { spawn } from 'node:child_process'
 import { mkdirSync, rmSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { openSettingsWindow } from './lib/settings-window.mjs'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const PORT = Number(process.env.CDP_PORT || 9275)
@@ -147,19 +148,23 @@ async function main() {
   const ball = await Conn.open((await waitTarget('ball/index.html')).webSocketDebuggerUrl)
   await sleep(1800)
 
-  // 配置假模型 + 打开 Agent
-  await ball.eval(
-    `window.bwu.settings.update({ llm: { baseUrl: 'http://127.0.0.1:${API_PORT}/ok', model: 'mock-model', apiKey: 'sk-test', preset: 'custom' }, agent: { enabled: true } }).then(s => s.llm.model)`
-  )
+  // 配置假模型 + 打开 Agent（管理调用只能在设置窗发起）
+  const admin = await openSettingsWindow({
+    Conn,
+    jget: async () => (await fetch(`http://127.0.0.1:${PORT}/json/list`)).json(),
+    sleep,
+    ball,
+    tab: 'model'
+  })
+  const model = await admin.update({
+    llm: { baseUrl: `http://127.0.0.1:${API_PORT}/ok`, model: 'mock-model', apiKey: 'sk-test', preset: 'custom' },
+    agent: { enabled: true }
+  })
+  check('设置已写入假模型', model?.llm?.model === 'mock-model', model?.llm?.model)
   await sleep(600)
 
-  // 打开气泡并输入一句话
-  const bubbleTarget = async () => {
-    await ball.eval(`window.bwu.ball.click(false)`)
-    const t = await waitTarget('bubble/index.html', 8000)
-    return Conn.open(t.webSocketDebuggerUrl)
-  }
-  let bubble = await bubbleTarget()
+  // 用气泡打字（气泡随设置窗打开已存在）
+  let bubble = admin.bubble
   await sleep(600)
   // 假服务只实现非流式 JSON（Agent 链路）；用任务句确保走 Agent 而不是流式闲聊
   await bubble.eval(`window.bwu.bubble.submit('帮我打开记事本')`)
@@ -168,9 +173,7 @@ async function main() {
   check('工具名合法时模型能正常回话', /链路正常/.test(text), text.slice(0, 120))
 
   // 换成必然 400 的服务，验证气泡里看得到错误
-  await ball.eval(
-    `window.bwu.settings.update({ llm: { baseUrl: 'http://127.0.0.1:${API_PORT}/reject' } }).then(() => 'ok')`
-  )
+  await admin.update({ llm: { baseUrl: `http://127.0.0.1:${API_PORT}/reject` } })
   await sleep(600)
   await bubble.eval(`window.bwu.bubble.submit('帮我查一下明天的天气')`)
   await sleep(2500)
@@ -182,6 +185,7 @@ async function main() {
   )
   bubble.ws.close()
   ball.ws.close()
+  admin.close()
   proc.kill()
   await sleep(700)
   rmSync(TMP, { recursive: true, force: true })

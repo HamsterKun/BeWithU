@@ -82,7 +82,7 @@ export default function Ball(): React.ReactElement {
 
   // Windows Graphics Capture 兜底：普通抓屏黑屏时，主进程会让我们抓一帧
   useEffect(() => {
-    const grabFrame = async (): Promise<void> => {
+    const grabFrame = async (request: { requestId: string; displayId: string }): Promise<void> => {
       let stream: MediaStream | null = null
       try {
         stream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 30 } })
@@ -99,8 +99,12 @@ export default function Ball(): React.ReactElement {
         canvas.height = Math.max(1, Math.round(vh * scale))
         canvas.getContext('2d')?.drawImage(video, 0, 0, canvas.width, canvas.height)
         const dataUrl = canvas.toDataURL('image/jpeg', 0.78)
+        if (!/^data:image\/jpeg;base64,[A-Za-z0-9+/]*={0,2}$/.test(dataUrl) || canvas.width < 1 || canvas.height < 1) {
+          throw new Error('WGC 图像无效')
+        }
         video.srcObject = null
         window.bwu.ball.grabResult({
+          requestId: request.requestId,
           ok: true,
           dataUrl,
           width: canvas.width,
@@ -108,6 +112,7 @@ export default function Ball(): React.ReactElement {
         })
       } catch (e) {
         window.bwu.ball.grabResult({
+          requestId: request.requestId,
           ok: false,
           error: e instanceof Error ? e.message : String(e)
         })
@@ -116,7 +121,7 @@ export default function Ball(): React.ReactElement {
       }
     }
 
-    const offGrab = window.bwu.ball.onGrab(() => void grabFrame())
+    const offGrab = window.bwu.ball.onGrab((request) => void grabFrame(request))
     return offGrab
   }, [])
 

@@ -1,6 +1,6 @@
 import { BrowserWindow, app, dialog, ipcMain, screen, shell } from 'electron'
 import { readFileSync } from 'node:fs'
-import { extname } from 'node:path'
+import { extname, join } from 'node:path'
 import { IPC } from '../shared/ipc'
 import type { SecretPath, Settings, SettingsPatch, TestResult } from '../shared/types'
 import { historyStore } from './store/history'
@@ -14,7 +14,6 @@ import { callTool, listTools, registerBuiltinTools } from './agent'
 import { resolveApproval } from './agent/approval'
 import { clearAudit, recentAudit } from './agent/audit'
 import { mkdirSync } from 'node:fs'
-import { join } from 'node:path'
 import { runAgentTask } from './agent/runner'
 import {
   deleteCustomTool,
@@ -28,7 +27,8 @@ import {
 } from './agent/custom-tools'
 import { deleteSkill, importSkill, importSkillArchive, scanSkills, writeSkillTemplate } from './agent/skills'
 import { disconnectMcp, mcpListTools } from './agent/mcp'
-import { ensureMcpTools } from './agent'
+import { ensureMcpTools, unregisterMcpServer } from './agent'
+import { mcpConfigKey } from './agent/mcp'
 import { webSearch } from './services/web-search'
 import { listModels } from './services/llm'
 import { clearUsage, usageSummary } from './store/usage'
@@ -54,6 +54,11 @@ import {
   focusBubble,
   getBallBounds,
   getBallWindow,
+  getBubbleWindow,
+  getMenuWindow,
+  getSettingsWindow,
+  rendererFrameMatches,
+  type RendererRole as WindowRole,
   hideBallMenu,
   hideBallWindow,
   hideBubble,
@@ -77,6 +82,55 @@ let dragTimer: NodeJS.Timeout | null = null
 let dragOrigin = { x: 0, y: 0 }
 let dragStart = { x: 0, y: 0 }
 let previewSeq = 500000
+
+function windowForRole(role: WindowRole): BrowserWindow | null {
+  switch (role) {
+    case 'ball': return getBallWindow()
+    case 'bubble': return getBubbleWindow()
+    case 'menu': return getMenuWindow()
+    case 'settings': return getSettingsWindow()
+  }
+}
+
+function assertSender(event: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent, roles: WindowRole[]): void {
+  const allowed = roles.some((role) => {
+    const win = windowForRole(role)
+    return win?.webContents === event.sender && rendererFrameMatches(event.senderFrame, win, role)
+  })
+  if (!allowed) throw new Error('拒绝未授权窗口 IPC')
+}
+
+const channelRoles = new Map<string, WindowRole[]>([
+  [IPC.settingsGet, ['ball', 'bubble', 'menu', 'settings']],
+  [IPC.settingsOpen, ['ball', 'bubble', 'menu', 'settings']],
+  [IPC.visionGrabResult, ['ball']], [IPC.ballResetPosition, ['settings']],
+  [IPC.voicePcm, ['ball']], [IPC.voiceError, ['ball']], [IPC.audioDrained, ['ball']],
+  [IPC.contextClear, ['bubble']], [IPC.agentApprove, ['bubble']]
+])
+
+function allowedRoles(channel: string): WindowRole[] {
+  const explicit = channelRoles.get(channel)
+  if (explicit) return explicit
+  if (channel.startsWith('ball:')) return ['ball']
+  if (channel.startsWith('bubble:')) return ['bubble']
+  if (channel.startsWith('menu:')) return ['menu']
+  if (channel.startsWith('agent:test-') && !app.isPackaged) return ['ball', 'bubble', 'menu', 'settings']
+  return ['settings']
+}
+
+function handle<A extends unknown[], R>(channel: string, fn: (event: Electron.IpcMainInvokeEvent, ...args: A) => R): void {
+  ipcMain.handle(channel, (event, ...args: A) => {
+    assertSender(event, allowedRoles(channel))
+    return fn(event, ...args)
+  })
+}
+
+function on<A extends unknown[]>(channel: string, fn: (event: Electron.IpcMainEvent, ...args: A) => unknown): void {
+  ipcMain.on(channel, (event, ...args: A) => {
+    try { assertSender(event, allowedRoles(channel)) } catch { return }
+    return fn(event, ...args)
+  })
+}
 
 function pointIn(rect: Electron.Rectangle, x: number, y: number): boolean {
   return x >= rect.x && x <= rect.x + rect.width && y >= rect.y && y <= rect.y + rect.height
@@ -183,11 +237,16 @@ async function synthToBall(tts: Settings['tts'], text: string): Promise<TestResu
 export function registerIpc(getQuit: () => void): void {
   /* ---------------------------------------------------------- settings ---- */
 
-  ipcMain.handle(IPC.settingsGet, () => settingsStore.public())
+  handle(IPC.settingsGet, () => settingsStore.public())
 
-  ipcMain.handle(IPC.settingsUpdate, (_e, patch: SettingsPatch) => {
+  handle(IPC.settingsUpdate, (_e, patch: SettingsPatch) => {
     const before = settingsStore.get()
     const next = settingsStore.update(patch)
+    const configured = settingsStore.get().mcp.servers
+    for (const server of before.mcp.servers) {
+      const current = configured.find((s) => s.id === server.id && s.enabled)
+      if (!current || mcpConfigKey(current) !== mcpConfigKey(server)) unregisterMcpServer(server.id)
+    }
     if (before.voice.hotkey !== next.voice.hotkey || before.voice.mode !== next.voice.mode) {
       reloadHotkey(next.voice.hotkey)
     }
@@ -195,18 +254,20 @@ export function registerIpc(getQuit: () => void): void {
     return next
   })
 
-  ipcMain.handle(IPC.settingsReset, () => {
+  handle(IPC.settingsReset, () => {
+    const oldServers = settingsStore.get().mcp.servers
     const next = settingsStore.reset()
+    for (const server of oldServers) unregisterMcpServer(server.id)
     reloadHotkey(next.voice.hotkey)
     broadcastSettings(next)
     return next
   })
 
-  ipcMain.handle(IPC.settingsOpen, (_e, tab?: string) => {
+  handle(IPC.settingsOpen, (_e, tab?: string) => {
     openSettingsWindow(tab)
   })
 
-  ipcMain.handle(IPC.settingsAppInfo, () => {
+  handle(IPC.settingsAppInfo, () => {
     const status = hotkeyStatus()
     return {
       version: app.getVersion(),
@@ -219,7 +280,7 @@ export function registerIpc(getQuit: () => void): void {
     }
   })
 
-  ipcMain.handle(IPC.settingsPickImage, async () => {
+  handle(IPC.settingsPickImage, async () => {
     const res = await dialog.showOpenDialog({
       title: '选择悬浮球皮肤',
       properties: ['openFile'],
@@ -239,19 +300,19 @@ export function registerIpc(getQuit: () => void): void {
     }
   })
 
-  ipcMain.handle(IPC.settingsClearHistory, () => {
+  handle(IPC.settingsClearHistory, () => {
     conversation.clearContext()
   })
 
-  ipcMain.handle(IPC.settingsRevealSecret, (_e, path: SecretPath) => settingsStore.reveal(path))
-  ipcMain.handle(IPC.memoryGet, () => conversation.memoryInfo())
-  ipcMain.handle(IPC.memorySummarize, () => conversation.summarizeNow())
+  handle(IPC.settingsRevealSecret, (_e, path: SecretPath) => settingsStore.reveal(path))
+  handle(IPC.memoryGet, () => conversation.memoryInfo())
+  handle(IPC.memorySummarize, () => conversation.summarizeNow())
 
-  ipcMain.on(IPC.visionGrabResult, (_e, result: GrabResult) => resolveGrab(result))
+  on(IPC.visionGrabResult, (_e, result: GrabResult) => resolveGrab(result))
 
-  ipcMain.handle(IPC.asrModelStatus, () => modelStatus())
+  handle(IPC.asrModelStatus, () => modelStatus())
 
-  ipcMain.handle(IPC.asrModelDownload, async () => {
+  handle(IPC.asrModelDownload, async () => {
     const send = (p: unknown): void => {
       for (const win of BrowserWindow.getAllWindows()) {
         if (!win.isDestroyed()) win.webContents.send(IPC.asrModelProgress, p)
@@ -261,12 +322,12 @@ export function registerIpc(getQuit: () => void): void {
     return modelStatus()
   })
 
-  ipcMain.handle(IPC.asrModelDelete, () => {
+  handle(IPC.asrModelDelete, () => {
     deleteModel()
     return modelStatus()
   })
 
-  ipcMain.handle(IPC.asrLocalWarmup, async () => {
+  handle(IPC.asrLocalWarmup, async () => {
     try {
       const ms = await warmupLocalAsr()
       return { ok: true, message: `模型可用 · ${(ms / 1000).toFixed(1)}s` }
@@ -275,7 +336,7 @@ export function registerIpc(getQuit: () => void): void {
     }
   })
 
-  ipcMain.handle(IPC.visionCapture, async () => {
+  handle(IPC.visionCapture, async () => {
     const res = await captureScreen()
     if (!res.ok) {
       return {
@@ -302,11 +363,11 @@ export function registerIpc(getQuit: () => void): void {
     }
   })
 
-  ipcMain.handle(IPC.settingsOpenDataDir, async () => {
+  handle(IPC.settingsOpenDataDir, async () => {
     await shell.openPath(app.getPath('userData'))
   })
 
-  ipcMain.handle(IPC.dataDirGet, () => {
+  handle(IPC.dataDirGet, () => {
     const dir = currentDataDir()
     return {
       dir,
@@ -316,7 +377,7 @@ export function registerIpc(getQuit: () => void): void {
     }
   })
 
-  ipcMain.handle(IPC.dataDirChange, async (e) => {
+  handle(IPC.dataDirChange, async (e) => {
     const win = BrowserWindow.fromWebContents(e.sender)
     const target = await pickDataDir(win)
     if (!target) return { ok: false, canceled: true }
@@ -336,7 +397,7 @@ export function registerIpc(getQuit: () => void): void {
     }
   })
 
-  ipcMain.handle(IPC.dataDirReset, async () => {
+  handle(IPC.dataDirReset, async () => {
     try {
       await moveBackToDefault()
       setTimeout(() => {
@@ -349,23 +410,23 @@ export function registerIpc(getQuit: () => void): void {
     }
   })
 
-  ipcMain.handle(IPC.settingsRestartHotkey, () => {
+  handle(IPC.settingsRestartHotkey, () => {
     reloadHotkey(settingsStore.get().voice.hotkey)
     return hotkeyStatus()
   })
 
-  ipcMain.handle(IPC.settingsTestLlm, async () => {
+  handle(IPC.settingsTestLlm, async () => {
     const s = settingsStore.get()
     if (!s.llm.apiKey.trim()) return { ok: false, message: '还没填 API Key' }
     return testLlm(s.llm)
   })
 
-  ipcMain.handle(IPC.settingsTestTts, async (_e, text?: string) => {
+  handle(IPC.settingsTestTts, async (_e, text?: string) => {
     const s = settingsStore.get()
     return synthToBall(s.tts, text?.trim() || '你好，我是你的桌面伙伴，语音合成已经连上了')
   })
 
-  ipcMain.handle(
+  handle(
     IPC.settingsPreviewVoice,
     async (_e, speaker: string, resourceId: string) => {
       const s = settingsStore.get()
@@ -377,19 +438,19 @@ export function registerIpc(getQuit: () => void): void {
     }
   )
 
-  ipcMain.handle(IPC.settingsTestAsr, async () => testAsr(settingsStore.get().asr))
+  handle(IPC.settingsTestAsr, async () => testAsr(settingsStore.get().asr))
 
   /* -------------------------------------------------------------- ball ---- */
 
-  ipcMain.on(IPC.ballDragStart, () => startBallDrag())
-  ipcMain.on(IPC.ballDragEnd, () => endBallDrag(true))
-  ipcMain.on(IPC.ballClick, (_e, moved: boolean) => {
+  on(IPC.ballDragStart, () => startBallDrag())
+  on(IPC.ballDragEnd, () => endBallDrag(true))
+  on(IPC.ballClick, (_e, moved: boolean) => {
     log('ball: click', moved)
     if (!moved) toggleBubble()
   })
-  ipcMain.on(IPC.ballBubbleToggle, () => toggleBubble())
+  on(IPC.ballBubbleToggle, () => toggleBubble())
 
-  ipcMain.on(IPC.ballContextMenu, () => {
+  on(IPC.ballContextMenu, () => {
     const s = settingsStore.get()
     showBallMenu([
       { id: 'settings', label: '设置…' },
@@ -406,7 +467,7 @@ export function registerIpc(getQuit: () => void): void {
     ])
   })
 
-  ipcMain.on(IPC.menuPick, (_e, id: string) => {
+  on(IPC.menuPick, (_e, id: string) => {
     log('menu: pick', id)
     hideBallMenu()
     const s = settingsStore.get()
@@ -454,59 +515,60 @@ export function registerIpc(getQuit: () => void): void {
         break
     }
   })
-  ipcMain.on(IPC.menuResize, (_e, w: number, h: number) => setMenuSize(Number(w), Number(h)))
-  ipcMain.on(IPC.menuClose, () => hideBallMenu())
+  on(IPC.menuResize, (_e, w: number, h: number) => setMenuSize(Number(w), Number(h)))
+  on(IPC.menuClose, () => hideBallMenu())
 
-  ipcMain.on(IPC.ballResetPosition, () => resetBallPosition())
+  on(IPC.ballResetPosition, () => resetBallPosition())
 
   /* ------------------------------------------------------------ bubble ---- */
 
-  ipcMain.on(IPC.bubbleResize, (_e, w: number, h: number) => setBubbleCardSize(w, h))
-  ipcMain.on(IPC.bubbleClose, () => {
+  on(IPC.bubbleResize, (_e, w: number, h: number) => setBubbleCardSize(w, h))
+  on(IPC.bubbleClose, () => {
     conversation.interrupt()
     conversation.cancelListening()
     hideBubble()
   })
-  ipcMain.on(IPC.bubblePin, (_e, pinned: boolean) => setBubblePinned(pinned))
-  ipcMain.on(IPC.bubbleSubmit, (_e, text: string) => conversation.respondText(String(text ?? '')))
-  ipcMain.on(IPC.bubbleFocus, () => focusBubble())
-  ipcMain.on(IPC.bubbleBlur, () => releaseBubbleFocus())
-  ipcMain.on(IPC.bubbleStop, () => {
+  on(IPC.bubblePin, (_e, pinned: boolean) => setBubblePinned(pinned))
+  on(IPC.bubbleSubmit, (_e, text: string) => conversation.respondText(String(text ?? '')))
+  on(IPC.bubbleFocus, () => focusBubble())
+  on(IPC.bubbleBlur, () => releaseBubbleFocus())
+  on(IPC.bubbleStop, () => {
     conversation.interrupt()
     conversation.cancelListening()
     hideBubble()
   })
-  ipcMain.on(IPC.contextClear, () => conversation.clearContext())
+  on(IPC.contextClear, () => conversation.clearContext())
 
   /* ------------------------------------------------------------- voice ---- */
 
-  ipcMain.on(IPC.voicePcm, (_e, data: ArrayBuffer) => {
+  on(IPC.voicePcm, (_e, data: ArrayBuffer) => {
+    if (!(data instanceof ArrayBuffer) || !data.byteLength || data.byteLength > 16384 || data.byteLength % 2 !== 0) return
     try {
       conversation.handlePcm(Buffer.from(new Uint8Array(data)))
     } catch (e) {
       log('voice: pcm 处理失败', e)
     }
   })
-  ipcMain.on(IPC.voiceError, (_e, message: string) => conversation.onVoiceError(message))
-  ipcMain.on(IPC.audioDrained, () => conversation.onAudioDrained())
+  on(IPC.voiceError, (_e, message: string) => conversation.onVoiceError(message))
+  on(IPC.audioDrained, () => conversation.onAudioDrained())
 
   /* ------------------------------------------------------------- misc ---- */
 
-  ipcMain.handle(IPC.hotkeyCapture, async () => captureNextChord())
-  ipcMain.handle(IPC.settingsHotkeyStatus, () => hotkeyStatus())
+  handle(IPC.hotkeyCapture, async () => captureNextChord())
+  handle(IPC.settingsHotkeyStatus, () => hotkeyStatus())
 
   /* ------------------------------------------------------------- agent ---- */
 
   registerBuiltinTools()
   // Agent 设置页
-  ipcMain.handle(IPC.appPickDir, async () => {
+  handle(IPC.appPickDir, async () => {
     const r = await dialog.showOpenDialog({
       title: '选择允许操作的目录',
       properties: ['openDirectory', 'createDirectory']
     })
     return r.canceled ? null : r.filePaths[0] ?? null
   })
-  ipcMain.handle(IPC.agentToolsList, () => {
+  handle(IPC.agentToolsList, () => {
     const disabled = settingsStore.get().agent.disabledTools
     return listTools().map((t) => ({
       id: t.id,
@@ -515,20 +577,20 @@ export function registerIpc(getQuit: () => void): void {
       enabled: !disabled.includes(t.id)
     }))
   })
-  ipcMain.handle(IPC.agentRuns, () => recentAudit(50))
-  ipcMain.handle(IPC.agentRunsClear, () => {
+  handle(IPC.agentRuns, () => recentAudit(50))
+  handle(IPC.agentRunsClear, () => {
     clearAudit()
     return true
   })
-  ipcMain.handle(IPC.agentOpenToolsDir, async () => {
+  handle(IPC.agentOpenToolsDir, async () => {
     writeToolTemplate()
     await shell.openPath(toolsDir())
   })
 
   /* ------------------------------------------------- 自定义工具 / Skill ---- */
 
-  ipcMain.handle(IPC.agentCustomList, () => scanCustomTools())
-  ipcMain.handle(IPC.agentCustomImport, async () => {
+  handle(IPC.agentCustomList, () => scanCustomTools())
+  handle(IPC.agentCustomImport, async () => {
     const r = await dialog.showOpenDialog({
       title: '选择工具目录（里面要有 manifest.json）',
       properties: ['openDirectory']
@@ -542,19 +604,19 @@ export function registerIpc(getQuit: () => void): void {
       return { ok: false, error: e instanceof Error ? e.message : String(e) }
     }
   })
-  ipcMain.handle(IPC.agentCustomTrust, (_e, id: string, trusted: boolean) => {
+  handle(IPC.agentCustomTrust, (_e, id: string, trusted: boolean) => {
     setToolTrusted(String(id ?? ''), Boolean(trusted))
     registerCustomTools()
     return scanCustomTools()
   })
-  ipcMain.handle(IPC.agentCustomDelete, (_e, id: string) => {
+  handle(IPC.agentCustomDelete, (_e, id: string) => {
     deleteCustomTool(String(id ?? ''))
     registerCustomTools()
     return scanCustomTools()
   })
 
-  ipcMain.handle(IPC.agentSkillsList, () => scanSkills())
-  ipcMain.handle(IPC.agentSkillImport, async () => {
+  handle(IPC.agentSkillsList, () => scanSkills())
+  handle(IPC.agentSkillImport, async () => {
     const r = await dialog.showOpenDialog({
       title: '选择技能目录（里面要有 SKILL.md）',
       properties: ['openDirectory']
@@ -566,17 +628,17 @@ export function registerIpc(getQuit: () => void): void {
       return { ok: false, error: e instanceof Error ? e.message : String(e) }
     }
   })
-  ipcMain.handle(IPC.agentSkillDelete, (_e, id: string) => {
+  handle(IPC.agentSkillDelete, (_e, id: string) => {
     deleteSkill(String(id ?? ''))
     return scanSkills()
   })
-  ipcMain.handle(IPC.agentSkillOpenDir, async () => {
+  handle(IPC.agentSkillOpenDir, async () => {
     await shell.openPath(writeSkillTemplate())
   })
 
   /* ------------------------------------------------------ zip / MCP ------- */
 
-  ipcMain.handle(IPC.agentCustomImportZip, async () => {
+  handle(IPC.agentCustomImportZip, async () => {
     const r = await dialog.showOpenDialog({
       title: '选择工具压缩包（zip）',
       properties: ['openFile'],
@@ -592,7 +654,7 @@ export function registerIpc(getQuit: () => void): void {
     }
   })
 
-  ipcMain.handle(IPC.agentSkillImportZip, async () => {
+  handle(IPC.agentSkillImportZip, async () => {
     const r = await dialog.showOpenDialog({
       title: '选择技能压缩包（zip）',
       properties: ['openFile'],
@@ -608,7 +670,7 @@ export function registerIpc(getQuit: () => void): void {
 
   /* ------------------------------------------------------- 模型列表 / 用量 -- */
 
-  ipcMain.handle(IPC.llmModels, async () => {
+  handle(IPC.llmModels, async () => {
     try {
       const models = await listModels(settingsStore.get().llm)
       return { ok: true, models }
@@ -617,15 +679,15 @@ export function registerIpc(getQuit: () => void): void {
     }
   })
 
-  ipcMain.handle(IPC.usageStats, () => usageSummary())
-  ipcMain.handle(IPC.usageClear, () => {
+  handle(IPC.usageStats, () => usageSummary())
+  handle(IPC.usageClear, () => {
     clearUsage()
     return usageSummary()
   })
 
-  ipcMain.handle(IPC.mcpList, () => settingsStore.get().mcp.servers)
-  ipcMain.handle(IPC.mcpAdd, (_e, cfg: Record<string, unknown>) => {
-    const cur = settingsStore.get().mcp.servers
+  handle(IPC.mcpList, () => settingsStore.publicMcpServers())
+  handle(IPC.mcpAdd, (_e, cfg: Record<string, unknown>) => {
+    const cur = settingsStore.mcpServers()
     const id = `mcp-${Date.now().toString(36)}`
     const next = [
       ...cur,
@@ -641,16 +703,17 @@ export function registerIpc(getQuit: () => void): void {
       }
     ]
     settingsStore.update({ mcp: { servers: next } })
-    return next
+    return settingsStore.publicMcpServers()
   })
-  ipcMain.handle(IPC.mcpRemove, (_e, id: string) => {
-    disconnectMcp(String(id ?? ''))
-    const next = settingsStore.get().mcp.servers.filter((s) => s.id !== id)
+  handle(IPC.mcpRemove, (_e, id: string) => {
+    if (typeof id !== 'string') throw new Error('无效的 MCP 服务 ID')
+    const next = settingsStore.mcpServers().filter((s) => s.id !== id)
     settingsStore.update({ mcp: { servers: next } })
-    return next
+    unregisterMcpServer(id)
+    return settingsStore.publicMcpServers()
   })
-  ipcMain.handle(IPC.mcpTest, async (_e, id: string) => {
-    const server = settingsStore.get().mcp.servers.find((s) => s.id === id)
+  handle(IPC.mcpTest, async (_e, id: string) => {
+    const server = settingsStore.mcpServers().find((s) => s.id === id)
     if (!server) return { ok: false, message: '服务器不存在' }
     try {
       disconnectMcp(server.id)
@@ -663,7 +726,7 @@ export function registerIpc(getQuit: () => void): void {
 
   /* ---------------------------------------------------------------- 搜索 ---- */
 
-  ipcMain.handle(IPC.searchTest, async (_e, query: string) => {
+  handle(IPC.searchTest, async (_e, query: string) => {
     const q = String(query ?? '').trim() || 'DeepSeek'
     try {
       const { provider, hits } = await webSearch(q)
@@ -678,38 +741,39 @@ export function registerIpc(getQuit: () => void): void {
     }
   })
   // 气泡里点「允许/拒绝」
-  ipcMain.on(IPC.agentApprove, (_e, id: string, allow: boolean) => {
-    resolveApproval(String(id ?? ''), Boolean(allow))
+  on(IPC.agentApprove, (_e, id: string, allow: boolean) => {
+    if (typeof id !== 'string' || id.length > 100 || typeof allow !== 'boolean') return
+    resolveApproval(id, allow)
   })
   // 测试通道：只有以 BWU_AGENT_TEST=1 启动时才暴露，正常运行时不存在
-  if (process.env['BWU_AGENT_TEST'] === '1') {
-    ipcMain.handle(IPC.agentTestImportTool, (_e, dir: string) => {
+  if (!app.isPackaged && process.env['BWU_AGENT_TEST'] === '1') {
+    handle(IPC.agentTestImportTool, (_e, dir: string) => {
       const tool = importCustomTool(String(dir ?? ''))
       registerCustomTools()
       return tool
     })
-    ipcMain.handle(IPC.agentTestTrustTool, (_e, id: string, trusted: boolean) => {
+    handle(IPC.agentTestTrustTool, (_e, id: string, trusted: boolean) => {
       setToolTrusted(String(id ?? ''), Boolean(trusted))
       registerCustomTools()
       return scanCustomTools()
     })
-    ipcMain.handle(IPC.agentTestImportSkill, (_e, dir: string) => importSkill(String(dir ?? '')))
-    ipcMain.handle(IPC.agentTestImportToolZip, (_e, path: string) => importCustomToolArchive(String(path ?? '')))
-    ipcMain.handle(IPC.agentTestImportSkillZip, async (_e, path: string) =>
+    handle(IPC.agentTestImportSkill, (_e, dir: string) => importSkill(String(dir ?? '')))
+    handle(IPC.agentTestImportToolZip, (_e, path: string) => importCustomToolArchive(String(path ?? '')))
+    handle(IPC.agentTestImportSkillZip, async (_e, path: string) =>
       importSkillArchive(String(path ?? ''))
     )
-    ipcMain.handle(IPC.agentTestMcp, async () => {
+    handle(IPC.agentTestMcp, async () => {
       await ensureMcpTools()
       return listTools().filter((t) => t.id.startsWith('mcp.')).map((t) => t.id)
     })
-    ipcMain.handle(IPC.agentTestList, () =>
+    handle(IPC.agentTestList, () =>
       listTools().map((t) => ({ id: t.id, name: t.name, risk: t.risk }))
     )
-    ipcMain.handle(IPC.agentTestCall, (_e, id: string, args: Record<string, unknown>) =>
+    handle(IPC.agentTestCall, (_e, id: string, args: Record<string, unknown>) =>
       callTool(String(id ?? ''), (args ?? {}) as Record<string, unknown>)
     )
-    ipcMain.handle(IPC.agentTestBubble, () => isBubbleVisible())
-    ipcMain.handle(IPC.agentTestBallTop, (_e, action: string) => {
+    handle(IPC.agentTestBubble, () => isBubbleVisible())
+    handle(IPC.agentTestBallTop, (_e, action: string) => {
       const win = getBallWindow()
       if (!win) return false
       if (action === 'drop') {
@@ -718,7 +782,7 @@ export function registerIpc(getQuit: () => void): void {
       }
       return win.isAlwaysOnTop()
     })
-    ipcMain.handle(IPC.agentTestProgress, (_e, p: Record<string, unknown>) => {
+    handle(IPC.agentTestProgress, (_e, p: Record<string, unknown>) => {
       sendAgentProgress({
         active: Boolean(p.active),
         mode: p.mode === 'working' ? 'working' : 'thinking',
@@ -727,7 +791,7 @@ export function registerIpc(getQuit: () => void): void {
       })
       return true
     })
-    ipcMain.handle(IPC.agentTestRun, async (_e, text: string, autoApprove?: boolean) => {
+    handle(IPC.agentTestRun, async (_e, text: string, autoApprove?: boolean) => {
       const controller = new AbortController()
       const tools: Array<{ toolId: string; ok: boolean; summary: string }> = []
       const res = await runAgentTask(String(text ?? ''), {

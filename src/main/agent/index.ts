@@ -8,9 +8,9 @@ import { registerScreenTools } from './tools/screen'
 import { registerSkillTools } from './tools/skills'
 import { registerWebTools } from './tools/web'
 import { registerCustomTools } from './custom-tools'
-import { mcpCallTool, mcpListTools } from './mcp'
+import { disconnectMcp, mcpCallTool, mcpConfigKey, mcpListTools } from './mcp'
 import { settingsStore } from '../store/settings'
-import { registerTool } from './registry'
+import { registerTool, unregisterTool } from './registry'
 import type { ToolContext, ToolResult } from './types'
 import { log } from '../logger'
 import { workerPing } from '../services/input-inject'
@@ -46,6 +46,7 @@ export async function callTool(
   args: Record<string, unknown>,
   opts: CallOptions = {}
 ): Promise<ToolResult> {
+  if (opts.signal?.aborted) return { ok: false, summary: '任务已取消，工具未执行' }
   registerBuiltinTools()
   const tool = getTool(id)
   if (!tool) return { ok: false, summary: `没有这个工具：${id}` }
@@ -85,30 +86,74 @@ export function mcpToolId(serverId: string, toolName: string): string {
   return `mcp.${serverId}.${toolName}`.replace(/[^a-zA-Z0-9_.-]+/g, '_')
 }
 
+const mcpOwned = new Map<string, { configKey: string; ids: Set<string> }>()
+let mcpRefresh = 0
+
+function unregisterMcpTools(serverId: string): void {
+  const owned = mcpOwned.get(serverId)
+  if (owned) for (const id of owned.ids) unregisterTool(id)
+  mcpOwned.delete(serverId)
+}
+
+export function unregisterMcpServer(serverId: string): void {
+  unregisterMcpTools(serverId)
+  disconnectMcp(serverId)
+}
+
 /**
  * 把已启用的 MCP 服务器的工具注册进来（幂等）。
  * 连不上就跳过并在日志里留痕，不阻塞本次任务。
  */
 export async function ensureMcpTools(): Promise<void> {
-  const servers = settingsStore.get().mcp.servers.filter((s) => s.enabled)
-  if (!servers.length) return
-  const results = await Promise.allSettled(servers.map((s) => mcpListTools(s)))
+  const refresh = ++mcpRefresh
+  const configured = settingsStore.mcpServers()
+  const enabled = configured.filter((s) => s.enabled)
+  const enabledIds = new Set(enabled.map((s) => s.id))
+
+  for (const serverId of mcpOwned.keys()) {
+    if (!enabledIds.has(serverId)) unregisterMcpServer(serverId)
+  }
+
+  const configKeys = new Map(enabled.map((server) => [server.id, mcpConfigKey(server)]))
+  for (const server of enabled) {
+    const configKey = configKeys.get(server.id)!
+    const previous = mcpOwned.get(server.id)
+    if (previous && previous.configKey !== configKey) unregisterMcpServer(server.id)
+  }
+
+  const results = await Promise.allSettled(enabled.map((s) => mcpListTools(s)))
+  if (refresh !== mcpRefresh) return
   results.forEach((res, i) => {
-    const server = servers[i]
+    const server = enabled[i]
+    const configKey = configKeys.get(server.id)!
+    const current = settingsStore.mcpServers().find((s) => s.id === server.id && s.enabled)
+    if (!current || mcpConfigKey(current) !== configKey) {
+      unregisterMcpServer(server.id)
+      return
+    }
+    unregisterMcpTools(server.id)
     if (res.status === 'rejected') {
+      disconnectMcp(server.id)
       log(`mcp: ${server.name} 连接失败`, res.reason instanceof Error ? res.reason.message : String(res.reason))
       return
     }
+
+    const ids = new Set<string>()
     for (const t of res.value) {
       const id = mcpToolId(server.id, t.name)
       if (getTool(id)) continue
+      ids.add(id)
       registerTool({
         id,
         name: `${server.name} · ${t.name}`,
         description: t.description || `来自 MCP 服务「${server.name}」的工具`,
-        risk: 'low',
+        risk: 'high',
         params: { ...t.inputSchema, type: 'object' },
         run: async (args) => {
+          const current = settingsStore.mcpServers().find((s) => s.id === server.id && s.enabled)
+          if (!current || mcpConfigKey(current) !== configKey) {
+            return { ok: false, summary: 'MCP 服务器已禁用或配置已变更，请重新刷新工具' }
+          }
           try {
             const r = await mcpCallTool(server, t.name, args)
             return { ok: r.ok, summary: r.summary }
@@ -118,6 +163,8 @@ export async function ensureMcpTools(): Promise<void> {
         }
       })
     }
+
+    mcpOwned.set(server.id, { configKey, ids })
     log('mcp: 已注册工具', `${server.name} x${res.value.length}`)
   })
 }

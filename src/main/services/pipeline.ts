@@ -5,6 +5,8 @@ import { memoryStore } from '../store/memory'
 import { settingsStore } from '../store/settings'
 import { log } from '../logger'
 import { VolcAsr } from './asr'
+import { AsrGeneration } from './asr-generation'
+import { shouldRetryBreeze429, shouldRetryWithoutImage } from './retry-policy'
 import { streamChat, type ChatMessage } from './llm'
 import { synthesize } from './tts'
 import { SentenceSplitter } from './splitter'
@@ -13,7 +15,7 @@ import { captureScreen, type ScreenCapture } from './vision'
 import { LocalAsrSession } from './local-asr'
 import { modelReady } from './local-asr'
 import { runAgentTask } from '../agent/runner'
-import { requestApproval, resolvePendingByText } from '../agent/approval'
+import { cancelApprovalsForTurn, pendingApproval, requestApproval, resolvePendingByText } from '../agent/approval'
 
 /** 云端 / 本地识别共用的会话接口 */
 type AsrSession = {
@@ -22,10 +24,6 @@ type AsrSession = {
   cancel(): void
 }
 
-/** 判断错误是否属于"模型不支持图片输入" */
-function isVisionReject(message: string): boolean {
-  return /image|vision|multi-?modal|content[ _-]?type|unsupported/i.test(message)
-}
 import {
   broadcastPhase,
   getBallWindow,
@@ -113,7 +111,7 @@ class SpeechQueue {
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e)
         // Breeze 并发超限（429）：串行 + 退避重试一次，否则整句被吞
-        if (!this.aborted && /429|concurren|并发/i.test(msg)) {
+        if (!this.aborted && shouldRetryBreeze429(e)) {
           await new Promise((r) => setTimeout(r, 1200))
           if (!this.aborted) await attempt()
           else return
@@ -145,6 +143,9 @@ class Conversation {
   private pcmQueue: Buffer[] = []
   private asr: AsrSession | null = null
   private asrReady = false
+  private readonly asrGeneration = new AsrGeneration()
+  private asrStarting: Promise<AsrSession> | null = null
+  private asrFinishing: AsrSession | null = null
   private turnId = 0
   private abortLlm: AbortController | null = null
   private speech: SpeechQueue | null = null
@@ -212,13 +213,14 @@ class Conversation {
   /* ----------------------------------------------------------- capture ---- */
 
   async startListening(): Promise<void> {
+    if (this.listening || this.asrStarting) return
     const s = settingsStore.get()
     this.clearHideTimer()
     // 球可能被「隐藏悬浮球 / 隐藏全部窗口」收起来了，用侧键唤醒时一起叫回来
     if (!isBallVisible()) showBallWindow()
 
     if (this.phase === 'speaking' || this.phase === 'thinking') {
-      if (s.voice.bargeIn) this.interrupt()
+      if (s.voice.bargeIn && !pendingApproval()) this.interrupt()
     }
 
     const useLocal = s.asr.mode === 'local'
@@ -242,6 +244,13 @@ class Conversation {
       return
     }
 
+    const generation = this.asrGeneration.begin()
+    this.asr?.cancel()
+    this.asr = null
+    this.asrReady = false
+    this.asrFinishing?.cancel()
+    this.asrFinishing = null
+    this.asrStarting = null
     this.listening = true
     this.holdStartedAt = Date.now()
     this.pcmQueue = []
@@ -258,7 +267,7 @@ class Conversation {
     getBallWindow()?.webContents.send(IPC.voiceRecStart)
 
     this.maxHoldTimer = setTimeout(() => {
-      if (this.listening) void this.stopListening()
+      if (this.asrGeneration.current(generation) && this.listening) void this.stopListening()
     }, MAX_HOLD_MS)
 
     if (useLocal) {
@@ -269,30 +278,72 @@ class Conversation {
       return
     }
 
+    const starting = VolcAsr.create(s.asr, (text) => {
+      if (!this.asrGeneration.current(generation) || (!this.listening && this.phase !== 'thinking')) return
+      sendBubble({ type: 'user', text, final: false })
+    })
+    this.asrStarting = starting
     try {
-      const asr = await VolcAsr.create(s.asr, (text) => {
-        if (!this.listening && this.phase !== 'thinking') return
-        sendBubble({ type: 'user', text, final: false })
-      })
-      if (!this.listening) {
+      const asr = await starting
+      if (!this.asrGeneration.current(generation)) {
         asr.cancel()
         return
       }
+      this.asrStarting = null
       this.asr = asr
       this.asrReady = true
       for (const buf of this.pcmQueue) asr.sendAudio(buf)
       this.pcmQueue = []
+      if (!this.listening) await this.finishAsrGeneration(generation, asr)
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
       log('asr: 建立连接失败', msg)
-      if (this.listening) {
-        this.listening = false
-        getBallWindow()?.webContents.send(IPC.voiceRecStop)
+      if (this.asrGeneration.current(generation)) {
+        this.asrStarting = null
+        this.pcmQueue = []
+        if (!this.listening) {
+          this.setPhase('idle')
+          this.scheduleHide()
+        } else {
+          this.listening = false
+          getBallWindow()?.webContents.send(IPC.voiceRecStop)
+          this.notify('error', msg, 'open-voice')
+          this.setPhase('idle')
+          this.scheduleHide()
+        }
+      }
+    }
+  }
+
+  private async finishAsrGeneration(generation: number, asr: AsrSession): Promise<void> {
+    if (!this.asrGeneration.current(generation)) return
+    this.asr = null
+    this.asrReady = false
+    this.asrStarting = null
+    this.asrFinishing = asr
+    this.pcmQueue = []
+    let text = ''
+    try {
+      text = (await asr.finish()).trim()
+    } catch (e) {
+      if (this.asrGeneration.current(generation)) {
+        this.asrFinishing = null
+        const msg = e instanceof Error ? e.message : String(e)
         this.notify('error', msg, 'open-voice')
         this.setPhase('idle')
         this.scheduleHide()
       }
+      return
     }
+    if (!this.asrGeneration.current(generation)) return
+    this.asrFinishing = null
+    if (!text) {
+      this.notify('info', '没听清，按住再说一次')
+      this.setPhase('idle')
+      this.scheduleHide()
+      return
+    }
+    await this.respond(text)
   }
 
   handlePcm(pcm: Buffer): void {
@@ -310,8 +361,13 @@ class Conversation {
     getBallWindow()?.webContents.send(IPC.voiceRecStop)
 
     const held = Date.now() - this.holdStartedAt
+    const generation = this.asrGeneration.currentId
     if (s.voice.mode === 'hold' && held < s.voice.minHoldMs) {
+      this.asrGeneration.invalidate()
+      this.asrStarting = null
       this.asr?.cancel()
+      this.asrFinishing?.cancel()
+      this.asrFinishing = null
       this.asr = null
       this.asrReady = false
       this.pcmQueue = []
@@ -320,40 +376,23 @@ class Conversation {
     }
 
     this.setPhase('thinking', '整理中')
-    const asr = this.asr
-    this.asr = null
-    this.asrReady = false
-    this.pcmQueue = []
-    if (!asr) {
+    if (this.asr) {
+      await this.finishAsrGeneration(generation, this.asr)
+    } else if (!this.asrStarting) {
+      this.pcmQueue = []
       this.setPhase('idle')
       this.scheduleHide()
-      return
     }
-
-    let text = ''
-    try {
-      text = (await asr.finish()).trim()
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e)
-      this.notify('error', msg, 'open-voice')
-      this.setPhase('idle')
-      this.scheduleHide()
-      return
-    }
-
-    if (!text) {
-      this.notify('info', '没听清，按住再说一次')
-      this.setPhase('idle')
-      this.scheduleHide()
-      return
-    }
-    await this.respond(text)
   }
 
   cancelListening(): void {
     if (this.listening) getBallWindow()?.webContents.send(IPC.voiceRecStop)
+    this.asrGeneration.invalidate()
+    this.asrStarting = null
     this.listening = false
     this.asr?.cancel()
+    this.asrFinishing?.cancel()
+    this.asrFinishing = null
     this.asr = null
     this.asrReady = false
     this.pcmQueue = []
@@ -375,6 +414,10 @@ class Conversation {
     const text = raw.trim()
     if (!text) return
     this.clearHideTimer()
+    if (resolvePendingByText(text, this.turnId) !== null) {
+      sendBubble({ type: 'user', text, final: true })
+      return
+    }
     if (this.phase === 'speaking' || this.phase === 'thinking') this.interrupt()
     if (this.listening) this.cancelListening()
     showBubble()
@@ -387,11 +430,13 @@ class Conversation {
     const s = settingsStore.get()
 
     // 正在等用户确认时，一句话"同意/拒绝"直接当作答复，不开启新回合
-    if (resolvePendingByText(userText) !== null) {
+    if (resolvePendingByText(userText, this.turnId) !== null) {
       sendBubble({ type: 'user', text: userText, final: true })
       return
     }
 
+    cancelApprovalsForTurn(this.turnId)
+    this.abortLlm?.abort()
     const turn = ++this.turnId
     sendBubble({ type: 'user', text: userText, final: true })
     sendBubble({ type: 'assistant-reset' })
@@ -517,7 +562,7 @@ class Conversation {
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e)
         // 模型不支持看图：自动退回纯文字重试一次
-        if (!controller.signal.aborted && useImage && !attemptedWithoutImage && !answer && isVisionReject(msg)) {
+        if (!controller.signal.aborted && useImage && !attemptedWithoutImage && !answer && shouldRetryWithoutImage(e)) {
           attemptedWithoutImage = true
           useImage = false
           messages = buildMessages(false)
@@ -676,9 +721,9 @@ class Conversation {
           },
           onApproval: async (req) => {
             showBubble()
-            const ok = await requestApproval(req)
-            if (hiddenForTask && !isBubblePinned()) hideBubble()
-            return ok
+            const ok = await requestApproval(req, turn, controller.signal)
+            if (turn === this.turnId && !controller.signal.aborted && hiddenForTask && !isBubblePinned()) hideBubble()
+            return ok && turn === this.turnId && !controller.signal.aborted
           }
         }
       })
@@ -830,7 +875,16 @@ class Conversation {
   /* ----------------------------------------------------------- control ---- */
 
   interrupt(): void {
+    cancelApprovalsForTurn(this.turnId)
     this.turnId++
+    this.asrGeneration.invalidate()
+    this.asrStarting = null
+    this.asr?.cancel()
+    this.asrFinishing?.cancel()
+    this.asrFinishing = null
+    this.asr = null
+    this.asrReady = false
+    this.pcmQueue = []
     this.speech?.abort()
     this.speech = null
     this.abortLlm?.abort()
@@ -850,6 +904,7 @@ class Conversation {
     historyStore.clear()
     memoryStore.clear()
     this.memoryGen += 1
+    cancelApprovalsForTurn(this.turnId)
     this.turnId++
     this.speech?.abort()
     this.speech = null

@@ -4,6 +4,7 @@ import { execFileSync, spawn } from 'node:child_process'
 import { mkdirSync, rmSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { openSettingsWindow } from './lib/settings-window.mjs'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const PORT = Number(process.env.CDP_PORT || 9292)
@@ -82,6 +83,7 @@ mkdirSync(ud, { recursive: true })
 let app
 let ball
 let settings
+let admin
 try {
   await new Promise((r) => server.listen(API, '127.0.0.1', r))
   const exe = join(ROOT, 'node_modules', 'electron', 'dist', 'electron.exe')
@@ -100,9 +102,13 @@ try {
   }
   ball = await Conn.open(list.find((x) => x.type === 'page' && x.url.includes('/ball/')).webSocketDebuggerUrl)
   await sleep(1000)
-  await ball.eval(
-    `window.bwu.settings.update({ llm: { baseUrl: 'http://127.0.0.1:${API}/v1', model: 'mock', apiKey: 'sk-p' }, agent: { enabled: true } })`
-  )
+  // 管理调用只允许设置窗发起：点球出气泡，再从气泡打开设置页的提示词标签
+  admin = await openSettingsWindow({ Conn, jget, sleep, ball, tab: 'prompt' })
+  settings = admin.conn
+  await admin.update({
+    llm: { baseUrl: `http://127.0.0.1:${API}/v1`, model: 'mock', apiKey: 'sk-p' },
+    agent: { enabled: true }
+  })
   await sleep(600)
 
   const cfg0 = await ball.eval('window.bwu.settings.get()')
@@ -116,11 +122,6 @@ try {
   )
 
   // 打开提示词页，确认四个区块都在
-  await ball.eval("window.bwu.settings.open('prompt')")
-  await sleep(1800)
-  const l2 = await jget('/json')
-  settings = await Conn.open(l2.find((x) => x.type === 'page' && x.url.includes('/settings/')).webSocketDebuggerUrl)
-  await sleep(600)
   const areas = await settings.eval("document.querySelectorAll('.main__body textarea').length")
   const headings = await settings.eval(
     "Array.from(document.querySelectorAll('.section__head h3')).map(e => e.textContent).join('|')"
@@ -144,20 +145,16 @@ try {
   const cfg1 = await ball.eval('window.bwu.settings.get()')
   ok('agentPromptPersisted', String(cfg1?.prompts?.agent).includes(marker), cfg1?.prompts?.agent?.slice(0, 40))
 
-  await ball.eval("window.bwu.ball.toggleBubble()")
-  await sleep(1000)
-  const l3 = await jget('/json')
-  const bubble = await Conn.open(l3.find((x) => x.type === 'page' && x.url.includes('/bubble/')).webSocketDebuggerUrl)
-  await bubble.eval("window.bwu.bubble.submit('你好')")
+  await admin.bubble.eval("window.bwu.bubble.submit('你好')")
   await sleep(2500)
   const sys = String(seen[0]?.messages?.[0]?.content ?? '')
   ok('agentPromptUsed', sys.includes(marker) && sys.includes('最多 30 步'), sys.slice(0, 120))
-  bubble.close()
 } catch (e) {
   ok('fatal', false, String(e && e.message ? e.message : e))
 } finally {
   ball?.close()
   settings?.close()
+  admin?.bubble.close()
   try {
     app && process.kill(app.pid)
   } catch {}

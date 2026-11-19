@@ -103,6 +103,8 @@ async function main() {
   )
 
   let conn
+  let bubble
+  let settings
   try {
     const target = await waitTarget('ball/index.html')
     conn = await Conn.open(target.webSocketDebuggerUrl)
@@ -151,7 +153,13 @@ async function main() {
       )
     )
     check('Skill 导入解析 frontmatter', skill.name === '示例技能' && /演示技能/.test(skill.when), skill)
-    const skills = JSON.parse(await conn.eval(`window.bwu.agentSkills.list().then(l => JSON.stringify(l))`))
+    await conn.eval('window.bwu.ball.click(false)')
+    const bubbleTarget = await waitTarget('/bubble/')
+    bubble = await Conn.open(bubbleTarget.webSocketDebuggerUrl)
+    await bubble.eval("window.bwu.settings.open('agent')")
+    const settingsTarget = await waitTarget('/settings/')
+    settings = await Conn.open(settingsTarget.webSocketDebuggerUrl)
+    const skills = JSON.parse(await settings.eval(`window.bwu.agentSkills.list().then(l => JSON.stringify(l))`))
     check('Skill 列表包含导入项', skills.some((s) => s.name === '示例技能'), skills.length)
     r = JSON.parse(
       await conn.eval(
@@ -161,16 +169,18 @@ async function main() {
     check('skill.read 能读到正文', r.ok === true && r.summary.includes('技能已加载'), r.summary.slice(0, 80))
 
     // 7. 删除工具
-    await conn.eval(`window.bwu.agentTools.deleteCustom('demo.greet').then(x => JSON.stringify(x))`)
+    await conn.eval(`window.bwu.agentTest.trustTool('demo.greet', false).then(x => JSON.stringify(x))`)
     const after = JSON.parse(
       await conn.eval(`window.bwu.agentTest.list().then(l => JSON.stringify(l.map(t => t.id)))`)
     )
     check('删除后从工具列表移除', !after.includes('demo.greet'), after)
   } finally {
-    try {
-      conn?.ws.close()
-    } catch {
-      /* ignore */
+    for (const connection of [conn, bubble, settings]) {
+      try {
+        connection?.ws.close()
+      } catch {
+        /* ignore */
+      }
     }
     proc.kill()
     await sleep(800)

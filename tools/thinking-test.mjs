@@ -4,6 +4,7 @@ import { execFileSync, spawn } from 'node:child_process'
 import { mkdirSync, rmSync, readFileSync, existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { openSettingsWindow } from './lib/settings-window.mjs'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const PORT = Number(process.env.CDP_PORT || 9286)
@@ -126,20 +127,20 @@ async function launch(tag, basePath, port) {
   }
   const ball = await Conn.open(list.find((x) => x.type === 'page' && x.url.includes('/ball/')).webSocketDebuggerUrl)
   await sleep(800)
-  await ball.eval(
-    `window.bwu.settings.update({ llm: { baseUrl: 'http://127.0.0.1:${API}${basePath}', model: 'mock-model', apiKey: 'sk-think', preset: 'custom', thinking: { enabled: true, effort: 'high' } } })`
-  )
+  const jget = async (p) => (await fetch(`http://127.0.0.1:${port}${p}`)).json()
+  // 1.0.11 起设置类调用只能在设置窗发起：走气泡 → 设置页
+  const admin = await openSettingsWindow({ Conn, jget, sleep, ball })
+  await admin.update({
+    llm: {
+      baseUrl: `http://127.0.0.1:${API}${basePath}`,
+      model: 'mock-model',
+      apiKey: 'sk-think',
+      preset: 'custom',
+      thinking: { enabled: true, effort: 'high' }
+    }
+  })
   await sleep(600)
-  return { app, ball, port, tmp }
-}
-
-async function openBubble(ball, port) {
-  await ball.eval('window.bwu.ball.toggleBubble()')
-  await sleep(1000)
-  const list = await (await fetch(`http://127.0.0.1:${port}/json`)).json()
-  const b = await Conn.open(list.find((x) => x.type === 'page' && x.url.includes('/bubble/')).webSocketDebuggerUrl)
-  await sleep(300)
-  return b
+  return { app, ball, port, tmp, jget, admin, bubble: admin.bubble }
 }
 
 let a
@@ -149,7 +150,7 @@ try {
 
   // ---------- 1) 聊天：带思考参数 + 折叠展示 ----------
   a = await launch('a', '/v1', PORT)
-  let bubble = await openBubble(a.ball, a.port)
+  let bubble = a.bubble
   await bubble.eval("window.bwu.bubble.submit('你好')")
   await sleep(2500)
   const reqChat = seen.find((x) => x.body?.stream === true)
@@ -166,7 +167,7 @@ try {
   ok('chatAnswerKept', /你好呀/.test(answer), answer.slice(0, 40))
 
   // ---------- 2) Agent：非流式也带参数并展示思考 ----------
-  await a.ball.eval("window.bwu.settings.update({ agent: { enabled: true } })")
+  await a.admin.update({ agent: { enabled: true } })
   await sleep(600)
   await bubble.eval("window.bwu.bubble.submit('帮我打开记事本')")
   await sleep(2500)
@@ -182,7 +183,7 @@ try {
   // ---------- 3) 服务端不支持时：去掉参数重试，不报错 ----------
   await sleep(1500)
   b = await launch('b', '/reject', PORT + 2)
-  const bubble2 = await openBubble(b.ball, b.port)
+  const bubble2 = b.bubble
   const before = seen.length
   await bubble2.eval("window.bwu.bubble.submit('你好')")
   await sleep(3000)

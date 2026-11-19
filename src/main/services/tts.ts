@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import type { TtsSettings } from '../../shared/types'
 import { log } from '../logger'
 import { recordTtsChars } from '../store/usage'
+import { HttpStatusError } from './http-error'
 
 /** 豆包语音合成大模型 V3 · 单向流式（HTTP + SSE），2.0 音色可用 */
 const TTS_URL = 'https://openspeech.bytedance.com/api/v3/tts/unidirectional/sse'
@@ -101,7 +102,7 @@ async function* breezeSynthesize(
     if (!res.ok) {
       const detail = await res.text().catch(() => '')
       log('tts: breeze http error', res.status, detail.replace(/\s+/g, ' ').slice(0, 400))
-      throw new Error(breezeFriendly(res.status, detail))
+      throw new HttpStatusError(breezeFriendly(res.status, detail), res.status, 'breeze')
     }
     if (!res.body) throw new Error('语音合成没有返回数据流')
 

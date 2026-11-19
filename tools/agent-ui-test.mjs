@@ -9,6 +9,7 @@ import { execFileSync, spawn } from 'node:child_process'
 import { mkdirSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { openSettingsWindow } from './lib/settings-window.mjs'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const PORT = Number(process.env.CDP_PORT || 9272)
@@ -89,7 +90,7 @@ writeFileSync(
       写: [
         {
           text: '好的，我来写。',
-          toolCalls: [{ name: 'file.write', args: { path: target, content: 'UI 测试写入的内容' } }]
+          toolCalls: [{ name: 'file_write', args: { path: target, content: 'UI 测试写入的内容' } }]
         },
         { text: '已完成：note 写好了。' }
       ]
@@ -122,23 +123,24 @@ try {
     await sleep(300)
   }
 
-  await ball.eval(
-    `window.bwu.settings.update({
-      llm: { apiKey: 'sk-mock' },
-      ui: { muted: true },
-      tts: { enabled: false },
-      agent: { enabled: true, files: { dirs: ${JSON.stringify([work])} } }
-    })`
-  )
+  // 管理调用只能在设置窗发起：点球出气泡 → 气泡打开设置页 → 设置窗写入
+  const admin = await openSettingsWindow({ Conn, jget, sleep, ball })
+  await admin.update({
+    llm: { apiKey: 'sk-mock' },
+    ui: { muted: true },
+    tts: { enabled: false },
+    agent: { enabled: true, files: { dirs: [work] } }
+  })
   await sleep(800)
   const call = (id, args) => ball.eval(`window.bwu.agentTest.call(${JSON.stringify(id)}, ${JSON.stringify(args ?? {})})`)
   const bubbleVisible = () => ball.eval('window.bwu.agentTest.bubbleVisible()')
 
-  // 打开气泡
-  await ball.eval('window.bwu.ball.toggleBubble()')
-  await sleep(1200)
-  const l2 = await jget('/json')
-  bubble = await Conn.open(l2.find((x) => x.type === 'page' && x.url.includes('/bubble/')).webSocketDebuggerUrl)
+  // 气泡就是设置页的入口窗口，确认它现在还看得见
+  bubble = admin.bubble
+  if (!(await bubbleVisible())) {
+    await ball.eval('window.bwu.ball.toggleBubble()')
+    await sleep(1200)
+  }
   await sleep(300)
 
   // 提交任务

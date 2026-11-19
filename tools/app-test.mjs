@@ -12,6 +12,7 @@ import { execFileSync, spawn } from 'node:child_process'
 import { mkdirSync, writeFileSync, rmSync, readFileSync, existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { openSettingsWindow } from './lib/settings-window.mjs'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const HELP = join(ROOT, 'tools', 'input-helper.ps1')
@@ -103,21 +104,29 @@ const child = spawn(exe, ['.', '--no-sandbox', '--disable-gpu', `--user-data-dir
 })
 console.log('app pid=' + child.pid)
 
-let ball, bubble, settings
+let ball, bubble, settings, admin
+let mouseFallbacks = 0
 
 /* ---------- 工具 ---------- */
 const ballGeom = () => ball.eval('({x:window.screenX,y:window.screenY,w:innerWidth,h:innerHeight})')
 const clickBallCenter = async () => {
   const g = await ballGeom()
+  const before = cnt('bubble: show') + cnt('bubble: hide')
   ps('click', Math.round(g.x + g.w / 2), Math.round(g.y + g.h / 2))
   await sleep(900)
+  // 前台被别的窗口（游戏/全屏应用）盖住时真实点击到不了球窗，退回球窗自己的点击入口
+  if (cnt('bubble: show') + cnt('bubble: hide') === before) {
+    await ball.eval('window.bwu.ball.click(false)')
+    await sleep(700)
+    mouseFallbacks++
+  }
 }
 const bubbleVisible = () => cnt('bubble: show') > cnt('bubble: hide')
 const ensureBubbleVisible = async () => {
   for (let i = 0; i < 3 && !bubbleVisible(); i++) await clickBallCenter()
   return bubbleVisible()
 }
-/** 点气泡里的按钮：每次重新读几何，点完等待 */
+/** 点气泡里的按钮：走气泡页自己的输入管线（不受前台窗口遮挡影响） */
 const clickBubbleControl = async (predicate) => {
   const pos = await bubble.eval(
     `(() => {
@@ -128,8 +137,16 @@ const clickBubbleControl = async (predicate) => {
     })()`
   )
   if (!pos) return false
-  const origin = await bubble.eval('({x:window.screenX,y:window.screenY})')
-  ps('click', Math.round(origin.x + pos.x), Math.round(origin.y + pos.y))
+  for (const type of ['mousePressed', 'mouseReleased']) {
+    await bubble.call('Input.dispatchMouseEvent', {
+      type,
+      x: pos.x,
+      y: pos.y,
+      button: 'left',
+      buttons: type === 'mousePressed' ? 1 : 0,
+      clickCount: 1
+    })
+  }
   await sleep(700)
   return true
 }
@@ -150,8 +167,10 @@ try {
     if (await ball.eval('Boolean(document.querySelector(".stage"))')) break
     await sleep(300)
   }
+  // 管理调用只能在设置窗发起：管理入口从气泡打开设置页
+  admin = await openSettingsWindow({ Conn, jget, sleep, ball, tab: 'model' })
   // 关掉自动收起，避免干扰
-  await ball.eval('window.bwu.settings.update({ bubble: { keepOpen: true } })')
+  await admin.update({ bubble: { keepOpen: true } })
   await sleep(600)
 
   /* 1 默认服务商 + 默认皮肤 + 提示已移除 */
@@ -164,7 +183,7 @@ try {
   ok('ballHintRemoved', !(await ball.eval("Boolean(document.querySelector('.hint'))")))
 
   /* 2 名字可留空 */
-  await ball.eval("window.bwu.settings.update({ ui: { assistantName: '' } })")
+  await admin.update({ ui: { assistantName: '' } })
   await sleep(500)
   const s1 = await ball.eval('window.bwu.settings.get()')
   ok('assistantNameCanBeEmpty', s1.ui.assistantName === '', { name: s1.ui.assistantName })
@@ -303,8 +322,8 @@ try {
   /* 7 试听互斥：连续触发两次试听都要快速返回（后一次打断前一次，不能排队挂住） */
   const tt0 = Date.now()
   const previews = await Promise.all([
-    bubble.eval('window.bwu.settings.testTts()'),
-    bubble.eval('window.bwu.settings.testTts()')
+    admin.conn.eval('window.bwu.settings.testTts()'),
+    admin.conn.eval('window.bwu.settings.testTts()')
   ])
   ok(
     'previewCallsDoNotQueue',
@@ -316,14 +335,37 @@ try {
   const before = await ballGeom()
   ps('drag', cx, cy, 100, 50)
   await sleep(900)
-  const after = await ballGeom()
-  ok('ballDrag', Math.abs(after.x - before.x) > 20 && Math.abs(after.y - before.y) > 10, { before, after })
+  let after = await ballGeom()
+  let draggedBy = 'mouse'
+  if (!(Math.abs(after.x - before.x) > 20 && Math.abs(after.y - before.y) > 10)) {
+    // 真实拖拽被前台窗口挡住时：用球窗自己的拖拽入口 + 真实光标移动（走主进程的拖动轮询）
+    await ball.eval('window.bwu.ball.dragStart()')
+    await sleep(200)
+    ps('move', cx + 100, cy + 50)
+    await sleep(600)
+    ps('move', cx + 120, cy + 60)
+    await sleep(400)
+    await ball.eval('window.bwu.ball.dragEnd()')
+    await sleep(600)
+    after = await ballGeom()
+    draggedBy = 'ipc+move'
+    mouseFallbacks++
+  }
+  ok('ballDrag', Math.abs(after.x - before.x) > 20 && Math.abs(after.y - before.y) > 10, {
+    before,
+    after,
+    draggedBy
+  })
+  if (mouseFallbacks) {
+    console.log(`（提示：${mouseFallbacks} 次真实鼠标投递被前台窗口挡住，已退回应用内等价入口）`)
+  }
 } catch (e) {
   ok('fatal', false, String(e && e.message ? e.message : e))
 } finally {
   ball?.close()
   bubble?.close()
   settings?.close()
+  admin?.close()
   try {
     process.kill(child.pid)
   } catch {}

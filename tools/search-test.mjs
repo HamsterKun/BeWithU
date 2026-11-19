@@ -10,6 +10,7 @@ import { spawn } from 'node:child_process'
 import { mkdirSync, rmSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { openSettingsWindow } from './lib/settings-window.mjs'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const PORT = Number(process.env.CDP_PORT || 9277)
@@ -131,6 +132,14 @@ async function main() {
 
   const ball = await Conn.open((await waitTarget('ball/index.html')).webSocketDebuggerUrl)
   await sleep(1800)
+  // 搜索设置在「大模型」页；管理调用只能在设置窗发起（1.0.11 的窗口角色收敛）
+  const admin = await openSettingsWindow({
+    Conn,
+    jget: async () => (await fetch(`http://127.0.0.1:${PORT}/json/list`)).json(),
+    sleep,
+    ball,
+    tab: 'model'
+  })
 
   // 1) 关闭状态
   let r = JSON.parse(
@@ -139,14 +148,14 @@ async function main() {
   check('未开启时给出引导', r.ok === false && /没有开启/.test(r.summary), r.summary)
 
   // 2) Tavily
-  await ball.eval(`window.bwu.settings.update({
+  await admin.update({
     search: {
       enabled: true,
       provider: 'tavily',
-      tavilyBaseUrl: 'http://127.0.0.1:${API_PORT}/tavily',
+      tavilyBaseUrl: `http://127.0.0.1:${API_PORT}/tavily`,
       tavilyApiKey: 'tvly-test'
     }
-  }).then(() => 'ok')`)
+  })
   await sleep(500)
   r = JSON.parse(
     await ball.eval(`window.bwu.agentTest.call('web.search', { query: '测试' }).then(r => JSON.stringify(r))`)
@@ -154,13 +163,13 @@ async function main() {
   check('Tavily 通路可用', r.ok === true && /Tavily 结果一号/.test(r.summary), r.summary.slice(0, 120))
 
   // 3) DeepSeek
-  await ball.eval(`window.bwu.settings.update({
+  await admin.update({
     search: {
       provider: 'deepseek',
-      deepseekBaseUrl: 'http://127.0.0.1:${API_PORT}/deepseek',
+      deepseekBaseUrl: `http://127.0.0.1:${API_PORT}/deepseek`,
       deepseekApiKey: 'sk-test'
     }
-  }).then(() => 'ok')`)
+  })
   await sleep(500)
   r = JSON.parse(
     await ball.eval(`window.bwu.agentTest.call('web.search', { query: '测试' }).then(r => JSON.stringify(r))`)
@@ -168,6 +177,7 @@ async function main() {
   check('DeepSeek 通路可用', r.ok === true && /DeepSeek 结果一号/.test(r.summary), r.summary.slice(0, 120))
   check('DeepSeek 用量摘要而非短摘要', /长摘要/.test(r.summary), r.summary.slice(0, 160))
 
+  admin.close()
   ball.ws.close()
   proc.kill()
   await sleep(700)
