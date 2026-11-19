@@ -134,6 +134,22 @@ try {
   }
   ok('ballRendered', await ball.eval('Boolean(document.querySelector(".ball"))'))
 
+  // 窗口角色隔离：球窗只该拿到主题订阅和球本身，管理接口只在设置窗
+  const ballApi = await ball.eval(
+    '({ update: typeof window.bwu?.settings?.update, tools: typeof window.bwu?.agentTools, mcp: typeof window.bwu?.mcp, ball: typeof window.bwu?.ball })'
+  )
+  ok(
+    'ballRoleScoped',
+    ballApi.update === 'undefined' && ballApi.tools === 'undefined' && ballApi.mcp === 'undefined' && ballApi.ball === 'object',
+    ballApi
+  )
+  const hasTestBridge = await ball.eval('Boolean(window.bwu && window.bwu.agentTest)')
+  ok(
+    packaged ? 'testIpcNotShipped' : 'testIpcAvailableInDev',
+    packaged ? hasTestBridge === false : hasTestBridge === true,
+    { packaged, hasTestBridge }
+  )
+
   // 从气泡打开设置页：验证按窗口角色的 preload 真的能拿到设置接口
   admin = await openSettingsWindow({ Conn, jget, sleep, ball, tab: 'about' })
   const aboutInfo = await admin.conn.eval('window.bwu.settings.appInfo()')
@@ -144,6 +160,8 @@ try {
   )
   const title = await admin.conn.eval("document.querySelector('.main__head h1')?.textContent || ''")
   ok('settingsPaneRendered', title.length > 0, title)
+  const settingsAdmin = await admin.conn.eval('typeof window.bwu.settings.update')
+  ok('settingsRoleHasAdmin', settingsAdmin === 'function', settingsAdmin)
 
   const errs = logText()
     .split('\n')

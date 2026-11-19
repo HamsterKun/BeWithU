@@ -34,7 +34,9 @@
 - 安装版：`release/BeWithU-1.0.11-x64.exe`（可自选安装目录，带开始菜单与桌面快捷方式）。仅在对应版本发布包已生成并附带可信清单时使用；请先核验，再运行。
 - 便携版：`release/BeWithU-1.0.11-portable.exe`（无需安装，不写注册表）。同样请先核验，再运行。
 
-在仓库根目录，从独立可信渠道取得与该版本、该文件对应的发布清单（例如经过验证的签名清单），将其中的 SHA-256 填入下方占位符：
+在仓库根目录，从独立可信渠道取得与该版本、该文件对应的发布清单（例如经过验证的签名清单），将其中的 SHA-256 填入下方占位符。
+本仓库为 1.0.11 生成的清单位于 [docs/RELEASE-1.0.11.md](docs/RELEASE-1.0.11.md)（`release/SHA256SUMS-1.0.11.txt`
+是同内容的机器可读版本）；如果你是从别处下载的安装包，仍应以独立渠道核实的摘要为准，而不是只信随包附带的这份清单。
 
 ```powershell
 $env:BEWITHU_INSTALLER_SHA256 = '<发布清单中的 64 位十六进制 SHA-256>'
@@ -304,6 +306,13 @@ tools/
 .\scripts\dev.cmd        # 开发（热更新，F12 打开 DevTools）
 .\scripts\build.cmd      # 类型检查 + 构建 out/
 .\scripts\package.cmd    # 构建 + 打包安装版与便携版到 release/
+```
+
+回归测试和打包验收的完整命令清单在 [HANDOFF.md §5](HANDOFF.md)。最常用的两条：
+
+```powershell
+node tools\smoke-test.mjs   # 隔离冒烟：全新 userData 启动一次，检查窗口/角色隔离/异常日志
+node --test tools\approval.test.mjs   # 单元测试（10 个文件，见 HANDOFF §5）
 ```
 
 如果你自己装了 Node，也可以用 `package.json` 里的脚本：

@@ -1,6 +1,6 @@
-# BeWithU 交接文档（2026-11-19，1.0.11 开发中）
+# BeWithU 交接文档（2026-11-19，1.0.11 已打包待签名/发布）
 
-> 接手先读 §0 和 §10。工作区包含未提交源码改动、未跟踪测试及发布文档；不要仅从 HEAD 导出。
+> 接手先读 §0 和 §10。1.0.11 的产品侧改动已提交、已打包、已跑完整验证，剩下的都是签名、外部发布和真机矩阵。
 
 ---
 
@@ -9,17 +9,18 @@
 | 项 | 值 |
 |---|---|
 | 代码位置 | `D:\coding\BeWithU` |
-| 版本 | **1.0.11**（安全与可靠性修复开发中，尚未打包/发布） |
-| HEAD | `2b2a24d`（1.0.10 基线） |
-| 产物 | `out/` 是本轮源码 bundle；`release/` 仍只有 1.0.10 旧安装器/便携包，未生成 1.0.11 产物 |
-| 工作区 | 有未提交的源码和文档改动，也有未跟踪的测试、安装校验脚本和审查报告。带回家应打包工作区文件，不能只导出 HEAD |
+| 版本 | **1.0.11**（安全与可靠性修复；已打包，未签名，未对外发布） |
+| HEAD | `main` 上 1.0.11 的提交：产品代码/测试在 `23f55b6`，本文档与发布清单紧随其后一个提交（`git log --oneline -2` 可看到） |
+| 产物 | `release/` 已是 1.0.11 安装器 + 便携包（含 `SHA256SUMS-1.0.11.txt`、`RELEASE-1.0.11.md`）；旧 1.0.10 产物在 `release/archive-1.0.10/` |
+| 工作区 | 干净（`git status` 无输出）；`out/` 是本轮源码 bundle，`release/`、`out/` 都被 gitignore |
 
 **白天那版**：Agent 能力层 M1（键鼠注入）+ M2（工具循环/审批/审计）+ 设置页，19 个内置工具。
 **今晚这版**：把 Agent 能力补完整（自定义工具、Skill、MCP、联网搜索），修掉一批把功能打到不可用的 bug，
 补了亮/暗主题、用量统计、模型列表，并出了 **1.0.x 正式版**。
 
-**一句话现状**：能聊天、能看屏（需视觉模型）、能干活（21 个内置工具 + MCP）、能联网、有主题、有用量统计。
-**最大的遗留**：没有代码签名（SmartScreen 会拦一次）、`input.*` 依赖真实前台、COM/UIA 还没做。
+**一句话现状**：能聊天、能看屏（需视觉模型）、能干活（22 个内置工具 + MCP）、能联网、有主题、有用量统计；
+1.0.11 把评审里的权限、隐私、迁移、供应链问题补完，产物已打包并通过完整回归。
+**最大的遗留**：没有代码签名（SmartScreen 会拦一次）、`input.*` 依赖真实前台、COM/UIA 还没做、官方 ASR 归档整包未下载校验。
 
 ---
 
@@ -258,6 +259,34 @@
 
 ---
 
+## 1.20 v1.0.11（本次）：安全与可靠性修复 + 打包验收
+
+评审报告在 [REVIEW.md](REVIEW.md)，逐条修完后这一版把"能发"补齐。
+
+| 主题 | 改法 | 关键文件 |
+|---|---|---|
+| 审批撤销 | 待确认请求绑定对话/轮次，停止、切轮、关窗即撤销并默认拒绝；执行前再复核取消状态 | `agent/approval.ts`、`agent/runner.ts`、`services/pipeline.ts` |
+| MCP 撤权 | 配置变更/移除时注销旧工具并断开连接，调用时按实时配置校验；远端工具仍逐次确认 | `agent/index.ts`、`agent/mcp.ts` |
+| 文件边界 | 允许目录 + 实际落点都校验（含 `.bak` 与自定义工具入口），拒绝 reparse point | `agent/tools/files.ts` |
+| 工具预算 | 单次响应内多工具按剩余步数截断，拒绝未公开的工具名，超时请求取消 | `agent/tool-budget.ts`、`agent/runner.ts` |
+| 窗口角色 | preload 按 `--bwu-role=` 只暴露该窗口需要的接口，主进程校验发送窗口与主 frame；生产版不注册测试 IPC | `src/preload/index.ts`、`main/ipc.ts`、`main/windows.ts` |
+| 截图隐私 | 新配置默认关闭、开启时说明范围；匹配不到目标显示器就跳过；WGC 回包带请求 ID 并校验图像 | `services/vision.ts`、`vision-grab.ts` |
+| 数据迁移 | 迁移清单覆盖用量/Agent/Skill/模型，逐文件 SHA-256 校验后才切指针，源目录保留 | `main/data-dir.ts` |
+| ASR 完整性 | 固定官方 release 归档 + 两个文件的 hash/size，先 staging 校验再发布；`modelReady()` 也验哈希 | `services/asr-model.ts`、`asr-model-manifest.ts` |
+| 结构化错误 | LLM 400 视觉回退、Breeze 429 退避改用 HTTP 状态码而不是猜错误文本 | `services/http-error.ts`、`retry-policy.ts` |
+| ASR 竞态 | 录音会话 generation，旧回调不能写进新轮 | `services/asr-generation.ts` |
+| 安装脚本 | 不再解除下载标记；要求显式路径 + 可信 SHA-256 / 发布者证书指纹 | `scripts/install-app.cmd`、`check-installer.ps1` |
+| 测试入口 | 管理类 E2E 改走真实路径：点球 → 气泡 → 设置窗（球窗已经没有管理接口） | `tools/lib/settings-window.mjs` + 各 E2E |
+
+**验收（本轮实跑）**：typecheck 双端通过；`electron-vite build` 通过；单元/安全 **23/23**；
+E2E 13 个套件共 **95 条断言全绿**；隔离冒烟 `out/` 11/11、打包版 11/11；安装器 SHA-256 与
+`check-installer.ps1` 正/反例都验过。产物清单见 [docs/RELEASE-1.0.11.md](docs/RELEASE-1.0.11.md)。
+
+**新增测试脚本**：`tools/smoke-test.mjs`（隔离 userData 冒烟，支持 `BWU_TEST_EXE` 指打包产物）、
+`tools/lib/settings-window.mjs`（E2E 共用的"气泡 → 设置窗"入口）。
+
+---
+
 ## 2. 代码结构（今晚新增的用 ★）
 
 ```
@@ -296,7 +325,7 @@ tools/                  ★ 新增 4 个测试 + fixtures
 scripts/install-app.cmd ★
 ```
 
-内置工具 **21 个**（19 + `skill.read` + `web.search`），MCP 工具运行时动态追加。
+内置工具 **22 个**（19 + `skill.read` + `web.search` + `screen.capture`），MCP 工具运行时动态追加。
 
 ---
 
@@ -338,23 +367,41 @@ Remove-Item Env:\ELECTRON_RUN_AS_NODE -ErrorAction SilentlyContinue
 & $node node_modules\typescript\lib\tsc.js --noEmit -p tsconfig.web.json
 & $node node_modules\electron-vite\bin\electron-vite.js build
 
+# —— 单元 / 安全（node:test，不需要 Electron；10 个文件 23 条）——
+& $node --test tools\agent-tool-budget.test.mjs tools\approval.test.mjs tools\asr-generation.test.mjs `
+  tools\asr-model-manifest.test.mjs tools\data-dir-migration.test.mjs tools\file-boundary.test.mjs `
+  tools\mcp-secrets.test.mjs tools\retry-policy.test.mjs tools\vision-grab.test.mjs tools\player-test.mjs
+
+# —— E2E（每个都要先 Stop-Process electron）——
+& $node tools\agent-run-test.mjs      # Agent 主循环         10/10
 & $node tools\agent-ext-test.mjs      # 自定义工具 + Skill   10/10
-& $node tools\agent-llm-test.mjs      # 工具名合法性/错误可见 2/2
-& $node tools\search-test.mjs         # 联网搜索两条通路     4/4
-& $node tools\mcp-zip-test.mjs        # zip 导入 + MCP       6/6
-& $node tools\agent-run-test.mjs      # Agent 主循环         7/7
+& $node tools\agent-llm-test.mjs      # 工具名合法性/错误可见 3/3
 & $node tools\agent-settings-test.mjs # 设置页               8/8
+& $node tools\agent-ui-test.mjs       # 气泡/徽标/布局       19/19
+& $node tools\prompts-test.mjs        # 提示词页 + 实际生效   4/4
+& $node tools\thinking-test.mjs       # 思考参数/展示/降级    6/6
+& $node tools\search-test.mjs         # 联网搜索两条通路      4/4
+& $node tools\shell-encoding-test.mjs # Shell 中文输出        3/3
+& $node tools\mcp-zip-test.mjs        # zip 导入 + MCP        6/6
+& $node tools\menu-test.mjs           # 右键菜单              6/6
+& $node tools\app-test.mjs            # 界面回归              16/16
+& $node tools\local-asr-test.mjs      # 本机 ASR 真实识别（需要已装模型）
 & $node tools\agent-input-test.mjs    # 键鼠注入（依赖真实前台，可能不稳）
-& $node tools\app-test.mjs            # 界面回归（真鼠标点击，用户动鼠标会偶发失败）
-& $node tools\menu-test.mjs           # 右键菜单
-& $node tools\player-test.mjs         # 播放器
 ```
 
 - 每个测试之间先 `Stop-Process electron`，否则单实例锁会让新实例直接退出。
 - mock LLM：`BWU_AGENT_MOCK` 指向 JSON，场景按用户文本包含的关键字匹配；**JSON 必须是 UTF-8 无 BOM**，
   场景 key 用英文（中文会被 `Set-Content -Encoding ascii` 之类的写法毁掉）。
-- `BWU_AGENT_TEST=1` 才注册测试通道（`agentTest.list/call/run/importTool...`、`mcpTools`）。
-- 打包版也能跑：`BWU_TEST_EXE=release\win-unpacked\BeWithU.exe node tools\agent-llm-test.mjs`。
+- **mock 里的工具名必须用下划线写法**（`file_write`、`shell_ps`），模型收到的就是 wire 名；
+  写成 `file.write` 会被 runner 当未知工具拒绝（1.0.11 起）。
+- `BWU_AGENT_TEST=1` 且**非打包**时才注册测试通道（`agentTest.*`、`mcpTools`）。
+  打包版故意没有这条通道，所以 `BWU_TEST_EXE` 只能配 `tools/smoke-test.mjs`
+  （`BWU_TEST_EXE=release\win-unpacked\BeWithU.exe node tools\smoke-test.mjs`）；
+  旧的"打包版跑 agent-llm-test"已不成立。
+- 隔离冒烟：`node tools\smoke-test.mjs`（全新 userData，检查启动、四个窗口、角色隔离、无异常日志）。
+- **真鼠标类测试（menu / app）的已知前提**：桌面若被全屏游戏等前台窗口霸占，真实鼠标到不了球窗。
+  脚本会退回应用内等价入口（球窗 IPC / 气泡页 CDP 输入）并打印"真实鼠标投递被挡住"的提示；
+  要算完整覆盖，得在没有前台全屏窗口的桌面上复跑。
 
 ---
 
@@ -369,16 +416,27 @@ $d = "$env:USERPROFILE\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies"
 
 **流程（1.0.0 之后固定）**
 1. 改 `package.json` 的 `version`
-2. `Remove-Item -Recurse -Force release\*`（别把旧包一起发出去）
-3. 后台跑打包（必须 background job，前台会超时留半成品）
-4. 校验：`release/win-unpacked/resources/app.asar.unpacked/node_modules/koffi` 存在、
-   `app.asar` 时间戳是新的、两个 exe 时间是新的
-5. `git add -A && git commit && git push`
+2. 后台跑打包（必须 background job，前台会超时留半成品），**输出先给独立 staging**：
+   `--config.directories.output=D:\coding\bwu-staging-<版本>`，不要直接覆盖 `release\`
+3. 校验 staging：`win-unpacked\resources\app.asar` 时间戳是新的、
+   `app.asar.unpacked\node_modules\@koromix\koffi-win32-x64\win32_x64\koffi.node`（1,060,352 bytes）、
+   `uiohook-napi\prebuilds\win32-x64\uiohook-napi.node`、`sherpa-onnx-win-x64\*.dll|*.node` 都在、
+   asar 里 `package.json` 是目标版本、两个 exe 时间戳是新的
+4. 隔离启动冒烟：`BWU_TEST_EXE=<staging>\win-unpacked\BeWithU.exe node tools\smoke-test.mjs`
+5. 算 SHA-256，写发布清单（见 [docs/RELEASE-1.0.11.md](docs/RELEASE-1.0.11.md) 的格式），
+   再用 `scripts/check-installer.ps1 -ExpectedSha256 <值>` 正/反例各验一次
+6. 全部通过后才把产物放进 `release\`，旧版本产物移进 `release\archive-<旧版本>\`
+7. `git add -A && git commit && git push`
 
 产物命名由 `artifactName: ${productName}-${version}-${arch}` 自动生成；便携版单独一条 `portable.artifactName`。
 
-**SmartScreen**：没有代码签名，下载后首次运行会提示"Windows 已保护你的电脑"。
-右键属性「解除锁定」或跑 `scripts/install-app.cmd` 可绕过；要彻底消除得买代码签名证书
+**已知打包环境坑**：本机 PATH 里没有 `pnpm`，electron-builder 的 `pnpm list` 会失败并回退到手工遍历
+`node_modules`（日志里是一条 `node module collection failed`，不影响产物，1.0.10 也是这样）。
+打包用的 TEMP 要设到仓库内可写目录（`scripts/package.cmd` 里已设 `.cache\tmp`）。
+
+**SmartScreen**：没有代码签名，下载后首次运行会提示"Windows 已保护你的电脑"。现在**不再建议**"解除锁定"绕过
+（安装脚本也不再替用户去标记），正确做法是从可信渠道拿到该版本的 SHA-256 后，用
+`scripts/check-installer.ps1` 校验再运行；要彻底消除得买代码签名证书
 （EV 立刻生效、OV 要攒信誉、Azure Trusted Signing 要求 3 年企业历史）。README 的 FAQ 有完整说明。
 
 ---
@@ -397,6 +455,12 @@ $d = "$env:USERPROFILE\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies"
 | **用量** | 仅 token/字数/秒数，不折算金额（各家单价不同） |
 | **主题** | ball 窗口是透明角色图，未做亮暗区分；气泡亮色下已补对比度，但样式是 second-pass 的 |
 | **签名** | 无（见 §6） |
+| **麦克风启动/快速停止**（REVIEW C1） | `recorder.ts` 仍是"先拿流再建 AudioContext"，中途失败或启动未完成就被停止时，可能留下流/上下文。建议加启动代次 + 每步失败都 cleanup |
+| **快捷键降级**（REVIEW C7） | 驱动不可用时提示"已降级"，但降级只模拟 60ms 按键，按住说话基本不可用；默认 Mouse4 也不在这条路上 |
+| **SSE 尾帧**（REVIEW C8） | `llm.ts` / `tts.ts` 只处理换行结尾的完整行，读完了不解析残余 `data:`；搜索客户端直接 `res.text()`。建议统一尾帧处理 |
+| **文件读上限**（REVIEW A8） | `file.list` / `file.read` 仍先同步读完再截断，大文件/慢盘会卡主进程 |
+| **审计内容**（REVIEW B4） | 审计 JSONL 仍记录参数与结果片段（可能含文件内容）；历史/记忆明文落盘。建议默认只记元数据 |
+| **ASR 归档整包** | 官方 163 MB 归档在本机下载太慢（约 5–10 KB/s），只下到 16%；归档 SHA 来自官方 checksum，两个文件的 hash/size 已与本机模型核对一致。续传命令见 §10 |
 
 ---
 
@@ -416,6 +480,13 @@ $d = "$env:USERPROFILE\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies"
    用 `[IO.File]::WriteAllText(path, text, [Text.UTF8Encoding]::new($false))`。
 8. **透明窗口三不要**：不要 `backdrop-filter`、不要 `setBackgroundColor`、窗口尺寸不要比内容大（会被画成黑框）。
 9. **打包必须后台 job**；前台会因超时被杀，留下半成品。
+10. **真鼠标 E2E 怕前台全屏窗口**：桌面被游戏等全屏窗口盖住时，`SendInput`/`mouse_event` 到不了悬浮球
+    （`WindowFromPoint` 会返回那个全屏窗口）。要么先让开桌面，要么接受脚本打印的"退回应用内入口"提示。
+11. **本机工作区权限**：`D:\coding\BeWithU` 曾缺少当前用户对写权限（`WRITE_OWNER`），
+    导致 DSH 沙箱无法给工作区授权、命令直接跑不起来；用 DSH 的
+    `diagnose-windows-sandbox-acl.ps1 -Path <workspace> -AllowRoot <workspace> -Out <回滚目录>` 修好，
+    回滚脚本在 `D:\coding\bwu-acl-recovery\`。以后新建/搬运目录注意别沿用别的用户的 ACL。
+
 
 ---
 
@@ -437,9 +508,9 @@ $d = "$env:USERPROFILE\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies"
 
 ---
 
-## 10. 当前状态：安全与可靠性修复
+## 10. 当前状态：1.0.11 已提交、已打包、已验证
 
-### 已完成，未提交、未发布
+### 已完成（commit `23f55b6`）
 
 - **审批与 MCP**：停止或切换对话会撤销待确认操作；执行前复核权限和取消状态。MCP 配置变更会撤销旧工具和连接，远端工具仍逐次确认。[审批](src/main/agent/approval.ts) · [MCP 注册](src/main/agent/index.ts) · [执行入口](src/main/agent/runner.ts)
 - **文件与窗口权限**：校验允许目录和实际落点，包括备份与自定义工具入口；preload 按窗口角色暴露接口，主进程核验窗口和主框架，生产版不开放测试 IPC。路径检查和子进程均不是操作系统沙箱。[文件工具](src/main/agent/tools/files.ts) · [IPC](src/main/ipc.ts) · [preload](src/preload/index.ts)
@@ -447,18 +518,37 @@ $d = "$env:USERPROFILE\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies"
 - **迁移与安装**：迁移包含用量和 Agent 数据，经 SHA-256 校验后才切换，源目录保留；恢复默认时先归档之前的默认应用数据。安装脚本不解除下载标记，要求显式路径和可信摘要或发布者证书指纹。[迁移](src/main/data-dir.ts) · [安装脚本](scripts/install-app.cmd) · [校验脚本](scripts/check-installer.ps1)
 - **本轮追加**：ASR 会话 generation 防止跨轮回写；MCP headers 加密落盘且公开 DTO 脱敏；Agent 单次多工具调用按剩余步数截断，拒绝未知工具并在超时请求取消；LLM 400 视觉回退与 Breeze 429 重试改用结构化 HTTP 状态；设置保存失败显式显示并保留 patch。
 
-### 已验证与待验证
+### 已验证（本轮实跑，可复现）
 
-- 交接前验证记录：主进程及渲染端 TypeScript 检查通过，Electron/Vite 生产构建成功（输出到系统临时目录），四个新增测试 **14/14** 通过。该记录对应交接生成时的环境，不代表下方本次复验。
-- 本轮环境：Node.js **v24.21.0**、pnpm **11.28.5**；依赖按 frozen lock 恢复，`pnpm-lock.yaml` 未修改。主/渲染 TypeScript 检查通过，Electron/Vite bundle 构建通过（输出至 `out/`）。最新全量结果：unit/security **21/21**、Agent runner E2E **10/10**、扩展/Skill E2E **10/10**、MCP ZIP E2E **6/6**、播放器 **6/6**；另新增 `asr-model-manifest.test.mjs`（2 assertions grouped in 1 test），单独通过。`git diff --check` 通过。
-- E2E 管理操作使用最小权限窗口：Agent runner 设置通过设置窗，Skill/MCP 管理通过气泡打开设置窗；没有放宽生产 IPC。
-- 安装校验脚本正反例曾用一次性 `-ExecutionPolicy Bypass` 子进程验证；未改系统执行策略，也未启动安装器。
-- 版本为 **1.0.11**，但尚未完成该版本生产打包/安装器验收。`release/` 保留原 1.0.10 产物；本轮未清理或覆盖。
-- **ASR 当前进度**：已从官方 sherpa-onnx GitHub release `asr-models` 的 `checksum.txt` 找到 int8 archive SHA-256 `7d1efa2138a65b0b488df37f8b89e3d91a60676e416f515b952358d83dfd347e`；官方 release API 中该 checksum 清单的 asset digest 为 `sha256:a96a8ecfa4377305cce41cf5cc3833552477e547ff7ad10a2c9615b3e6921f1a`，上传者为 `github-actions[bot]`。代码已改为固定官方 release archive、校验归档和两个文件 hash/size 后再 staging 发布，`modelReady()` 也校验每个文件 hash。**未完成实测**：归档下载因网络速度低而停止，临时文件 `%TEMP%\\bwu-sensevoice-int8-2024-07-17.tar.bz2` 仅约 16 MB（完整 163,002,883 bytes），不可解包/使用；需续下后比对 archive SHA、检查 tar 清单和文件 hash，再测试提取流程。不要把该 partial 当作模型。
-- **下一步**：先续传并完整校验上述官方 ASR archive；运行 ASR manifest/download/extraction tests。随后执行 typecheck、全量 E2E，再启动本轮 `out/` 对应源码 GUI 做隔离冒烟。确认 `koffi` 可用于当前 Node/Electron ABI 后，将 builder 输出设到独立 staging，不清理旧 `release/`；校验 app.asar 时间、koffi unpacked 文件、版本与 exe，再算 SHA-256。只有全部通过后才将 1.0.11 产物放入 `release/` 并生成独立发布清单。
-- **发布阻塞**：1.0.11 新安装器和 portable 尚未生成；需验证 koffi 原生模块被 builder 正确打入，并做新包隔离启动、测试和 SHA-256 发布清单。真实多屏/WGC、ASR 设备、代码签名及外部发布也未完成。
+- 运行环境：Node.js **v24.21.0**、Electron **45.3.3**、electron-builder **26.18.0**；`pnpm-lock.yaml` 未改。
+- TypeScript 双端检查通过；`electron-vite build` 通过（输出 `out/`）；`git diff --check` 通过。
+- 单元/安全 **23/23**（10 个 `node --test` 文件，含审批、迁移、文件边界、抓屏、MCP 密钥、ASR manifest/generation、工具预算、重试策略、播放器）。
+- E2E **13 个套件 / 95 条断言全绿**：agent-run 10、ext 10、mcp-zip 6、agent-llm 3、agent-settings 8、agent-ui 19、prompts 4、thinking 6、search 4、shell-encoding 3、menu 6、app 16；local-asr 用本机真实模型完成识别（RTF≈0.04）。
+- 隔离冒烟 `tools/smoke-test.mjs`：`out/` 11/11、`release/win-unpacked/BeWithU.exe` 11/11；其中包含"球窗没有管理接口、打包版没有测试 IPC"的角色隔离断言。
+- **打包验收**：先输出到 `D:\coding\bwu-staging-1.0.11`，校验 `app.asar`（10,112,952 bytes，版本 1.0.11）、
+  `@koromix/koffi-win32-x64/win32_x64/koffi.node`、`uiohook-napi`、`sherpa-onnx-win-x64` 均在 unpacked 里，
+  asar 内 `out/main/index.js` 带 ASR 归档 SHA 常量与 `--bwu-role=`；`koffi 3.3.8` 在 Electron 45.3.3/Node 24.22.3(ABI 150)
+  下可加载，应用日志出现 `input: 工作进程已启动`；安装器 129,020,533 bytes / `095a55f1…8c98`，
+  便携版 116,742,371 bytes / `7ee4d309…3109`，`check-installer.ps1` 正/反例/缺摘要三种情况都验过。
+  完整记录见 [docs/RELEASE-1.0.11.md](docs/RELEASE-1.0.11.md)。
+- **产物已就位**：`release/` 是 1.0.11，旧 1.0.10 移进 `release/archive-1.0.10/`；`release/SHA256SUMS-1.0.11.txt`。
+
+### 仍未完成（不是本轮能闭的）
+
+- **ASR 官方归档整包**：`https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17.tar.bz2`
+  （163,002,883 bytes，SHA-256 `7d1efa2138a65b0b488df37f8b89e3d91a60676e416f515b952358d83dfd347e`）
+  在本机只有约 5–10 KB/s，续传了 20 多分钟仍停在约 16%（半成品在 `D:\coding\bwu-asr-dl\archive.tar.bz2`，
+  **不要当模型用**）。归档 SHA 来自官方 `checksum.txt`（该清单的 asset digest 是 `sha256:a96a8ecf…1f1a`，
+  上传者 `github-actions[bot]`）；归档里两个文件的 hash/size 已用**本机已装模型**逐字节核对一致
+  （见 §10 上面的验收记录）。要彻底闭环：找个带宽好的网络把归档下完，比对 SHA-256，
+  再跑一次"下载 → 解包 → 发布"全流程（`tools/asr-model-manifest.test.mjs` 只校验固定值）。
+- **代码签名**：没有证书，安装器未签名。
+- **真机矩阵**：真实多屏/WGC、ASR 麦克风设备、`input.*` 前台依赖，都只在单机上验过。
+- **外部发布**：没有上传安装器/做分发页。
 
 ### 源码搬运
 
-- 打包当前工作区，不要用仅包含已提交内容的 `git archive HEAD`。务必带上这份交接、[审查报告](REVIEW.md)、[安装校验脚本](scripts/check-installer.ps1)和所有未跟踪测试文件（包含审批、迁移、文件边界、抓屏、MCP 密钥、ASR manifest/retry、工具预算及 ASR generation 测试；仅按 Git 跟踪文件打包会漏掉它们）。
-- 可排除 `node_modules/`、`.pnpm-store/`、`.cache/`、`out/`、`release/`、`.shots/` 和本地日志/录音样本；保留源码、脚本、资源、构建配置及锁文件。不要打入真实应用数据目录、API Key 或凭据。是否带 `.git/` 按是否需要保留历史决定。
+- 现在可以直接 `git archive HEAD` 或 clone（工作区已提交、`git status` 干净），但要带上 `release/` 里的产物与清单
+  （`release/` 被 gitignore，不在仓库里）、以及 [docs/RELEASE-1.0.11.md](docs/RELEASE-1.0.11.md)。
+- 可排除 `node_modules/`、`.pnpm-store/`、`.cache/`、`out/`、`release/archive-*`、`.shots/` 和本地日志/录音样本；
+  不要打入真实应用数据目录（`%APPDATA%\BeWithU`）、API Key 或凭据。
