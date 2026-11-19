@@ -2,6 +2,7 @@ import type { LlmSettings } from '../../shared/types'
 import { log } from '../logger'
 import { recordTokens } from '../store/usage'
 import { HttpStatusError } from './http-error'
+import { sseData, sseLines } from './sse'
 
 export type ContentPart =
   | { type: 'text'; text: string }
@@ -151,40 +152,30 @@ export async function* streamChat(opts: {
   }
   if (!res.body) throw new Error('服务端没有返回数据流')
 
-  const decoder = new TextDecoder()
-  let buffer = ''
   const body = res.body as unknown as AsyncIterable<Uint8Array>
 
-  for await (const chunk of body) {
-    buffer += decoder.decode(chunk, { stream: true })
-    const lines = buffer.split('\n')
-    buffer = lines.pop() ?? ''
-    for (const raw of lines) {
-      const line = raw.trim()
-      if (!line || line.startsWith(':')) continue
-      if (!line.startsWith('data:')) continue
-      const data = line.slice(5).trim()
-      if (!data || data === '[DONE]') continue
-      try {
-        const json = JSON.parse(data)
-        const choice = json.choices?.[0]
-        const reasoning = choice?.delta?.reasoning_content ?? choice?.delta?.reasoning
-        if (typeof reasoning === 'string' && reasoning) opts.onReasoning?.(reasoning)
-        const delta = choice?.delta?.content ?? choice?.message?.content ?? ''
-        if (typeof delta === 'string' && delta) yield delta
-        if (choice?.finish_reason === 'error') throw new Error('模型返回错误')
-        // usage 可能在最后一个 chunk（choices 为空）
-        if (json.usage) {
-          recordTokens(
-            opts.purpose ?? 'chat',
-            Number(json.usage.prompt_tokens) || 0,
-            Number(json.usage.completion_tokens) || 0
-          )
-        }
-      } catch (e) {
-        if (e instanceof SyntaxError) continue
-        throw e
+  for await (const raw of sseLines(body)) {
+    const data = sseData(raw)
+    if (!data || data === '[DONE]') continue
+    try {
+      const json = JSON.parse(data)
+      const choice = json.choices?.[0]
+      const reasoning = choice?.delta?.reasoning_content ?? choice?.delta?.reasoning
+      if (typeof reasoning === 'string' && reasoning) opts.onReasoning?.(reasoning)
+      const delta = choice?.delta?.content ?? choice?.message?.content ?? ''
+      if (typeof delta === 'string' && delta) yield delta
+      if (choice?.finish_reason === 'error') throw new Error('模型返回错误')
+      // usage 可能在最后一个 chunk（choices 为空）
+      if (json.usage) {
+        recordTokens(
+          opts.purpose ?? 'chat',
+          Number(json.usage.prompt_tokens) || 0,
+          Number(json.usage.completion_tokens) || 0
+        )
       }
+    } catch (e) {
+      if (e instanceof SyntaxError) continue
+      throw e
     }
   }
 }

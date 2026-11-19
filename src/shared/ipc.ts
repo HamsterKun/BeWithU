@@ -114,6 +114,7 @@ export const IPC = {
   agentTestRun: 'agent:test-run',
   agentTestBubble: 'agent:test-bubble',
   agentTestBallTop: 'agent:test-ball-top',
+  agentTestRec: 'agent:test-rec',
   agentTestProgress: 'agent:test-progress',
   agentTestImportTool: 'agent:test-import-tool',
   agentTestTrustTool: 'agent:test-trust-tool',
@@ -298,6 +299,8 @@ export interface BwuApi {
     mcpTools(): Promise<string[]>
     bubbleVisible(): Promise<boolean>
     ballTop(action: 'drop' | 'check'): Promise<boolean>
+    /** 测试用：让球窗收到一次"开始/停止录音"（和真实按键走同一条主进程路径） */
+    rec(action: 'start' | 'stop'): Promise<boolean>
     progress(p: { active: boolean; mode?: 'thinking' | 'working'; step?: number; total?: number }): Promise<boolean>
     run(
       text: string,

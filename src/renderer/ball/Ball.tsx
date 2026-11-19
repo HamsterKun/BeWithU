@@ -3,7 +3,7 @@ import type { Phase, PublicSettings } from '@shared/types'
 import type { AgentProgress } from '@shared/ipc'
 import { resolveBallImage } from '@shared/art'
 import { Player } from './player'
-import { Recorder } from './recorder'
+import { Recorder, RecorderCancelled } from './recorder'
 
 const player = new Player()
 const recorder = new Recorder()
@@ -49,6 +49,8 @@ export default function Ball(): React.ReactElement {
         .start(settingsRef.current?.ui.micDeviceId ?? '', (buf) => window.bwu.ball.sendPcm(buf))
         .catch((e: unknown) => {
           setRecording(false)
+          // 启动途中被"松开/切换"取消属于正常流程，不该提示麦克风坏了
+          if (e instanceof RecorderCancelled) return
           const msg = e instanceof Error ? e.message : String(e)
           window.bwu.ball.reportError(msg)
         })

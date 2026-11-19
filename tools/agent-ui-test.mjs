@@ -299,7 +299,16 @@ try {
   const badgeGone = await ball.eval("!document.querySelector('.work-badge')")
   const aiText = await bubble.eval("document.querySelector('.row__text--ai')?.textContent || ''")
   ok('backToIdle', finalPhase === 'idle' && badgeGone, { finalPhase, badgeGone })
-  ok('bubbleShownAfterTask', (await bubbleVisible()) === true)
+  // 任务结束会弹回气泡，但 show 是异步的：轮询几次，避免刚调用就断言
+  let shownAfterTask = false
+  for (let i = 0; i < 20; i++) {
+    if ((await bubbleVisible()) === true) {
+      shownAfterTask = true
+      break
+    }
+    await sleep(150)
+  }
+  ok('bubbleShownAfterTask', shownAfterTask)
   ok('finalReport', /已完成/.test(aiText), aiText.slice(0, 60))
 
   // 6.5) 置顶看门狗：故意取消置顶，1.5s 内应被拉回

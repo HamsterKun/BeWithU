@@ -3,6 +3,7 @@ import type { TtsSettings } from '../../shared/types'
 import { log } from '../logger'
 import { recordTtsChars } from '../store/usage'
 import { HttpStatusError } from './http-error'
+import { sseLines } from './sse'
 
 /** 豆包语音合成大模型 V3 · 单向流式（HTTP + SSE），2.0 音色可用 */
 const TTS_URL = 'https://openspeech.bytedance.com/api/v3/tts/unidirectional/sse'
@@ -184,36 +185,29 @@ export async function* synthesize(
   }
   if (!res.body) throw new Error('语音合成没有返回数据流')
 
-  const decoder = new TextDecoder()
-  let buffer = ''
   let got = false
 
   const stream = res.body as unknown as AsyncIterable<Uint8Array>
-  for await (const chunk of stream) {
-    buffer += decoder.decode(chunk, { stream: true })
-    const lines = buffer.split('\n')
-    buffer = lines.pop() ?? ''
-    for (const raw of lines) {
-      const line = raw.trim()
-      if (!line || line.startsWith(':') || line.startsWith('event:')) continue
-      const payload = line.startsWith('data:') ? line.slice(5).trim() : line
-      if (!payload || payload === '[DONE]') continue
-      let obj: Record<string, unknown>
-      try {
-        obj = JSON.parse(payload)
-      } catch {
-        continue
-      }
-      const code = Number(obj.code ?? obj.status_code ?? 0)
-      const message = String(obj.message ?? obj.status_text ?? '')
-      if (code !== 0 && code !== 3000 && code !== 20000000) {
-        throw new Error(friendly(code, message))
-      }
-      const audio = obj.data ?? obj.audio ?? obj.payload
-      if (typeof audio === 'string' && audio.length > 0) {
-        got = true
-        yield { pcm: Buffer.from(audio, 'base64'), sampleRate: TTS_SAMPLE_RATE }
-      }
+  for await (const raw of sseLines(stream)) {
+    const line = raw.trim()
+    if (!line || line.startsWith(':') || line.startsWith('event:')) continue
+    const payload = line.startsWith('data:') ? line.slice(5).trim() : line
+    if (!payload || payload === '[DONE]') continue
+    let obj: Record<string, unknown>
+    try {
+      obj = JSON.parse(payload)
+    } catch {
+      continue
+    }
+    const code = Number(obj.code ?? obj.status_code ?? 0)
+    const message = String(obj.message ?? obj.status_text ?? '')
+    if (code !== 0 && code !== 3000 && code !== 20000000) {
+      throw new Error(friendly(code, message))
+    }
+    const audio = obj.data ?? obj.audio ?? obj.payload
+    if (typeof audio === 'string' && audio.length > 0) {
+      got = true
+      yield { pcm: Buffer.from(audio, 'base64'), sampleRate: TTS_SAMPLE_RATE }
     }
   }
 

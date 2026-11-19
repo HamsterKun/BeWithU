@@ -782,6 +782,13 @@ export function registerIpc(getQuit: () => void): void {
       }
       return win.isAlwaysOnTop()
     })
+    // 让球窗走一遍真实的录音启动/停止（Recorder 的取消与清理只有渲染端能验）
+    handle(IPC.agentTestRec, (_e, action: string) => {
+      const win = getBallWindow()
+      if (!win) return false
+      win.webContents.send(action === 'stop' ? IPC.voiceRecStop : IPC.voiceRecStart)
+      return true
+    })
     handle(IPC.agentTestProgress, (_e, p: Record<string, unknown>) => {
       sendAgentProgress({
         active: Boolean(p.active),

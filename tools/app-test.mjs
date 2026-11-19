@@ -19,11 +19,15 @@ const HELP = join(ROOT, 'tools', 'input-helper.ps1')
 const PORT = Number(process.env.CDP_PORT || 9235)
 const BASE = `http://127.0.0.1:${PORT}`
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
-const ps = (...a) =>
-  execFileSync('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', HELP, ...a.map(String)], {
-    stdio: 'pipe',
-    timeout: 20000
+// 用命名参数传坐标：负坐标（拖到屏幕左侧/上方）当位置参数会被 PowerShell 当成参数名
+const ps = (action, x = 0, y = 0, dx = 0, dy = 0) => {
+  const args = ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', HELP, '-Action', String(action)]
+  const names = ['-X', '-Y', '-Dx', '-Dy']
+  ;[x, y, dx, dy].forEach((v, i) => {
+    if (v !== undefined && v !== null) args.push(names[i], String(v))
   })
+  execFileSync('powershell', args, { stdio: 'pipe', timeout: 20000 })
+}
 
 async function jget(p) {
   const c = new AbortController()
@@ -100,7 +104,7 @@ const exe = join(ROOT, 'node_modules', 'electron', 'dist', 'electron.exe')
 const child = spawn(exe, ['.', '--no-sandbox', '--disable-gpu', `--user-data-dir=${ud}`, `--remote-debugging-port=${PORT}`], {
   cwd: ROOT,
   stdio: 'ignore',
-  env: { ...process.env, ELECTRON_RUN_AS_NODE: undefined }
+  env: { ...process.env, ELECTRON_RUN_AS_NODE: undefined, BWU_AGENT_TEST: '1' }
 })
 console.log('app pid=' + child.pid)
 
@@ -121,11 +125,17 @@ const clickBallCenter = async () => {
     mouseFallbacks++
   }
 }
-const bubbleVisible = () => cnt('bubble: show') > cnt('bubble: hide')
-const ensureBubbleVisible = async () => {
-  for (let i = 0; i < 3 && !bubbleVisible(); i++) await clickBallCenter()
-  return bubbleVisible()
+const bubbleVisible = async () => Boolean(await ball.eval('window.bwu.agentTest.bubbleVisible()'))
+/** 点球直到气泡到达期望状态（真实鼠标可能被前台窗口挡住，最多试几次） */
+const clickUntil = async (want, attempts = 3) => {
+  for (let i = 0; i < attempts; i++) {
+    if ((await bubbleVisible()) === want) return true
+    await clickBallCenter()
+    await sleep(700)
+  }
+  return (await bubbleVisible()) === want
 }
+const ensureBubbleVisible = async () => clickUntil(true, 4)
 /** 点气泡里的按钮：走气泡页自己的输入管线（不受前台窗口遮挡影响） */
 const clickBubbleControl = async (predicate) => {
   const pos = await bubble.eval(
@@ -204,21 +214,11 @@ try {
   const gap = cardRight < cx ? cx - cardRight : cardLeft - cx
   ok('bubbleGapBeyondRing', gap >= ringR - 2, { gap: Math.round(gap), ringR: Math.round(ringR) })
 
-  /* 4 点球开关气泡（日志断言） */
-  await ensureBubbleVisible()
-  const hide0 = cnt('bubble: hide')
-  const show0 = cnt('bubble: show')
-  await clickBallCenter()
-  const hide1 = cnt('bubble: hide')
-  const show1 = cnt('bubble: show')
-  await clickBallCenter()
-  const show2 = cnt('bubble: show')
-  const hide2 = cnt('bubble: hide')
-  ok(
-    'ballClickToggles',
-    hide1 === hide0 + 1 && show1 === show0 && show2 === show1 + 1 && hide2 === hide1,
-    { hide0, hide1, show0, show1, show2, hide2 }
-  )
+  /* 4 点球开关气泡（以主进程的窗口真实可见性为准） */
+  const startedVisible = await ensureBubbleVisible()
+  const toggledOff = await clickUntil(false)
+  const toggledOn = await clickUntil(true)
+  ok('ballClickToggles', startedVisible && toggledOff && toggledOn, { startedVisible, toggledOff, toggledOn })
 
   /* 5 气泡按钮 + 打字（先确保显示） */
   await ensureBubbleVisible()
@@ -333,29 +333,34 @@ try {
 
   /* 8 拖动 */
   const before = await ballGeom()
-  ps('drag', cx, cy, 100, 50)
+  const screen = await ball.eval('({ w: screen.availWidth, h: screen.availHeight })')
+  // 球被拖到贴边时继续往外拖会被钳制，方向要按剩余空间取
+  const dx = before.x + before.w + 140 > screen.w ? -120 : 120
+  const dy = before.y + before.h + 100 > screen.h ? -90 : 90
+  ps('drag', cx, cy, dx, dy)
   await sleep(900)
   let after = await ballGeom()
   let draggedBy = 'mouse'
-  if (!(Math.abs(after.x - before.x) > 20 && Math.abs(after.y - before.y) > 10)) {
+  const moved = () => Math.abs(after.x - before.x) > 20 && Math.abs(after.y - before.y) > 10
+  if (!moved()) {
     // 真实拖拽被前台窗口挡住时：用球窗自己的拖拽入口 + 真实光标移动（走主进程的拖动轮询）
-    await ball.eval('window.bwu.ball.dragStart()')
-    await sleep(200)
-    ps('move', cx + 100, cy + 50)
-    await sleep(600)
-    ps('move', cx + 120, cy + 60)
-    await sleep(400)
-    await ball.eval('window.bwu.ball.dragEnd()')
-    await sleep(600)
-    after = await ballGeom()
-    draggedBy = 'ipc+move'
-    mouseFallbacks++
+    for (let attempt = 0; attempt < 2 && !moved(); attempt++) {
+      await ball.eval('window.bwu.ball.dragStart()')
+      await sleep(200)
+      ps('move', cx + Math.round(dx / 2), cy + Math.round(dy / 2))
+      await sleep(500)
+      ps('move', cx + dx, cy + dy)
+      await sleep(500)
+      await ball.eval('window.bwu.ball.dragEnd()')
+      await sleep(600)
+      after = await ballGeom()
+      draggedBy = 'ipc+move'
+      mouseFallbacks++
+      if (moved()) break
+      // 位置没动可能只是被钳在边缘：下半程换个方向再试
+    }
   }
-  ok('ballDrag', Math.abs(after.x - before.x) > 20 && Math.abs(after.y - before.y) > 10, {
-    before,
-    after,
-    draggedBy
-  })
+  ok('ballDrag', moved(), { before, after, draggedBy, dx, dy })
   if (mouseFallbacks) {
     console.log(`（提示：${mouseFallbacks} 次真实鼠标投递被前台窗口挡住，已退回应用内等价入口）`)
   }
