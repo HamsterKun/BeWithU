@@ -74,7 +74,21 @@ koffi 3.3.8 的原生二进制来自可选依赖 `@koromix/koffi-win32-x64`，bu
 ## 未完成 / 不在本轮范围
 
 - **没有代码签名**：首次运行会有 SmartScreen 提示；要消除只能买证书或接入 Trusted Signing。
-- **官方 ASR 归档整包下载校验**：本机到 GitHub release 带宽约 5–15 KB/s，163 MB 归档仍在续传（不到 1/4），
-  未跑完；归档内两个文件的 hash/size 已用本机已装模型逐一核对一致。**不要把半成品归档当模型使用。**
 - 真实多屏/WGC、真实 ASR 设备矩阵、外部发布未做。
 - 真鼠标类 E2E（menu/app）在桌面被全屏窗口霸占时会退回应用内等价入口并打印提示；要在干净桌面上复跑才算完整覆盖。
+
+## 发布后补充验证：官方 ASR 归档整包（2026-11-20 01:17）
+
+1.0.12 构建时归档还只下到约 1/4，发布后已续传完成，补验通过：
+
+| 检查 | 结果 |
+|---|---|
+| 归档大小 / SHA-256 | 163,002,883 bytes / `7d1efa2138a65b0b488df37f8b89e3d91a60676e416f515b952358d83dfd347e`（与 `asr-model-manifest.ts` 固定值一致） |
+| tar 清单 | 12 项，根目录 `sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17/` 与 manifest 的 `root` 一致；无符号链接、无 `..`、无绝对路径 |
+| 解包（系统 `tar -xf`，与 App 同一实现） | 成功，约 12 s |
+| `model.int8.onnx` | 239,233,841 bytes / `c71f0ce00bec95b07744e116345e33d8cbbe08cef896382cf907bf4b51a2cd51` |
+| `tokens.txt` | 315,894 bytes / `f449eb28dc567533d7fa59be34e2abca8784f771850c78a47fb731a31429a1dc` |
+| 与已装模型比对 | 两个文件与 `%APPDATA%\BeWithU\models\sensevoice-2024-07-17` 下的文件逐字节一致 |
+| 下载→校验→解包→发布全链路 | 新增 `tools/asr-download-test.mjs`（3/3，约 13 s）：坏归档被拒且不落盘、临时目录清理；官方归档经真实 `downloadModel()` 后 `modelReady()` 为 true |
+
+归档保留在 `D:\coding\bwu-asr-dl\archive.tar.bz2`（不在仓库里）；续传/校验脚本是同目录的 `fetch-asr.ps1`。

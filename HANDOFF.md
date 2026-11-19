@@ -1,7 +1,7 @@
 # BeWithU 交接文档（2026-11-19，1.0.12 已打包待签名/发布）
 
 > 接手先读 §0 和 §10。1.0.12 已提交、已打包、已跑完整回归（含本轮新增的 SSE 尾帧与录音取消测试），
-> 剩下的都是签名、外部发布、真机矩阵和官方 ASR 归档整包。
+> 剩下来的只有签名、外部发布和真机矩阵；官方 ASR 归档整包已下完并校验通过（见 §10）。
 
 ---
 
@@ -21,7 +21,7 @@
 
 **一句话现状**：能聊天、能看屏（需视觉模型）、能干活（22 个内置工具 + MCP）、能联网、有主题、有用量统计；
 1.0.11 把评审里的权限、隐私、迁移、供应链问题补完，产物已打包并通过完整回归。
-**最大的遗留**：没有代码签名（SmartScreen 会拦一次）、`input.*` 依赖真实前台、COM/UIA 还没做、官方 ASR 归档整包未下载校验。
+**最大的遗留**：没有代码签名（SmartScreen 会拦一次）、`input.*` 依赖真实前台、COM/UIA 还没做。
 
 ---
 
@@ -297,7 +297,7 @@ E2E 13 个套件共 **95 条断言全绿**；隔离冒烟 `out/` 11/11、打包�
 | **文件 I/O 限流**（REVIEW A8） | `agent/tools/files.ts` | `file.read` 只读前缀：按字节上限 + 8s 预算，大文件不再整读进内存；`file.list` 用目录迭代器分页（`offset`/`limit`，默认 200、上限 500）并报告"还有更多"；拒绝非普通文件 |
 | **测试加固** | `tools/*` | 真鼠标类测试改按主进程的真实窗口可见性断言（`agentTest.bubbleVisible`），拖动方向随屏幕边缘变化（避免被钳制），负坐标改用命名参数传给 `input-helper.ps1` |
 
-验证：typecheck 双端通过；单元/安全 **34/34**（新增 `sse-parse` 5、`file-io` 6）；
+验证：typecheck 双端通过；单元/安全 **37/37**（新增 `sse-parse` 5、`file-io` 6、`asr-download` 3）；
 E2E **15 个套件 / 106 条断言全绿**（新增 `sse-tail` 3、`recorder-cancel` 8）；隔离冒烟 `out/` 11/11。
 
 ---
@@ -382,11 +382,13 @@ Remove-Item Env:\ELECTRON_RUN_AS_NODE -ErrorAction SilentlyContinue
 & $node node_modules\typescript\lib\tsc.js --noEmit -p tsconfig.web.json
 & $node node_modules\electron-vite\bin\electron-vite.js build
 
-# —— 单元 / 安全（node:test，不需要 Electron；12 个文件 34 条）——
+# —— 单元 / 安全（node:test，不需要 Electron；13 个文件 37 条）——
 & $node --test tools\agent-tool-budget.test.mjs tools\approval.test.mjs tools\asr-generation.test.mjs `
   tools\asr-model-manifest.test.mjs tools\data-dir-migration.test.mjs tools\file-boundary.test.mjs `
   tools\file-io.test.mjs tools\mcp-secrets.test.mjs tools\retry-policy.test.mjs tools\sse-parse.test.mjs `
   tools\vision-grab.test.mjs tools\player-test.mjs
+# 需要本机有已校验归档（D:\coding\bwu-asr-dl\archive.tar.bz2，可用 BWU_ASR_ARCHIVE 覆盖）：
+& $node --test tools\asr-download-test.mjs   # 下载→校验→解包→发布 3/3（归档不在时 SKIP）
 
 # —— E2E（每个都要先 Stop-Process electron）——
 & $node tools\agent-run-test.mjs      # Agent 主循环         10/10
@@ -475,7 +477,6 @@ $d = "$env:USERPROFILE\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies"
 | **签名** | 无（见 §6） |
 | **快捷键降级**（REVIEW C7） | 驱动不可用时提示"已降级"，但降级只模拟 60ms 按键，按住说话基本不可用；默认 Mouse4 也不在这条路上 |
 | **审计内容**（REVIEW B4） | 审计 JSONL 仍记录参数与结果片段（可能含文件内容）；历史/记忆明文落盘。建议默认只记元数据 |
-| **ASR 归档整包** | 官方 163 MB 归档在本机下载太慢（约 5–15 KB/s），续传一个多小时仍不到 1/4；归档 SHA 来自官方 checksum，两个文件的 hash/size 已与本机模型核对一致。续传脚本：`powershell -NoProfile -ExecutionPolicy Bypass -File D:\coding\bwu-asr-dl\fetch-asr.ps1`（下完自动比对 SHA-256） |
 
 ---
 
@@ -534,7 +535,7 @@ $d = "$env:USERPROFILE\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies"
 
 - 运行环境：Node.js **v24.21.0**、Electron **45.3.3**、electron-builder **26.18.0**；`pnpm-lock.yaml` 未改。
 - TypeScript 双端检查通过；`electron-vite build` 通过（输出 `out/`）；`git diff --check` 通过。
-- 单元/安全 **34/34**（12 个 `node --test` 文件：审批、迁移、文件边界、文件 I/O 分页、SSE 解析、抓屏、MCP 密钥、ASR manifest/generation、工具预算、重试策略、播放器）。
+- 单元/安全 **37/37**（13 个 `node --test` 文件：审批、迁移、文件边界、文件 I/O 分页、SSE 解析、ASR 下载/解包/发布、抓屏、MCP 密钥、ASR manifest/generation、工具预算、重试策略、播放器）。
 - E2E **15 个套件 / 106 条断言全绿**：agent-run 10、ext 10、mcp-zip 6、agent-llm 3、agent-settings 8、agent-ui 19、prompts 4、thinking 6、sse-tail 3、search 4、shell-encoding 3、menu 6、app 16、recorder-cancel 8；local-asr 用本机真实模型完成识别（RTF≈0.035）。
 - 隔离冒烟 `tools/smoke-test.mjs`：`out/` 11/11、`release/win-unpacked/BeWithU.exe` 11/11；包含"球窗没有管理接口、打包版没有测试 IPC"的角色隔离断言。
 - **打包验收**：先输出到 `D:\coding\bwu-staging-1.0.12`，校验 `app.asar`（10,118,743 bytes，版本 1.0.12）、
@@ -545,19 +546,18 @@ $d = "$env:USERPROFILE\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies"
   完整记录见 [docs/RELEASE-1.0.12.md](docs/RELEASE-1.0.12.md)。
 - **产物已就位**：`release/` 是 1.0.12；1.0.10 / 1.0.11 分别在 `release/archive-1.0.10/`、`release/archive-1.0.11/`；
   `release/SHA256SUMS-1.0.12.txt`。
+- **ASR 官方归档整包（已闭环）**：`sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17.tar.bz2`
+  163,002,883 bytes / SHA-256 `7d1efa21…d347e`，已在 `D:\coding\bwu-asr-dl\archive.tar.bz2` 下完并比对通过
+  （续传脚本 `fetch-asr.ps1` 自带校验）。tar 清单 12 项、根目录与 manifest 的 `root` 一致、无符号链接/越界路径；
+  `model.int8.onnx` 239,233,841 / `c71f0ce0…cd51`、`tokens.txt` 315,894 / `f449eb28…a1dc` 解包后逐个核对通过，
+  且与本单位已装模型逐字节一致。`tools/asr-download-test.mjs` 用本地服务把官方归档喂给真实的
+  `downloadModel()`，验证"坏归档被拒（不落盘、临时目录清理）→ 好归档解包发布 → modelReady()"整条链路（3/3，约 13s）。
 
 ### 仍未完成（不是本轮能闭的）
 
-- **ASR 官方归档整包**：`https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17.tar.bz2`
-  （163,002,883 bytes，SHA-256 `7d1efa2138a65b0b488df37f8b89e3d91a60676e416f515b952358d83dfd347e`）
-  在本机只有约 5–15 KB/s，续传一个多小时仍不到 1/4（半成品在 `D:\coding\bwu-asr-dl\archive.tar.bz2`，
-  **不要当模型用**）。归档 SHA 来自官方 `checksum.txt`（该清单的 asset digest 是 `sha256:a96a8ecf…1f1a`，
-  上传者 `github-actions[bot]`）；归档里两个文件的 hash/size 已用**本机已装模型**逐字节核对一致。
-  要彻底闭环：找个带宽好的网络把归档下完，比对 SHA-256，再跑一次"下载 → 解包 → 发布"全流程
-  （`tools/asr-model-manifest.test.mjs` 只校验固定值）。
 - **代码签名**：没有证书，安装器未签名。
 - **真机矩阵**：真实多屏/WGC、ASR 麦克风设备、`input.*` 前台依赖，都只在单机上验过。
-- **外部发布**：没有上传安装器/做分发页；`git push` 在本机网络下会超时（本次两个提交都还是本地提交）。
+- **外部发布**：没有上传安装器/做分发页（代码已 `git push` 到 origin/main）。
 
 ### 源码搬运
 
