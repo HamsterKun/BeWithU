@@ -179,7 +179,7 @@ class SettingsStore {
     s.agent = {
       enabled: Boolean(agent.enabled),
       shellEnabled: Boolean(agent.shellEnabled),
-      maxSteps: clamp(Number(agent.maxSteps) || 10, 3, 30, 10),
+      maxSteps: clamp(Number(agent.maxSteps) || 30, 3, 200, 30),
       stepTimeoutMs: clamp(Number(agent.stepTimeoutMs) || 20000, 5000, 120000, 20000),
       audit: agent.audit !== false,
       files: {

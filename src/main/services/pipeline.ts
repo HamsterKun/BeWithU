@@ -13,6 +13,7 @@ import { captureScreen, type ScreenCapture } from './vision'
 import { LocalAsrSession } from './local-asr'
 import { modelReady } from './local-asr'
 import { runAgentTask } from '../agent/runner'
+import { classifyIntent, wantsScreenReference } from '../agent/router'
 import { requestApproval, resolvePendingByText } from '../agent/approval'
 
 /** 云端 / 本地识别共用的会话接口 */
@@ -145,6 +146,8 @@ class SpeechQueue {
 }
 
 class Conversation {
+  /** 上一轮走的是聊天还是干活（用于「继续/改成」这类续说） */
+  private lastRoute: 'chat' | 'task' = 'chat'
   private phase: Phase = 'idle'
   private listening = false
   private holdStartedAt = 0
@@ -402,10 +405,15 @@ class Conversation {
     sendBubble({ type: 'user', text: userText, final: true })
     sendBubble({ type: 'assistant-reset' })
 
-    // Agent 模式：交给工具循环；关闭时走原来的纯聊天
+    // Agent 总开关打开时：先判断这句是「聊天」还是「要干活」
     if (s.agent.enabled) {
-      await this.respondWithAgent(userText, turn, s)
-      return
+      const route = classifyIntent(userText, { lastWasTask: this.lastRoute === 'task' })
+      this.lastRoute = route.route
+      log('route:', `${route.route}(${route.reason}) ${userText.slice(0, 40)}`)
+      if (route.route === 'task') {
+        await this.respondWithAgent(userText, turn, s)
+        return
+      }
     }
 
     this.setPhase('thinking', '思考中')
@@ -447,9 +455,9 @@ class Conversation {
     }
     historyStore.add('user', userText)
 
-    // 屏幕理解：截当前正在看的那块屏，失败就纯文字继续
+    // 屏幕理解：只有用户这句话确实指向屏幕时才截图，避免闲聊被"看图说话"
     let shot: ScreenCapture | null = null
-    if (s.llm.vision.enabled) {
+    if (s.llm.vision.enabled && wantsScreenReference(userText)) {
       const res = await captureScreen()
       if (turn !== this.turnId) return
       if (res.ok) {
@@ -472,7 +480,7 @@ class Conversation {
         list.push({
           role: 'user',
           content: [
-            { type: 'text', text: `${userText}\n\n（附上我此刻的屏幕截图，回答时结合画面）` },
+            { type: 'text', text: `${userText}\n\n（附一张当前屏幕截图，仅作参考：只有当用户问的是屏幕/界面/画面里的内容时才用它回答，不要主动描述屏幕上有什么。）` },
             { type: 'image_url', image_url: { url: shot.dataUrl } }
           ]
         })
@@ -587,7 +595,9 @@ class Conversation {
   /** Agent 模式：跑工具循环，边显示边播报，结束时收起 */
   private async respondWithAgent(userText: string, turn: number, s: Settings): Promise<void> {
     this.setPhase('acting', '工作中')
-    sendAgentProgress({ active: true, step: 0, total: s.agent.maxSteps })
+    // 任务可能要跑一会儿：先收起气泡别挡视线（用户手动钉住时不动）
+    if (!isBubblePinned()) hideBubble()
+    sendAgentProgress({ active: true, step: 0, total: s.agent.maxSteps, mode: 'thinking' })
     const controller = new AbortController()
     this.abortLlm = controller
     const splitter = new SentenceSplitter()
@@ -637,7 +647,13 @@ class Conversation {
           },
           onStep: (info) => {
             if (turn !== this.turnId) return
-            sendAgentProgress({ active: true, step: info.index, total: info.total, text: info.summary })
+            sendAgentProgress({
+              active: true,
+              step: info.index,
+              total: info.total,
+              mode: 'working',
+              text: info.summary
+            })
             sendBubble({
               type: 'agent-step',
               index: info.index,
@@ -648,6 +664,14 @@ class Conversation {
           },
           onStepDone: (info) => {
             if (turn !== this.turnId) return
+            // 工具返回结果后模型又要思考了：徽标切回"思考中"
+            sendAgentProgress({
+              active: true,
+              step: info.index,
+              total: info.total,
+              mode: 'thinking',
+              text: info.summary
+            })
             sendBubble({
               type: 'agent-step',
               index: info.index,
@@ -657,11 +681,17 @@ class Conversation {
               ok: info.ok
             })
           },
-          onApproval: (req) => requestApproval(req)
+          onApproval: async (req) => {
+            showBubble()
+            const ok = await requestApproval(req)
+            if (!isBubblePinned()) hideBubble()
+            return ok
+          }
         }
       })
       if (turn !== this.turnId) return
       sendAgentProgress({ active: false, step: res.steps, total: s.agent.maxSteps })
+      showBubble()
       // 兜底：万一 runner 没通过 onText 回传（例如直接返回了错误文本），也要显示出来
       if (!answer.trim() && res.text.trim()) {
         answer = res.text
@@ -677,6 +707,7 @@ class Conversation {
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
       log('agent: 运行失败', msg)
+      showBubble()
       this.notify('error', msg, 'open-settings')
       sendBubble({ type: 'assistant-end' })
     }

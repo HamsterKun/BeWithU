@@ -66,7 +66,7 @@ export const DEFAULT_SETTINGS: Settings = {
     // 默认皮肤：大肥鱼
     image: 'builtin:dafiyu',
     size: 96,
-    opacity: 84,
+    opacity: 100,
     x: -1,
     y: -1
   },
@@ -86,7 +86,7 @@ export const DEFAULT_SETTINGS: Settings = {
     enabled: false,
     // Shell 默认关闭；关闭时模型会被引导去提醒用户开权限
     shellEnabled: false,
-    maxSteps: 10,
+    maxSteps: 30,
     stepTimeoutMs: 20000,
     audit: true,
     files: { fullAccess: false, dirs: [] },

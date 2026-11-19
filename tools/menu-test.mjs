@@ -14,11 +14,16 @@ const HELP = join(ROOT, 'tools', 'input-helper.ps1')
 const PORT = Number(process.env.CDP_PORT || 9260)
 const BASE = `http://127.0.0.1:${PORT}`
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
-const ps = (...a) =>
-  execFileSync('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', HELP, ...a.map(String)], {
-    stdio: 'pipe',
-    timeout: 20000
+// 用命名参数传坐标：负坐标（多屏左侧）当位置参数会被 PowerShell 当成参数名
+const ps = (...a) => {
+  const [action, ...rest] = a.map(String)
+  const args = ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', HELP, '-Action', action]
+  const names = ['-X', '-Y', '-Dx', '-Dy']
+  rest.forEach((v, i) => {
+    if (names[i]) args.push(names[i], v)
   })
+  execFileSync('powershell', args, { stdio: 'pipe', timeout: 20000 })
+}
 async function jget(p) {
   const c = new AbortController()
   const t = setTimeout(() => c.abort(), 3000)
@@ -116,6 +121,10 @@ try {
     }
   }
   ball = await Conn.open(list.find((x) => x.type === 'page' && x.url.includes('/ball/')).webSocketDebuggerUrl)
+  // 首次运行会弹引导气泡，而气泡和菜单互斥（弹气泡会收菜单）。
+  // 先塞一个占位 Key，让引导气泡不会出现，免得它把菜单顶掉。
+  await ball.eval("window.bwu.settings.update({ llm: { apiKey: 'sk-menu-test' } })")
+  await sleep(1600)
   for (let i = 0; i < 40; i++) {
     if (await ball.eval('Boolean(document.querySelector(".stage"))')) break
     await sleep(300)
@@ -135,7 +144,12 @@ try {
     await sleep(900) // 等尺寸上报 + 重新定位完成
     const items = await menu.eval('Array.from(document.querySelectorAll(".menu__item .menu__label")).map(e=>e.textContent)')
     const box = await menu.eval('(() => { const r = document.querySelector(".menu").getBoundingClientRect(); return {w: Math.round(r.width), h: Math.round(r.height)} })()')
-    ok('menuItems', items.length === 7 && items.includes('设置…') && items.includes('静音'), items)
+    ok(
+      'menuItems',
+      items.length >= 7 &&
+        ['设置…', '静音', '换皮肤', '退出 BeWithU'].every((k) => items.includes(k)),
+      items
+    )
     ok('menuSizeSane', box.w >= 150 && box.w <= 260 && box.h >= 240 && box.h <= 400, box)
 
     // 2 点「静音」→ 生效且菜单关闭

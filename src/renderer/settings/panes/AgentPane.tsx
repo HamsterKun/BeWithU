@@ -211,12 +211,12 @@ export default function AgentPane({ s, patch }: PaneProps): React.ReactElement {
             不确定模型靠不靠谱时，建议用完就关掉。
           </p>
         ) : null}
-        <Field label="最大步数" hint="一次任务最多调用多少次工具">
+        <Field label="最大步数" hint="一次任务最多调用多少次工具（3–200，默认 30）">
           <NumberInput
             value={s.agent.maxSteps}
             min={3}
-            max={30}
-            onChange={(v) => patch({ agent: { maxSteps: Math.max(3, Math.min(30, v)) } })}
+            max={200}
+            onChange={(v) => patch({ agent: { maxSteps: Math.max(3, Math.min(200, v)) } })}
             suffix="步"
           />
         </Field>

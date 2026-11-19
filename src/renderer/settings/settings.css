@@ -1262,7 +1262,7 @@ body {
   white-space: nowrap;
   font-family: ui-monospace, 'Cascadia Code', Consolas, monospace;
   font-size: 11px;
-  color: rgba(235, 235, 235, 0.8);
+  color: rgba(var(--ink), 0.72);
 }
 .agent-dir__del {
   border: none;
@@ -1298,7 +1298,7 @@ body {
 }
 .agent-tool__name {
   font-size: 12.5px;
-  color: rgba(240, 240, 240, 0.92);
+  color: var(--text);
 }
 .agent-tool__id {
   font-family: ui-monospace, 'Cascadia Code', Consolas, monospace;
@@ -1348,7 +1348,7 @@ body {
   border-radius: 9px;
   border: 1px solid var(--border);
   background: rgba(var(--ink), 0.03);
-  color: rgba(200, 212, 228, 0.9);
+  color: rgba(var(--ink), 0.76);
   font-size: 12px;
   cursor: pointer;
   transition: background 0.15s ease, border-color 0.15s ease;
@@ -1364,7 +1364,7 @@ body {
 .ball-preset__dot {
   display: block;
   border-radius: 50%;
-  background: rgba(200, 212, 228, 0.35);
+  background: rgba(var(--ink), 0.3);
 }
 .ball-preset.is-active .ball-preset__dot {
   background: rgba(103, 232, 249, 0.75);
@@ -1413,4 +1413,19 @@ body {
   text-overflow: ellipsis;
   white-space: nowrap;
   color: rgba(var(--ink), 0.45);
+}
+
+
+/* 亮色下，工具风险徽标要压暗，否则浅黄/浅绿在浅底上看不清 */
+[data-theme='light'] .agent-tool__risk.is-high {
+  color: #a16207;
+  background: rgba(217, 119, 6, 0.16);
+}
+[data-theme='light'] .agent-tool__risk.is-trusted {
+  color: #047857;
+  background: rgba(5, 150, 105, 0.16);
+}
+[data-theme='light'] .agent-tool__risk {
+  color: #475569;
+  background: rgba(100, 116, 139, 0.16);
 }

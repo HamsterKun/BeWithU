@@ -1,7 +1,9 @@
-/* Agent 交互端到端测试（mock LLM）：气泡审批卡 + 球「工作中」+ 步骤行
+/* Agent 交互端到端测试（mock LLM）
  *
- * 覆盖：提交任务 → 球进入 acting 并显示 💬 工作中… → 气泡弹确认卡 →
- *      点允许 → 文件真的写入 → 结束回到 idle、徽标消失
+ * 覆盖：
+ *  - 提交任务后气泡自动收起；确认时临时出现；确认后再次收起；任务结束弹回
+ *  - 球徽标两态：思考中（绿）⇄ 工作中（金）
+ *  - 确认卡 / 步骤行 / 落盘 / 结束回 idle
  */
 import { execFileSync, spawn } from 'node:child_process'
 import { mkdirSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs'
@@ -78,6 +80,7 @@ mkdirSync(ud, { recursive: true })
 mkdirSync(work, { recursive: true })
 const target = join(work, 'ui-note.txt')
 const mockFile = join(tmp, 'mock.json')
+const LOG = join(ud, 'logs', 'app.log')
 
 writeFileSync(
   mockFile,
@@ -127,7 +130,9 @@ try {
       agent: { enabled: true, files: { dirs: ${JSON.stringify([work])} } }
     })`
   )
-  await sleep(700)
+  await sleep(800)
+  const call = (id, args) => ball.eval(`window.bwu.agentTest.call(${JSON.stringify(id)}, ${JSON.stringify(args ?? {})})`)
+  const bubbleVisible = () => ball.eval('window.bwu.agentTest.bubbleVisible()')
 
   // 打开气泡
   await ball.eval('window.bwu.ball.toggleBubble()')
@@ -139,33 +144,66 @@ try {
   // 提交任务
   await bubble.eval("window.bwu.bubble.submit('帮我写个文件')")
 
-  // 球进入 acting + 徽标
-  let badge = null
-  let phase = ''
+  // 1) 气泡自动收起
+  let hid = false
   for (let i = 0; i < 30; i++) {
-    phase = await ball.eval("document.querySelector('.stage')?.dataset.phase || ''")
-    badge = await ball.eval("document.querySelector('.work-badge')?.textContent || ''")
-    if (phase === 'acting' && badge) break
-    await sleep(200)
+    if ((await bubbleVisible()) === false) {
+      hid = true
+      break
+    }
+    await sleep(120)
   }
-  ok('ballActing', phase === 'acting' && /工作中/.test(badge), { phase, badge })
+  ok('bubbleAutoHidden', hid)
 
-  // 气泡里出现确认卡
+  // 2) 确认卡出现（气泡临时回来）
   let approveVisible = false
   let detail = ''
-  for (let i = 0; i < 30; i++) {
+  for (let i = 0; i < 40; i++) {
     approveVisible = await bubble.eval("Boolean(document.querySelector('.approve'))")
     detail = await bubble.eval("document.querySelector('.approve__detail')?.textContent || ''")
     if (approveVisible) break
-    await sleep(200)
+    await sleep(150)
   }
   ok('approveCardShown', approveVisible && detail.includes('ui-note.txt'), detail.slice(0, 80))
+  ok('bubbleShownForApprove', (await bubbleVisible()) === true)
 
-  // 步骤行
+  // 3) 步骤行
   const stepText = await bubble.eval("document.querySelector('.card__step-text')?.textContent || ''")
   ok('stepLineShown', /写入/.test(stepText), stepText.trim())
 
-  // 点允许
+  // 4) 徽标：working（金）→ 注入 thinking 看是否变绿
+  const badgeClass = await ball.eval("document.querySelector('.work-badge')?.className || ''")
+  ok('badgeWorking', /work-badge/.test(badgeClass) && !/is-think/.test(badgeClass), badgeClass)
+
+  await ball.eval("window.bwu.agentTest.progress({ active: true, mode: 'thinking', step: 1, total: 10 })")
+  await sleep(400)
+  const thinkInfo = await ball.eval(`(() => {
+    const el = document.querySelector('.work-badge')
+    if (!el) return null
+    const text = el.querySelector('.work-badge__text')
+    return { cls: el.className, color: text ? getComputedStyle(text).color : '', label: text?.textContent || '' }
+  })()`)
+  ok(
+    'badgeThinkingGreen',
+    thinkInfo && /is-think/.test(thinkInfo.cls) && /110, 231, 183/.test(thinkInfo.color) && /思考中/.test(thinkInfo.label),
+    thinkInfo
+  )
+
+  await ball.eval("window.bwu.agentTest.progress({ active: true, mode: 'working', step: 1, total: 10 })")
+  await sleep(400)
+  const workInfo = await ball.eval(`(() => {
+    const el = document.querySelector('.work-badge')
+    if (!el) return null
+    const text = el.querySelector('.work-badge__text')
+    return { cls: el.className, color: text ? getComputedStyle(text).color : '', label: text?.textContent || '' }
+  })()`)
+  ok(
+    'badgeWorkingGold',
+    workInfo && !/is-think/.test(workInfo.cls) && /253, 230, 138/.test(workInfo.color) && /工作中/.test(workInfo.label),
+    workInfo
+  )
+
+  // 5) 点允许 → 文件写入 + 气泡再次收起
   await bubble.eval("document.querySelector('.approve__ok')?.click()")
   let written = ''
   for (let i = 0; i < 30; i++) {
@@ -174,8 +212,11 @@ try {
     await sleep(200)
   }
   ok('approvedAndWritten', written.includes('UI 测试写入的内容'), written.slice(0, 40))
+  // mock 的第二轮是瞬时的，气泡可能立刻又弹回来；用日志确认"确认后确实又收了一次"
+  const hideCount = (readFileSync(LOG, 'utf8').match(/bubble: hide/g) || []).length
+  ok('bubbleHiddenAfterApprove', hideCount >= 2, { hideCount })
 
-  // 结束：徽标消失、回到 idle、气泡显示汇报
+  // 6) 结束：气泡弹回来、徽标消失、回到 idle
   let finalPhase = 'acting'
   for (let i = 0; i < 40; i++) {
     finalPhase = await ball.eval("document.querySelector('.stage')?.dataset.phase || ''")
@@ -185,7 +226,14 @@ try {
   const badgeGone = await ball.eval("!document.querySelector('.work-badge')")
   const aiText = await bubble.eval("document.querySelector('.row__text--ai')?.textContent || ''")
   ok('backToIdle', finalPhase === 'idle' && badgeGone, { finalPhase, badgeGone })
+  ok('bubbleShownAfterTask', (await bubbleVisible()) === true)
   ok('finalReport', /已完成/.test(aiText), aiText.slice(0, 60))
+
+  // 7) 日志里的 progress 顺序：thinking → working → thinking
+  const logText = existsSync(LOG) ? readFileSync(LOG, 'utf8') : ''
+  const modes = [...logText.matchAll(/agent: progress (thinking|working)/g)].map((m) => m[1])
+  const seq = modes.join('>')
+  ok('progressAlternates', /thinking>working>thinking/.test(seq), modes.slice(0, 8).join('>'))
 } catch (e) {
   ok('fatal', false, String(e && e.message ? e.message : e))
 } finally {

@@ -165,7 +165,14 @@ export default function Ball(): React.ReactElement {
     window.bwu.ball.click(!isClick)
   }, [])
 
-  const thinking = !agent && phase === 'thinking'
+  // 徽标两态：模型思考（绿）/ 正在调工具（金）；闲聊的思考也走绿色
+  const badgeMode: 'thinking' | 'working' | null = agent
+    ? agent.mode === 'working'
+      ? 'working'
+      : 'thinking'
+    : phase === 'thinking'
+      ? 'thinking'
+      : null
 
   return (
     <div
@@ -175,13 +182,13 @@ export default function Ball(): React.ReactElement {
       style={{ ['--size' as string]: `${size}px`, ['--opacity' as string]: opacity }}
     >
       <div className="ring" />
-      {agent || thinking ? (
-        <div className={agent ? 'work-badge' : 'work-badge is-think'}>
+      {badgeMode ? (
+        <div className={badgeMode === 'thinking' ? 'work-badge is-think' : 'work-badge'}>
           <span className="work-badge__dot" />
           <span className="work-badge__text">
-            {agent ? '💻 工作中…' : '💬 思考中…'}
+            {badgeMode === 'working' ? '💻 工作中…' : '💬 思考中…'}
           </span>
-          {agent && agent.total ? (
+          {badgeMode === 'working' && agent && agent.total ? (
             <span className="work-badge__count">
               {agent.step}/{agent.total}
             </span>

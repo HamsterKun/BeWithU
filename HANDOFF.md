@@ -1,4 +1,4 @@
-# BeWithU 交接文档（2026-11-19 凌晨，v1.0.2）
+# BeWithU 交接文档（2026-11-19，v1.0.3）
 
 > 给接手的 Agent：**先读 §0、§1，再读 §8 环境坑**，其余按需查。
 > 本文覆盖「白天那版交接文档」的全部内容，并加上今晚的全部改动，可当作唯一版本。
@@ -9,10 +9,10 @@
 
 | 项 | 值 |
 |---|---|
-| 代码位置 | `D:\coding\BeWithU`（换了机器，路径变了） |
-| 版本 | **1.0.2**（`package.json` 的 `version`） |
-| HEAD | `62bea6f`，已推送 `origin/main` |
-| 产物 | `release/BeWithU-1.0.2-x64.exe`（123MB）、`BeWithU-1.0.2-portable.exe`（111MB） |
+| 代码位置 | `C:\Users\jiangchengrui\Desktop\BeWithU` |
+| 版本 | **1.0.3**（`package.json` 的 `version`） |
+| HEAD | 见 `git log`（1.0.3 提交已推送） |
+| 产物 | `release/BeWithU-1.0.3-x64.exe`、`BeWithU-1.0.3-portable.exe` |
 | 工作区 | 干净，无遗留进程/临时目录 |
 
 **白天那版**：Agent 能力层 M1（键鼠注入）+ M2（工具循环/审批/审计）+ 设置页，19 个内置工具。
@@ -123,6 +123,24 @@
 - **1.0.0 正式版**（`2dacc16`）→ **1.0.1**（`feab632`）→ **1.0.2**（`62bea6f`）。
 - 规则：**每次更新都改 `package.json` 的 `version`**，打包前**先清空 `release/`**。
 - 新增 `scripts/install-app.cmd`：`Unblock-File` 后再启动安装包，绕过 SmartScreen 的"已保护你的电脑"。
+
+---
+
+## 1.12 v1.0.3（本次）
+
+| 改动 | 位置 | 说明 |
+|---|---|---|
+| **Agent 自动路由** | `agent/router.ts`（新）、`pipeline.respond()` | 不再需要"自动档"开关：`agent.enabled` 打开后，按规则判断这句是聊天还是干活。打分制（明确任务词权重 3、泛任务词 2、路径/文件名 +3、闲聊词 -2），阈值 3；`lastWasTask` + 「继续/改成/好了」续说会继续走 Agent。单测 `tools/router-test.mjs` 18 条 |
+| **闲聊不再乱发截图** | `pipeline.respond()` | 只有 `wantsScreenReference(text)` 命中（看/屏幕/界面/这个/报错…）才截图；带图提示词改成"仅作参考、不要主动描述画面" |
+| **任务中自动收起气泡** | `pipeline.respondWithAgent()` | 任务开始 `hideBubble()`（用户钉住时不动）；确认卡出现时临时 `showBubble()`，确认后收起；任务结束 `showBubble()` 弹回 |
+| **徽标两态 + 绿/金** | `AgentProgress.mode`、`Ball.tsx`、`ball.css` | 模型思考 = `💬 思考中…`（绿 `#6ee7b7`）；调工具 = `💻 工作中… 3/10`（金 `#fde68a`）；工具返回后自动切回思考 |
+| **球默认不透明度 100%** | `shared/defaults.ts` | 新装默认 `opacity: 100`（老配置不动） |
+| **亮色对比度** | `settings.css` | `.agent-tool__name` 等硬编码浅灰改成 `var(--text)` / `rgba(var(--ink),a)`；工具风险徽标加了亮色覆盖 |
+
+验证：`router-test` 18/18、`agent-ui-test` 13/13（新增：气泡自动收起/确认弹回/结束弹回、徽标绿金两态、progress 顺序 thinking→working→thinking）、`menu-test` 6/6（修了负坐标传参 + 首次引导气泡顶掉菜单的测试问题）、其余回归全绿。
+截图：`.shots/settings-agent-light.png`、`badge-thinking.png`、`badge-working.png`。
+
+> 注意：首次运行引导气泡弹出时会收掉右键菜单（气泡与菜单互斥的既有行为）。测试里靠提前写入占位 API Key 规避。
 
 ---
 

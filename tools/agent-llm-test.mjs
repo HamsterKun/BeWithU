@@ -161,7 +161,8 @@ async function main() {
   }
   let bubble = await bubbleTarget()
   await sleep(600)
-  await bubble.eval(`window.bwu.bubble.submit('你是谁呀')`)
+  // 假服务只实现非流式 JSON（Agent 链路）；用任务句确保走 Agent 而不是流式闲聊
+  await bubble.eval(`window.bwu.bubble.submit('帮我打开记事本')`)
   await sleep(2500)
   let text = await bubble.eval(`document.body.innerText`)
   check('工具名合法时模型能正常回话', /链路正常/.test(text), text.slice(0, 120))
@@ -171,7 +172,7 @@ async function main() {
     `window.bwu.settings.update({ llm: { baseUrl: 'http://127.0.0.1:${API_PORT}/reject' } }).then(() => 'ok')`
   )
   await sleep(600)
-  await bubble.eval(`window.bwu.bubble.submit('再说一句')`)
+  await bubble.eval(`window.bwu.bubble.submit('帮我查一下明天的天气')`)
   await sleep(2500)
   text = await bubble.eval(`document.body.innerText`)
   check(

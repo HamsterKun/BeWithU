@@ -142,7 +142,7 @@ try {
     maxSteps: cfg?.agent?.maxSteps,
     shell: cfg?.agent?.shellEnabled
   })
-  ok('defaultMaxSteps', cfg?.agent?.maxSteps === 10, cfg?.agent?.maxSteps)
+  ok('defaultMaxSteps', cfg?.agent?.maxSteps === 30, cfg?.agent?.maxSteps)
   ok('shellOffByDefault', cfg?.agent?.shellEnabled === false, cfg?.agent?.shellEnabled)
 
   const call = (id, args) => ball.eval(`window.bwu.agentTest.call(${JSON.stringify(id)}, ${JSON.stringify(args ?? {})})`)

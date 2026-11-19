@@ -16,6 +16,7 @@ import { clearAudit, recentAudit } from './agent/audit'
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { runAgentTask } from './agent/runner'
+import { classifyIntent } from './agent/router'
 import {
   deleteCustomTool,
   importCustomTool,
@@ -59,6 +60,7 @@ import {
   hideBubble,
   isBubblePinned,
   isBubbleVisible,
+  sendAgentProgress,
   openSettingsWindow,
   releaseBubbleFocus,
   setBallPosition,
@@ -707,6 +709,17 @@ export function registerIpc(getQuit: () => void): void {
     ipcMain.handle(IPC.agentTestCall, (_e, id: string, args: Record<string, unknown>) =>
       callTool(String(id ?? ''), (args ?? {}) as Record<string, unknown>)
     )
+    ipcMain.handle(IPC.agentTestBubble, () => isBubbleVisible())
+    ipcMain.handle(IPC.agentTestProgress, (_e, p: Record<string, unknown>) => {
+      sendAgentProgress({
+        active: Boolean(p.active),
+        mode: p.mode === 'working' ? 'working' : 'thinking',
+        step: Number(p.step ?? 0),
+        total: Number(p.total ?? 30)
+      })
+      return true
+    })
+    ipcMain.handle(IPC.agentTestClassify, (_e, text: string) => classifyIntent(String(text ?? '')))
     ipcMain.handle(IPC.agentTestRun, async (_e, text: string, autoApprove?: boolean) => {
       const controller = new AbortController()
       const tools: Array<{ toolId: string; ok: boolean; summary: string }> = []

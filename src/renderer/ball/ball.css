@@ -301,15 +301,19 @@ body {
   animation: stepPulse 1.1s ease-in-out infinite;
 }
 
-/* 闲聊思考态：青色，和"跑工具"的琥珀色区分开 */
+/* 思考态：绿色（闲聊和 Agent 的"模型思考"都用它），和"跑工具"的金色区分开 */
 .work-badge.is-think {
-  background: rgba(10, 22, 30, 0.84);
-  border-color: rgba(103, 232, 249, 0.4);
+  background: rgba(6, 24, 20, 0.84);
+  border-color: rgba(52, 211, 153, 0.42);
 }
 
 .work-badge.is-think .work-badge__dot {
-  background: #67e8f9;
-  box-shadow: 0 0 7px rgba(103, 232, 249, 0.9);
+  background: #34d399;
+  box-shadow: 0 0 7px rgba(52, 211, 153, 0.9);
+}
+
+.work-badge.is-think .work-badge__text {
+  color: rgba(110, 231, 183, 0.98);
 }
 .work-badge__text {
   font-size: 10.5px;
