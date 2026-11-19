@@ -1,4 +1,4 @@
-# BeWithU 交接文档（2026-11-19，v1.0.3）
+# BeWithU 交接文档（2026-11-19，v1.0.4）
 
 > 给接手的 Agent：**先读 §0、§1，再读 §8 环境坑**，其余按需查。
 > 本文覆盖「白天那版交接文档」的全部内容，并加上今晚的全部改动，可当作唯一版本。
@@ -10,9 +10,9 @@
 | 项 | 值 |
 |---|---|
 | 代码位置 | `C:\Users\jiangchengrui\Desktop\BeWithU` |
-| 版本 | **1.0.3**（`package.json` 的 `version`） |
+| 版本 | **1.0.4**（`package.json` 的 `version`） |
 | HEAD | 见 `git log`（1.0.3 提交已推送） |
-| 产物 | `release/BeWithU-1.0.3-x64.exe`、`BeWithU-1.0.3-portable.exe` |
+| 产物 | `release/BeWithU-1.0.4-x64.exe`、`BeWithU-1.0.4-portable.exe` |
 | 工作区 | 干净，无遗留进程/临时目录 |
 
 **白天那版**：Agent 能力层 M1（键鼠注入）+ M2（工具循环/审批/审计）+ 设置页，19 个内置工具。
@@ -141,6 +141,20 @@
 截图：`.shots/settings-agent-light.png`、`badge-thinking.png`、`badge-working.png`。
 
 > 注意：首次运行引导气泡弹出时会收掉右键菜单（气泡与菜单互斥的既有行为）。测试里靠提前写入占位 API Key 规避。
+
+---
+
+## 1.13 v1.0.4（本次）
+
+| 改动 | 位置 | 说明 |
+|---|---|---|
+| 亮色工具名太黑 | `settings.css` | `.agent-tool__name` 从 `var(--text)`（近纯黑）改成 `var(--muted)` + 500 字重，跟分区说明文字同一档灰 |
+| 徽标去掉进度数字 | `Ball.tsx` | 「💻 工作中…」不再带 `3/10`，只保留状态 |
+| **Shell 输出乱码** | `agent/shell-run.ts` | 根因：Windows PowerShell 5.1 按控制台代码页（中文系统 GBK）写 stdout，直接用 UTF-8 解码就成了「锟斤拷」。改法：先 UTF-8 解码，出现替换字符再回退 `TextDecoder('gbk')`；同时清理 CLIXML / ANSI 噪音。**不要**再往命令里塞编码前缀（PowerShell 报错会把前缀抄进错误文本） |
+| 中文报错 | 同上 | `Write-Error "出错了…"` 现在能正常显示中文，不再是一串乱码 |
+
+验证：`tools/shell-encoding-test.mjs` 3/3（中文 stdout、中文 stderr + 非 0 退出、中文文件名）；`agent-ui 13/13`、`app 16/16`、`menu 6/6`、`router 18/18`、`agent-run 7/7`。
+截图：`settings-agent-light.png`、`badge-working.png`。
 
 ---
 

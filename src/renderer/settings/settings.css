@@ -1296,9 +1296,11 @@ body {
   gap: 9px;
   min-width: 0;
 }
+/* 工具名别用接近纯黑的 --text：跟说明文字同一档灰色，看着不那么扎眼 */
 .agent-tool__name {
   font-size: 12.5px;
-  color: var(--text);
+  font-weight: 500;
+  color: var(--muted);
 }
 .agent-tool__id {
   font-family: ui-monospace, 'Cascadia Code', Consolas, monospace;

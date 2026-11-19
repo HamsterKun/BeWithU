@@ -188,11 +188,7 @@ export default function Ball(): React.ReactElement {
           <span className="work-badge__text">
             {badgeMode === 'working' ? '💻 工作中…' : '💬 思考中…'}
           </span>
-          {badgeMode === 'working' && agent && agent.total ? (
-            <span className="work-badge__count">
-              {agent.step}/{agent.total}
-            </span>
-          ) : null}
+
         </div>
       ) : null}
       <div
