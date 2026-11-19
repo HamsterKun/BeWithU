@@ -1,6 +1,7 @@
-# BeWithU 交接文档（2026-11-19，1.0.11 已打包待签名/发布）
+# BeWithU 交接文档（2026-11-19，1.0.12 已打包待签名/发布）
 
-> 接手先读 §0 和 §10。1.0.11 的产品侧改动已提交、已打包、已跑完整验证，剩下的都是签名、外部发布和真机矩阵。
+> 接手先读 §0 和 §10。1.0.12 已提交、已打包、已跑完整回归（含本轮新增的 SSE 尾帧与录音取消测试），
+> 剩下的都是签名、外部发布、真机矩阵和官方 ASR 归档整包。
 
 ---
 
@@ -9,9 +10,9 @@
 | 项 | 值 |
 |---|---|
 | 代码位置 | `D:\coding\BeWithU` |
-| 版本 | **1.0.11**（安全与可靠性修复；已打包，未签名，未对外发布） |
-| HEAD | `main` 上 1.0.11 的提交：产品代码/测试在 `23f55b6`，本文档与发布清单紧随其后一个提交（`git log --oneline -2` 可看到） |
-| 产物 | `release/` 已是 1.0.11 安装器 + 便携包（含 `SHA256SUMS-1.0.11.txt`、`RELEASE-1.0.11.md`）；旧 1.0.10 产物在 `release/archive-1.0.10/` |
+| 版本 | **1.0.12**（C8 SSE 尾帧 + C1 录音启动取消 + A8 文件 I/O 限流；已打包，未签名，未对外发布） |
+| HEAD | `main` 上 1.0.12 的提交：产品代码/测试在 `b343897`，本文档与发布清单紧随其后一个提交（`git log --oneline -3` 可看到） |
+| 产物 | `release/` 已是 1.0.12 安装器 + 便携包（含 `SHA256SUMS-1.0.12.txt`、`RELEASE-1.0.12.md`）；1.0.10 / 1.0.11 产物分别在 `release/archive-1.0.10/`、`release/archive-1.0.11/` |
 | 工作区 | 干净（`git status` 无输出）；`out/` 是本轮源码 bundle，`release/`、`out/` 都被 gitignore |
 
 **白天那版**：Agent 能力层 M1（键鼠注入）+ M2（工具循环/审批/审计）+ 设置页，19 个内置工具。
@@ -287,6 +288,20 @@ E2E 13 个套件共 **95 条断言全绿**；隔离冒烟 `out/` 11/11、打包�
 
 ---
 
+## 1.21 v1.0.12（本次）：把三个"边界问题"补掉
+
+| 改动 | 位置 | 说明 |
+|---|---|---|
+| **SSE 尾帧**（REVIEW C8） | `services/sse.ts`（新）、`llm.ts`、`tts.ts` | 统一行切分：LF / CRLF / 单独 CR、跨块被切开的 `\r`、多字节字符跨块，**并且流结束时把没有换行符的最后一条事件也吐出来**。原来最后一段回答/音频会被丢 |
+| **录音启动取消**（REVIEW C1） | `renderer/ball/recorder.ts`、`Ball.tsx` | `Recorder` 加 generation：每个 `await` 之后校验是否已被 stop/新一次 start 取代；被取消时释放已拿到的流与 `AudioContext`，抛 `RecorderCancelled`（不再当"麦克风打不开"上报）。失败的启动不会再把 `active` 卡成 true |
+| **文件 I/O 限流**（REVIEW A8） | `agent/tools/files.ts` | `file.read` 只读前缀：按字节上限 + 8s 预算，大文件不再整读进内存；`file.list` 用目录迭代器分页（`offset`/`limit`，默认 200、上限 500）并报告"还有更多"；拒绝非普通文件 |
+| **测试加固** | `tools/*` | 真鼠标类测试改按主进程的真实窗口可见性断言（`agentTest.bubbleVisible`），拖动方向随屏幕边缘变化（避免被钳制），负坐标改用命名参数传给 `input-helper.ps1` |
+
+验证：typecheck 双端通过；单元/安全 **34/34**（新增 `sse-parse` 5、`file-io` 6）；
+E2E **15 个套件 / 106 条断言全绿**（新增 `sse-tail` 3、`recorder-cancel` 8）；隔离冒烟 `out/` 11/11。
+
+---
+
 ## 2. 代码结构（今晚新增的用 ★）
 
 ```
@@ -367,10 +382,11 @@ Remove-Item Env:\ELECTRON_RUN_AS_NODE -ErrorAction SilentlyContinue
 & $node node_modules\typescript\lib\tsc.js --noEmit -p tsconfig.web.json
 & $node node_modules\electron-vite\bin\electron-vite.js build
 
-# —— 单元 / 安全（node:test，不需要 Electron；10 个文件 23 条）——
+# —— 单元 / 安全（node:test，不需要 Electron；12 个文件 34 条）——
 & $node --test tools\agent-tool-budget.test.mjs tools\approval.test.mjs tools\asr-generation.test.mjs `
   tools\asr-model-manifest.test.mjs tools\data-dir-migration.test.mjs tools\file-boundary.test.mjs `
-  tools\mcp-secrets.test.mjs tools\retry-policy.test.mjs tools\vision-grab.test.mjs tools\player-test.mjs
+  tools\file-io.test.mjs tools\mcp-secrets.test.mjs tools\retry-policy.test.mjs tools\sse-parse.test.mjs `
+  tools\vision-grab.test.mjs tools\player-test.mjs
 
 # —— E2E（每个都要先 Stop-Process electron）——
 & $node tools\agent-run-test.mjs      # Agent 主循环         10/10
@@ -380,11 +396,13 @@ Remove-Item Env:\ELECTRON_RUN_AS_NODE -ErrorAction SilentlyContinue
 & $node tools\agent-ui-test.mjs       # 气泡/徽标/布局       19/19
 & $node tools\prompts-test.mjs        # 提示词页 + 实际生效   4/4
 & $node tools\thinking-test.mjs       # 思考参数/展示/降级    6/6
+& $node tools\sse-tail-test.mjs       # SSE 尾帧（无尾换行）   3/3
 & $node tools\search-test.mjs         # 联网搜索两条通路      4/4
 & $node tools\shell-encoding-test.mjs # Shell 中文输出        3/3
 & $node tools\mcp-zip-test.mjs        # zip 导入 + MCP        6/6
 & $node tools\menu-test.mjs           # 右键菜单              6/6
 & $node tools\app-test.mjs            # 界面回归              16/16
+& $node tools\recorder-cancel-test.mjs # 录音启动取消/失败清理  8/8
 & $node tools\local-asr-test.mjs      # 本机 ASR 真实识别（需要已装模型）
 & $node tools\agent-input-test.mjs    # 键鼠注入（依赖真实前台，可能不稳）
 ```
@@ -455,12 +473,9 @@ $d = "$env:USERPROFILE\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies"
 | **用量** | 仅 token/字数/秒数，不折算金额（各家单价不同） |
 | **主题** | ball 窗口是透明角色图，未做亮暗区分；气泡亮色下已补对比度，但样式是 second-pass 的 |
 | **签名** | 无（见 §6） |
-| **麦克风启动/快速停止**（REVIEW C1） | `recorder.ts` 仍是"先拿流再建 AudioContext"，中途失败或启动未完成就被停止时，可能留下流/上下文。建议加启动代次 + 每步失败都 cleanup |
 | **快捷键降级**（REVIEW C7） | 驱动不可用时提示"已降级"，但降级只模拟 60ms 按键，按住说话基本不可用；默认 Mouse4 也不在这条路上 |
-| **SSE 尾帧**（REVIEW C8） | `llm.ts` / `tts.ts` 只处理换行结尾的完整行，读完了不解析残余 `data:`；搜索客户端直接 `res.text()`。建议统一尾帧处理 |
-| **文件读上限**（REVIEW A8） | `file.list` / `file.read` 仍先同步读完再截断，大文件/慢盘会卡主进程 |
 | **审计内容**（REVIEW B4） | 审计 JSONL 仍记录参数与结果片段（可能含文件内容）；历史/记忆明文落盘。建议默认只记元数据 |
-| **ASR 归档整包** | 官方 163 MB 归档在本机下载太慢（约 5–10 KB/s），只下到 16%；归档 SHA 来自官方 checksum，两个文件的 hash/size 已与本机模型核对一致。续传命令见 §10 |
+| **ASR 归档整包** | 官方 163 MB 归档在本机下载太慢（约 5–15 KB/s），续传一个多小时仍不到 1/4；归档 SHA 来自官方 checksum，两个文件的 hash/size 已与本机模型核对一致。续传脚本：`powershell -NoProfile -ExecutionPolicy Bypass -File D:\coding\bwu-asr-dl\fetch-asr.ps1`（下完自动比对 SHA-256） |
 
 ---
 
@@ -508,47 +523,45 @@ $d = "$env:USERPROFILE\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies"
 
 ---
 
-## 10. 当前状态：1.0.11 已提交、已打包、已验证
+## 10. 当前状态：1.0.12 已提交、已打包、已验证
 
-### 已完成（commit `23f55b6`）
+### 已完成
 
-- **审批与 MCP**：停止或切换对话会撤销待确认操作；执行前复核权限和取消状态。MCP 配置变更会撤销旧工具和连接，远端工具仍逐次确认。[审批](src/main/agent/approval.ts) · [MCP 注册](src/main/agent/index.ts) · [执行入口](src/main/agent/runner.ts)
-- **文件与窗口权限**：校验允许目录和实际落点，包括备份与自定义工具入口；preload 按窗口角色暴露接口，主进程核验窗口和主框架，生产版不开放测试 IPC。路径检查和子进程均不是操作系统沙箱。[文件工具](src/main/agent/tools/files.ts) · [IPC](src/main/ipc.ts) · [preload](src/preload/index.ts)
-- **截图隐私**：新配置默认关闭，启用时提示截图范围和传输对象；已有配置原样保留。普通截图和 WGC 使用同一目标显示器，无法匹配时不换屏；WGC 回包带请求 ID。[视觉服务](src/main/services/vision.ts) · [WGC](src/main/vision-grab.ts)
-- **迁移与安装**：迁移包含用量和 Agent 数据，经 SHA-256 校验后才切换，源目录保留；恢复默认时先归档之前的默认应用数据。安装脚本不解除下载标记，要求显式路径和可信摘要或发布者证书指纹。[迁移](src/main/data-dir.ts) · [安装脚本](scripts/install-app.cmd) · [校验脚本](scripts/check-installer.ps1)
-- **本轮追加**：ASR 会话 generation 防止跨轮回写；MCP headers 加密落盘且公开 DTO 脱敏；Agent 单次多工具调用按剩余步数截断，拒绝未知工具并在超时请求取消；LLM 400 视觉回退与 Breeze 429 重试改用结构化 HTTP 状态；设置保存失败显式显示并保留 patch。
+- **1.0.11（commit `23f55b6`）**：审批撤销、MCP 撤权、文件落点校验、窗口角色收敛、截图隐私、数据迁移校验、ASR 固定归档、结构化错误重试、安装脚本收紧（详见 §1.20 与 [REVIEW.md](REVIEW.md) 的对应条目）。
+- **1.0.12（commit `b343897`）**：SSE 尾帧（C8）、录音启动取消与失败清理（C1）、文件 I/O 限流与目录分页（A8），见 §1.21。
 
 ### 已验证（本轮实跑，可复现）
 
 - 运行环境：Node.js **v24.21.0**、Electron **45.3.3**、electron-builder **26.18.0**；`pnpm-lock.yaml` 未改。
 - TypeScript 双端检查通过；`electron-vite build` 通过（输出 `out/`）；`git diff --check` 通过。
-- 单元/安全 **23/23**（10 个 `node --test` 文件，含审批、迁移、文件边界、抓屏、MCP 密钥、ASR manifest/generation、工具预算、重试策略、播放器）。
-- E2E **13 个套件 / 95 条断言全绿**：agent-run 10、ext 10、mcp-zip 6、agent-llm 3、agent-settings 8、agent-ui 19、prompts 4、thinking 6、search 4、shell-encoding 3、menu 6、app 16；local-asr 用本机真实模型完成识别（RTF≈0.04）。
-- 隔离冒烟 `tools/smoke-test.mjs`：`out/` 11/11、`release/win-unpacked/BeWithU.exe` 11/11；其中包含"球窗没有管理接口、打包版没有测试 IPC"的角色隔离断言。
-- **打包验收**：先输出到 `D:\coding\bwu-staging-1.0.11`，校验 `app.asar`（10,112,952 bytes，版本 1.0.11）、
+- 单元/安全 **34/34**（12 个 `node --test` 文件：审批、迁移、文件边界、文件 I/O 分页、SSE 解析、抓屏、MCP 密钥、ASR manifest/generation、工具预算、重试策略、播放器）。
+- E2E **15 个套件 / 106 条断言全绿**：agent-run 10、ext 10、mcp-zip 6、agent-llm 3、agent-settings 8、agent-ui 19、prompts 4、thinking 6、sse-tail 3、search 4、shell-encoding 3、menu 6、app 16、recorder-cancel 8；local-asr 用本机真实模型完成识别（RTF≈0.035）。
+- 隔离冒烟 `tools/smoke-test.mjs`：`out/` 11/11、`release/win-unpacked/BeWithU.exe` 11/11；包含"球窗没有管理接口、打包版没有测试 IPC"的角色隔离断言。
+- **打包验收**：先输出到 `D:\coding\bwu-staging-1.0.12`，校验 `app.asar`（10,118,743 bytes，版本 1.0.12）、
   `@koromix/koffi-win32-x64/win32_x64/koffi.node`、`uiohook-napi`、`sherpa-onnx-win-x64` 均在 unpacked 里，
   asar 内 `out/main/index.js` 带 ASR 归档 SHA 常量与 `--bwu-role=`；`koffi 3.3.8` 在 Electron 45.3.3/Node 24.22.3(ABI 150)
-  下可加载，应用日志出现 `input: 工作进程已启动`；安装器 129,020,533 bytes / `095a55f1…8c98`，
-  便携版 116,742,371 bytes / `7ee4d309…3109`，`check-installer.ps1` 正/反例/缺摘要三种情况都验过。
-  完整记录见 [docs/RELEASE-1.0.11.md](docs/RELEASE-1.0.11.md)。
-- **产物已就位**：`release/` 是 1.0.11，旧 1.0.10 移进 `release/archive-1.0.10/`；`release/SHA256SUMS-1.0.11.txt`。
+  下可加载，应用日志出现 `input: 工作进程已启动`；安装器 129,021,885 bytes / `00a0241a…ec5a`，
+  便携版 116,745,110 bytes / `c883a5e5…ce6f`，`check-installer.ps1` 正/反例/缺摘要三种情况都验过。
+  完整记录见 [docs/RELEASE-1.0.12.md](docs/RELEASE-1.0.12.md)。
+- **产物已就位**：`release/` 是 1.0.12；1.0.10 / 1.0.11 分别在 `release/archive-1.0.10/`、`release/archive-1.0.11/`；
+  `release/SHA256SUMS-1.0.12.txt`。
 
 ### 仍未完成（不是本轮能闭的）
 
 - **ASR 官方归档整包**：`https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17.tar.bz2`
   （163,002,883 bytes，SHA-256 `7d1efa2138a65b0b488df37f8b89e3d91a60676e416f515b952358d83dfd347e`）
-  在本机只有约 5–10 KB/s，续传了 20 多分钟仍停在约 16%（半成品在 `D:\coding\bwu-asr-dl\archive.tar.bz2`，
+  在本机只有约 5–15 KB/s，续传一个多小时仍不到 1/4（半成品在 `D:\coding\bwu-asr-dl\archive.tar.bz2`，
   **不要当模型用**）。归档 SHA 来自官方 `checksum.txt`（该清单的 asset digest 是 `sha256:a96a8ecf…1f1a`，
-  上传者 `github-actions[bot]`）；归档里两个文件的 hash/size 已用**本机已装模型**逐字节核对一致
-  （见 §10 上面的验收记录）。要彻底闭环：找个带宽好的网络把归档下完，比对 SHA-256，
-  再跑一次"下载 → 解包 → 发布"全流程（`tools/asr-model-manifest.test.mjs` 只校验固定值）。
+  上传者 `github-actions[bot]`）；归档里两个文件的 hash/size 已用**本机已装模型**逐字节核对一致。
+  要彻底闭环：找个带宽好的网络把归档下完，比对 SHA-256，再跑一次"下载 → 解包 → 发布"全流程
+  （`tools/asr-model-manifest.test.mjs` 只校验固定值）。
 - **代码签名**：没有证书，安装器未签名。
 - **真机矩阵**：真实多屏/WGC、ASR 麦克风设备、`input.*` 前台依赖，都只在单机上验过。
-- **外部发布**：没有上传安装器/做分发页。
+- **外部发布**：没有上传安装器/做分发页；`git push` 在本机网络下会超时（本次两个提交都还是本地提交）。
 
 ### 源码搬运
 
 - 现在可以直接 `git archive HEAD` 或 clone（工作区已提交、`git status` 干净），但要带上 `release/` 里的产物与清单
-  （`release/` 被 gitignore，不在仓库里）、以及 [docs/RELEASE-1.0.11.md](docs/RELEASE-1.0.11.md)。
+  （`release/` 被 gitignore，不在仓库里）、以及 [docs/RELEASE-1.0.12.md](docs/RELEASE-1.0.12.md)。
 - 可排除 `node_modules/`、`.pnpm-store/`、`.cache/`、`out/`、`release/archive-*`、`.shots/` 和本地日志/录音样本；
   不要打入真实应用数据目录（`%APPDATA%\BeWithU`）、API Key 或凭据。
