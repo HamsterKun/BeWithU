@@ -7,6 +7,7 @@ import type { LlmSettings } from '../../shared/types'
 import { settingsStore } from '../store/settings'
 import { log } from '../logger'
 import { recordTokens } from '../store/usage'
+import { looksLikeParamReject, markThinkingBlocked, thinkingParams } from '../services/llm'
 import type { ChatMessage } from '../services/llm'
 
 export interface AgentToolCall {
@@ -18,6 +19,8 @@ export interface AgentToolCall {
 export interface AgentTurnResult {
   text: string
   toolCalls: AgentToolCall[]
+  /** 思考内容（部分模型返回，展示用，不播报） */
+  reasoning?: string
 }
 
 interface ToolSpec {
@@ -121,12 +124,26 @@ export async function chatWithTools(opts: {
     body.tools = opts.tools
     body.tool_choice = opts.toolChoice ?? 'auto'
   }
-  const res = await fetch(endpoint(llm.baseUrl), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${llm.apiKey}` },
-    body: JSON.stringify(body),
-    signal: opts.signal
-  })
+  const send = (extra: Record<string, unknown>): Promise<Response> =>
+    fetch(endpoint(llm.baseUrl), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${llm.apiKey}` },
+      body: JSON.stringify({ ...body, ...extra }),
+      signal: opts.signal
+    })
+
+  const extra = thinkingParams(llm)
+  let res = await send(extra)
+  if (!res.ok && res.status === 400 && Object.keys(extra).length) {
+    const detail = await res.text().catch(() => '')
+    if (looksLikeParamReject(detail)) {
+      markThinkingBlocked(llm)
+      log('agent: 服务端不支持思考参数，已降级重试', detail.slice(0, 160))
+      res = await send({})
+    } else {
+      throw new Error(`大模型请求失败（HTTP ${res.status}）：${detail.slice(0, 300)}`)
+    }
+  }
   if (!res.ok) {
     const detail = await res.text().catch(() => '')
     throw new Error(`大模型请求失败（HTTP ${res.status}）：${detail.slice(0, 300)}`)
@@ -140,8 +157,21 @@ export async function chatWithTools(opts: {
     }>
     usage?: { prompt_tokens?: number; completion_tokens?: number }
   }
-  const msg = data.choices?.[0]?.message
+  const msg = data.choices?.[0]?.message as
+    | {
+        content?: string | null
+        reasoning_content?: string
+        reasoning?: string
+        tool_calls?: Array<{ id: string; function: { name: string; arguments: string } }>
+      }
+    | undefined
   const text = typeof msg?.content === 'string' ? msg.content : ''
+  const reasoning =
+    typeof msg?.reasoning_content === 'string'
+      ? msg.reasoning_content
+      : typeof msg?.reasoning === 'string'
+        ? msg.reasoning
+        : ''
   // Agent 走非流式，usage 直接在响应里
   if (data.usage) {
     recordTokens('chat', Number(data.usage.prompt_tokens) || 0, Number(data.usage.completion_tokens) || 0)
@@ -151,5 +181,5 @@ export async function chatWithTools(opts: {
     name: c.function?.name ?? '',
     args: c.function?.arguments ?? '{}'
   }))
-  return { text, toolCalls }
+  return { text, toolCalls, reasoning }
 }

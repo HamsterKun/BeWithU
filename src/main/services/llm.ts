@@ -11,6 +11,45 @@ export interface ChatMessage {
   content: string | ContentPart[]
 }
 
+
+/** 已经确认不吃思考参数的服务端（baseUrl|model），后面不再带参数 */
+const thinkingBlocked = new Set<string>()
+
+function thinkingKey(llm: LlmSettings): string {
+  return `${llm.baseUrl.trim().toLowerCase()}|${llm.model.trim().toLowerCase()}`
+}
+
+/**
+ * 思考模式参数：不同厂商写法不一样，这里按"最常见 → 特定厂商"叠加，
+ * 服务端不认识时会返回 400，由调用处自动去掉参数重试。
+ */
+export function thinkingParams(llm: LlmSettings): Record<string, unknown> {
+  const t = llm.thinking
+  if (!t?.enabled) return {}
+  const key = thinkingKey(llm)
+  if (thinkingBlocked.has(key)) return {}
+  const probe = `${llm.model} ${llm.baseUrl}`.toLowerCase()
+  const params: Record<string, unknown> = {}
+  // OpenAI / OpenRouter / vLLM 都认这个
+  params.reasoning_effort = t.effort
+  // 千问 / 阿里云百炼
+  if (/qwen|dashscope|aliyun/.test(probe)) params.enable_thinking = true
+  // OpenRouter / Anthropic 风格
+  if (/openrouter|anthropic/.test(probe)) params.thinking = { type: 'enabled' }
+  return params
+}
+
+/** 400 的报错看起来像"不认识这个参数"吗 */
+export function looksLikeParamReject(body: string): boolean {
+  return /reasoning_effort|enable_thinking|thinking|unknown|unsupported|unrecognized|invalid[ _]?(request|param)/i.test(
+    body
+  )
+}
+
+export function markThinkingBlocked(llm: LlmSettings): void {
+  thinkingBlocked.add(thinkingKey(llm))
+}
+
 function endpoint(baseUrl: string): string {
   const url = baseUrl.trim().replace(/\/+$/, '')
   if (!url) throw new Error('还没填 Base URL')
@@ -60,6 +99,8 @@ export async function* streamChat(opts: {
   signal: AbortSignal
   /** 记账用：闲聊还是记忆总结 */
   purpose?: 'chat' | 'summary'
+  /** 思考内容增量（不参与播报） */
+  onReasoning?: (text: string) => void
 }): AsyncGenerator<string> {
   const { llm, messages, signal } = opts
   if (!llm.model.trim()) throw new Error('还没填模型名')
@@ -70,20 +111,37 @@ export async function* streamChat(opts: {
   }
   if (llm.apiKey.trim()) headers.Authorization = `Bearer ${llm.apiKey.trim()}`
 
-  const res = await fetch(endpoint(llm.baseUrl), {
-    method: 'POST',
-    headers,
-    signal,
-    body: JSON.stringify({
-      model: llm.model.trim(),
-      messages,
-      stream: true,
-      temperature: llm.temperature,
-      // 有些服务端只有带上这个才会在最后一个 chunk 里返回 usage
-      stream_options: { include_usage: true }
-      // 不传 max_tokens：交给提示词软控制，硬截断会让回答断在半句话上
+  const payload = {
+    model: llm.model.trim(),
+    messages,
+    stream: true,
+    temperature: llm.temperature,
+    // 有些服务端只有带上这个才会在最后一个 chunk 里返回 usage
+    stream_options: { include_usage: true }
+    // 不传 max_tokens：交给提示词软控制，硬截断会让回答断在半句话上
+  }
+  const send = (extra: Record<string, unknown>): Promise<Response> =>
+    fetch(endpoint(llm.baseUrl), {
+      method: 'POST',
+      headers,
+      signal,
+      body: JSON.stringify({ ...payload, ...extra })
     })
-  })
+
+  const extra = thinkingParams(llm)
+  let res = await send(extra)
+  if (!res.ok && res.status === 400 && Object.keys(extra).length) {
+    const body = await res.text().catch(() => '')
+    if (looksLikeParamReject(body)) {
+      // 服务端不认思考参数：记住这个端点，去掉参数重试一次
+      markThinkingBlocked(llm)
+      log('llm: 服务端不支持思考参数，已降级重试', body.replace(/\s+/g, ' ').slice(0, 200))
+      res = await send({})
+    } else {
+      log('llm: http error', res.status, body.replace(/\s+/g, ' ').slice(0, 400))
+      throw new Error(friendlyError(res.status))
+    }
+  }
 
   if (!res.ok) {
     const body = await res.text().catch(() => '')
@@ -109,6 +167,8 @@ export async function* streamChat(opts: {
       try {
         const json = JSON.parse(data)
         const choice = json.choices?.[0]
+        const reasoning = choice?.delta?.reasoning_content ?? choice?.delta?.reasoning
+        if (typeof reasoning === 'string' && reasoning) opts.onReasoning?.(reasoning)
         const delta = choice?.delta?.content ?? choice?.message?.content ?? ''
         if (typeof delta === 'string' && delta) yield delta
         if (choice?.finish_reason === 'error') throw new Error('模型返回错误')

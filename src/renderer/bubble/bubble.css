@@ -674,3 +674,49 @@ body {
   font-size: 10px;
   color: rgba(var(--ink), 0.45);
 }
+
+
+/* ------------------------------------------------------- 思考过程（折叠） */
+.think {
+  margin: 0 0 8px;
+  border-radius: 9px;
+  border: 1px solid rgba(var(--ink), 0.1);
+  background: rgba(var(--ink), 0.04);
+}
+.think__head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 9px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+.think__dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #a78bfa;
+  box-shadow: 0 0 6px rgba(167, 139, 250, 0.7);
+}
+.think__caret {
+  margin-left: auto;
+  font-size: 10px;
+  opacity: 0.7;
+}
+.think__body {
+  margin: 0;
+  padding: 0 10px 8px;
+  max-height: 150px;
+  overflow: auto;
+  font-family: inherit;
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--muted);
+  white-space: pre-wrap;
+  word-break: break-word;
+}

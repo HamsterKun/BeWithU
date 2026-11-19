@@ -1,4 +1,4 @@
-# BeWithU 交接文档（2026-11-19，v1.0.4）
+# BeWithU 交接文档（2026-11-19，v1.0.5）
 
 > 给接手的 Agent：**先读 §0、§1，再读 §8 环境坑**，其余按需查。
 > 本文覆盖「白天那版交接文档」的全部内容，并加上今晚的全部改动，可当作唯一版本。
@@ -10,9 +10,9 @@
 | 项 | 值 |
 |---|---|
 | 代码位置 | `C:\Users\jiangchengrui\Desktop\BeWithU` |
-| 版本 | **1.0.4**（`package.json` 的 `version`） |
+| 版本 | **1.0.5**（`package.json` 的 `version`） |
 | HEAD | 见 `git log`（1.0.3 提交已推送） |
-| 产物 | `release/BeWithU-1.0.4-x64.exe`、`BeWithU-1.0.4-portable.exe` |
+| 产物 | `release/BeWithU-1.0.5-x64.exe`、`BeWithU-1.0.5-portable.exe` |
 | 工作区 | 干净，无遗留进程/临时目录 |
 
 **白天那版**：Agent 能力层 M1（键鼠注入）+ M2（工具循环/审批/审计）+ 设置页，19 个内置工具。
@@ -155,6 +155,23 @@
 
 验证：`tools/shell-encoding-test.mjs` 3/3（中文 stdout、中文 stderr + 非 0 退出、中文文件名）；`agent-ui 13/13`、`app 16/16`、`menu 6/6`、`router 18/18`、`agent-run 7/7`。
 截图：`settings-agent-light.png`、`badge-working.png`。
+
+---
+
+## 1.14 v1.0.5（本次）
+
+| 改动 | 位置 | 说明 |
+|---|---|---|
+| 模型名不预填 | `shared/presets.ts` + `ModelPane` | 切服务商只填 Base URL，模型名留空（输入框里的 `doubao-seed-1.6-flash` 是 placeholder，不是值）；用户点「获取列表」或手填 |
+| 默认亮色 | `shared/defaults.ts` | `ui.theme` 默认 `light`（老用户已保存的配置不变） |
+| **思考模式** | `LlmSettings.thinking`、`llm.ts`、`llm-agent.ts` | 设置 → 大模型：「启用思考」+「思考等级」低/中/高（默认中） |
+| 报文兼容 | `thinkingParams()` / `looksLikeParamReject()` | 默认发 `reasoning_effort`；模型/域名像 qwen 时加 `enable_thinking`；像 openrouter/anthropic 时加 `thinking:{type:'enabled'}`。**服务端 400 且报错提到这些参数时，自动去掉参数重试一次**，并记住该端点不再带参数 |
+| 思考内容展示 | `Bubble.tsx` + `bubble.css` | 气泡顶部折叠块「💭 思考过程」，默认收起；点击展开；不播报、不进上下文/记忆 |
+| 思考解析 | `llm.ts` / `llm-agent.ts` | 同时兼容 `reasoning_content`（DeepSeek/多数中转）与 `reasoning`（OpenRouter 等）字段；流式和非流式都解析 |
+
+验证：`tools/thinking-test.mjs` 6/6 —— 聊天带 `reasoning_effort:"high"`、思考块展示、Agent 非流式同样带参数、服务端 400 时自动降级后仍能正常回答。
+回归：`app 16/16`、`menu 6/6`、`agent-ui 13/13`、`agent-run 7/7`、`router 18/18`、`agent-settings 8/8`。
+截图：`settings-model-thinking.png`（亮色 + 思考开关 + 空模型名）。
 
 ---
 

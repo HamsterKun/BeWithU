@@ -495,6 +495,7 @@ class Conversation {
 
     const controller = new AbortController()
     this.abortLlm = controller
+    sendBubble({ type: 'reasoning-reset' })
     const splitter = new SentenceSplitter()
     const canSpeak = s.tts.enabled && !s.ui.muted
     let answer = ''
@@ -523,7 +524,14 @@ class Conversation {
 
     for (;;) {
       try {
-        for await (const delta of streamChat({ llm: s.llm, messages, signal: controller.signal })) {
+        for await (const delta of streamChat({
+          llm: s.llm,
+          messages,
+          signal: controller.signal,
+          onReasoning: (t) => {
+            if (turn === this.turnId) sendBubble({ type: 'reasoning-delta', text: t })
+          }
+        })) {
           if (turn !== this.turnId) return
           answer += delta
           sendBubble({ type: 'assistant-delta', text: delta })
@@ -595,6 +603,7 @@ class Conversation {
   /** Agent 模式：跑工具循环，边显示边播报，结束时收起 */
   private async respondWithAgent(userText: string, turn: number, s: Settings): Promise<void> {
     this.setPhase('acting', '工作中')
+    sendBubble({ type: 'reasoning-reset' })
     // 任务可能要跑一会儿：先收起气泡别挡视线（用户手动钉住时不动）
     if (!isBubblePinned()) hideBubble()
     sendAgentProgress({ active: true, step: 0, total: s.agent.maxSteps, mode: 'thinking' })
@@ -639,6 +648,10 @@ class Conversation {
         signal: controller.signal,
         image: agentShot ? { dataUrl: agentShot.dataUrl } : undefined,
         events: {
+          onReasoning: (text) => {
+            if (turn !== this.turnId) return
+            sendBubble({ type: 'reasoning-delta', text })
+          },
           onText: (text) => {
             if (turn !== this.turnId) return
             answer += text

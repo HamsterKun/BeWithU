@@ -14,6 +14,8 @@ import type { ToolDef, ToolResult } from './types'
 export interface AgentEvents {
   /** 模型说的话（用于气泡显示 + 播报） */
   onText: (text: string) => void
+  /** 模型的思考内容（只展示，不播报） */
+  onReasoning?: (text: string) => void
   /** 一步工具开始 */
   onStep: (info: { index: number; total: number; toolId: string; summary: string }) => void
   /** 一步工具结束 */
@@ -160,6 +162,7 @@ export async function runAgentTask(
       opts.events.onText(text)
       return { text, steps, stopped: false }
     }
+    if (turn.reasoning?.trim()) opts.events.onReasoning?.(turn.reasoning)
     if (turn.text.trim()) {
       finalText = turn.text.trim()
       opts.events.onText(turn.text)

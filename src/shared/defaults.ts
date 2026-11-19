@@ -13,7 +13,8 @@ export const DEFAULT_SETTINGS: Settings = {
     preset: 'deepseek',
     baseUrl: 'https://api.deepseek.com/v1',
     apiKey: '',
-    model: 'deepseek-chat',
+    // 模型名不预填：让用户自己「获取列表」或手填
+    model: '',
     temperature: 0.8,
     historyTurns: 8,
     systemPrompt: DEFAULT_SYSTEM_PROMPT,
@@ -22,6 +23,11 @@ export const DEFAULT_SETTINGS: Settings = {
       baseUrl: '',
       apiKey: '',
       model: ''
+    },
+    thinking: {
+      // 默认不开启：思考更慢也更贵，交给用户自己决定
+      enabled: false,
+      effort: 'medium'
     },
     vision: {
       enabled: true
@@ -76,7 +82,7 @@ export const DEFAULT_SETTINGS: Settings = {
     showWaveform: true
   },
   ui: {
-    theme: 'dark',
+    theme: 'light',
     muted: false,
     assistantName: '小伴',
     micDeviceId: ''

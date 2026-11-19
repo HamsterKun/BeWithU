@@ -148,6 +148,12 @@ class SettingsStore {
     s.bubble.holdMs = clamp(s.bubble.holdMs, 0, 60000, 6000)
     s.voice.minHoldMs = clamp(s.voice.minHoldMs, 100, 3000, 250)
     if (!s.llm.systemPrompt?.trim()) s.llm.systemPrompt = DEFAULT_SETTINGS.llm.systemPrompt
+    // 思考模式（老配置没有这个字段）
+    const think = s.llm.thinking ?? DEFAULT_SETTINGS.llm.thinking
+    s.llm.thinking = {
+      enabled: Boolean(think.enabled),
+      effort: think.effort === 'low' || think.effort === 'high' ? think.effort : 'medium'
+    }
     // 联网搜索
     if (s.search.provider !== 'deepseek') s.search.provider = 'tavily'
     s.search.maxResults = clamp(s.search.maxResults, 1, 10, 5)

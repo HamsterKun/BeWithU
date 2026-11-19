@@ -20,6 +20,15 @@ export interface VisionSettings {
   enabled: boolean
 }
 
+export type ThinkingEffort = 'low' | 'medium' | 'high'
+
+export interface ThinkingSettings {
+  /** 是否请求模型的思考/推理能力 */
+  enabled: boolean
+  /** 思考强度：低/中/高（默认 medium） */
+  effort: ThinkingEffort
+}
+
 export interface LlmSettings {
   preset: LlmPreset
   baseUrl: string
@@ -31,6 +40,7 @@ export interface LlmSettings {
   systemPrompt: string
   summary: SummaryModelSettings
   vision: VisionSettings
+  thinking: ThinkingSettings
 }
 
 export interface BreezeTtsSettings {

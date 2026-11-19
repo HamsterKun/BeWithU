@@ -156,7 +156,7 @@ try {
 
   /* 1 默认服务商 + 默认皮肤 + 提示已移除 */
   const s0 = await ball.eval('window.bwu.settings.get()')
-  ok('defaultPresetDeepseek', s0.llm.preset === 'deepseek' && s0.llm.model === 'deepseek-chat', {
+  ok('defaultPresetDeepseek', s0.llm.preset === 'deepseek' && s0.llm.model === '', {
     preset: s0.llm.preset,
     model: s0.llm.model
   })

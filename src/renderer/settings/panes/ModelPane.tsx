@@ -97,8 +97,7 @@ export default function ModelPane({ s, patch }: PaneProps): React.ReactElement {
               patch({
                 llm: {
                   preset: v as LlmPreset,
-                  baseUrl: def?.baseUrl || s.llm.baseUrl,
-                  model: def?.model || s.llm.model
+                  baseUrl: def?.baseUrl || s.llm.baseUrl
                 }
               })
             }}
@@ -161,6 +160,25 @@ export default function ModelPane({ s, patch }: PaneProps): React.ReactElement {
             step={0.05}
             onChange={(v) => patch({ llm: { temperature: v } })}
             format={(v) => v.toFixed(2)}
+          />
+        </Field>
+
+        <Field label="启用思考" hint="让模型先思考再回答；更慢、更贵，复杂任务再用">
+          <Toggle
+            checked={s.llm.thinking.enabled}
+            onChange={(v) => patch({ llm: { thinking: { enabled: v } } })}
+          />
+        </Field>
+
+        <Field label="思考等级" hint="低=快、省；高=想得更久，思考内容会折叠显示">
+          <Segmented
+            value={s.llm.thinking.effort}
+            options={[
+              { value: 'low', label: '低' },
+              { value: 'medium', label: '中' },
+              { value: 'high', label: '高' }
+            ]}
+            onChange={(v) => patch({ llm: { thinking: { effort: v } } })}
           />
         </Field>
 

@@ -17,6 +17,8 @@ interface State {
   animKey: number
   step: { text: string; done: boolean; ok: boolean } | null
   approve: { id: string; title: string; detail: string } | null
+  reasoning: string
+  reasoningOpen: boolean
 }
 
 const initial: State = {
@@ -33,7 +35,9 @@ const initial: State = {
   hotkey: '开麦键',
   animKey: 0,
   step: null,
-  approve: null
+  approve: null,
+  reasoning: '',
+  reasoningOpen: false
 }
 
 function reduce(state: State, u: BubbleUpdate): State {
@@ -60,6 +64,10 @@ function reduce(state: State, u: BubbleUpdate): State {
       return { ...state, pinned: u.pinned }
     case 'anchor':
       return { ...state, side: u.side }
+    case 'reasoning-reset':
+      return { ...state, reasoning: '', reasoningOpen: false }
+    case 'reasoning-delta':
+      return { ...state, reasoning: state.reasoning + u.text }
     case 'agent-step':
       return { ...state, step: { text: `${u.text}`, done: u.done, ok: u.ok === true } }
     case 'approve':
@@ -143,7 +151,7 @@ export default function Bubble(): React.ReactElement {
   useEffect(() => {
     const el = bodyRef.current
     if (el) el.scrollTop = el.scrollHeight
-  }, [state.assistant, state.user, state.notice])
+  }, [state.assistant, state.user, state.notice, state.reasoning])
 
   // 确认卡出现时把它滚进视野（不然会被"自动滚到底"顶出去）
   useEffect(() => {
@@ -219,6 +227,16 @@ export default function Bubble(): React.ReactElement {
         </header>
 
         <div className="card__body" ref={bodyRef}>
+          {state.reasoning ? (
+            <div className={state.reasoningOpen ? 'think is-open' : 'think'}>
+              <button className="think__head" onClick={() => setState((p) => ({ ...p, reasoningOpen: !p.reasoningOpen }))}>
+                <span className="think__dot" />
+                <span>💭 思考过程</span>
+                <span className="think__caret">{state.reasoningOpen ? '收起' : '展开'}</span>
+              </button>
+              {state.reasoningOpen ? <pre className="think__body">{state.reasoning}</pre> : null}
+            </div>
+          ) : null}
           {state.approve ? (
             <div className="approve">
               <span className="approve__title">需要你确认：{state.approve.title}</span>

@@ -157,6 +157,8 @@ export interface AgentProgress {
 }
 
 export type BubbleUpdate =
+  | { type: 'reasoning-reset' }
+  | { type: 'reasoning-delta'; text: string }
   | { type: 'agent-step'; index: number; total: number; text: string; done: boolean; ok?: boolean }
   | { type: 'approve'; req: { id: string; title: string; detail: string } | null }
   | { type: 'phase'; phase: Phase; note?: string }
