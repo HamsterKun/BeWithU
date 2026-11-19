@@ -2,6 +2,8 @@
   color-scheme: dark;
   --pad: 20px;
   --ink: 255, 255, 255;
+  /* 统一的分割线颜色：气泡内所有横向分隔都用它 */
+  --line: rgba(var(--ink), 0.1);
   --text-main: #e8edf7;
   --text-strong: #fff;
   --accent-text: #cffafe;
@@ -18,6 +20,7 @@
 [data-theme='light'] {
   color-scheme: light;
   --ink: 15, 23, 42;
+  --line: rgba(var(--ink), 0.1);
   --text-main: #121a26;
   --text-strong: #0b0d12;
   --accent-text: #0e7490;
@@ -423,7 +426,7 @@ body {
   align-items: center;
   gap: 10px;
   padding: 7px 12px 9px;
-  border-top: 1px solid rgba(var(--ink), 0.06);
+  border-top: 1px solid var(--line);
   min-height: 30px;
 }
 
@@ -433,7 +436,7 @@ body {
   align-items: center;
   gap: 8px;
   padding: 9px 12px 6px;
-  border-top: 1px solid rgba(var(--ink), 0.06);
+  border-top: 1px solid var(--line);
 }
 
 .composer__input {
@@ -725,10 +728,11 @@ body {
 /* ---------------------------------------------- 思考/步骤区：分割线分组 */
 /* 上下用分割线和头部、消息区分开；气泡本身左右各缩进 12px，不再贴边 */
 .proc {
-  margin: 0 0 8px;
+  flex: none;
+  margin: 0;
   padding: 8px 12px;
-  border-top: 1px solid rgba(var(--ink), 0.14);
-  border-bottom: 1px solid rgba(var(--ink), 0.14);
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
   display: flex;
   flex-direction: column;
   gap: 6px;

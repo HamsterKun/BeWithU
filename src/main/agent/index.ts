@@ -4,6 +4,7 @@ import { registerInputTools } from './tools/input'
 import { registerShellTools } from './tools/shell'
 import { registerFileTools } from './tools/files'
 import { registerSystemTools } from './tools/system'
+import { registerScreenTools } from './tools/screen'
 import { registerSkillTools } from './tools/skills'
 import { registerWebTools } from './tools/web'
 import { registerCustomTools } from './custom-tools'
@@ -23,6 +24,7 @@ export function registerBuiltinTools(): void {
   registerInputTools()
   registerFileTools()
   registerSystemTools()
+  registerScreenTools()
   registerShellTools()
   registerSkillTools()
   registerWebTools()

@@ -7,6 +7,7 @@ import { callTool } from './index'
 import { ensureMcpTools } from './index'
 import { chatWithTools, type AgentToolCall } from './llm-agent'
 import { checkDangerous } from './policy'
+import { markVisionUnsupported } from './vision-state'
 import { resolvePendingByText } from './approval'
 import { skillsPromptSection } from './skills'
 import type { ToolDef, ToolResult } from './types'
@@ -76,6 +77,8 @@ function buildSystemPrompt(maxSteps: number, shellEnabled: boolean): string {
     '6. 不要编造工具结果，只根据工具返回汇报。',
     '7. 调用工具之前不要写"我先把…打开"这类过程叙述；直接用工具，最后一次性汇报结果。',
     '8. 汇报时不要复述用户的原话，不要描述你的思考过程或用了哪个工具。',
+    '9. 关于看屏幕：只有当前模型支持视觉时，任务开始才会附一张截图；看不到图就不要声称自己有截图能力，' +
+      '需要截图时用 screen.capture 保存成文件并把路径告诉用户。',,
     searchOn
       ? '7. 遇到时效性问题（今天/最近/最新、新闻、比分、价格、版本、发布会、谁赢了、有没有出新东西）先调 web.search 查，再基于结果回答，并带上来源链接；日常闲聊、情感陪伴、写代码、常识问题不要搜。'
       : '7. 现在没有联网搜索能力：涉及最新消息时如实说查不到，不要编造。',
@@ -180,6 +183,7 @@ export async function runAgentTask(
       if (useImage && !retriedNoImage && /image|vision|multi-?modal|content[ _-]?type|unsupported/i.test(msg)) {
         retriedNoImage = true
         useImage = false
+        markVisionUnsupported()
         messages[userIndex] = { role: 'user', content: userText }
         log('vision: Agent 模型拒绝图片，降级为纯文字', msg)
         opts.events.onText('（这个模型不支持看图，这次先不看了）')

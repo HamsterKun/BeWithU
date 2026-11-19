@@ -14,6 +14,7 @@ import { LocalAsrSession } from './local-asr'
 import { modelReady } from './local-asr'
 import { runAgentTask } from '../agent/runner'
 import { classifyIntent, wantsScreenReference } from '../agent/router'
+import { isVisionUnsupported, markVisionUnsupported } from '../agent/vision-state'
 import { requestApproval, resolvePendingByText } from '../agent/approval'
 
 /** 云端 / 本地识别共用的会话接口 */
@@ -548,6 +549,7 @@ class Conversation {
         if (!controller.signal.aborted && useImage && !attemptedWithoutImage && !answer && isVisionReject(msg)) {
           attemptedWithoutImage = true
           useImage = false
+          markVisionUnsupported()
           messages = buildMessages(false)
           sendBubble({ type: 'assistant-reset' })
           this.notify('info', '当前模型不支持图片，已自动改成纯文字（可在设置里关掉屏幕理解）')
@@ -632,9 +634,9 @@ class Conversation {
       this.speech = null
     }
 
-    // 屏幕理解：Agent 模式下也要带截图（之前只有纯聊天分支截了）
+    // 屏幕理解：Agent 模式下也要带截图；但模型已经明确拒绝过图片就不再抓（省一次抓屏）
     let agentShot: ScreenCapture | null = null
-    if (s.llm.vision.enabled) {
+    if (s.llm.vision.enabled && !isVisionUnsupported()) {
       const cap = await captureScreen()
       if (turn !== this.turnId) return
       if (cap.ok) {

@@ -1,4 +1,4 @@
-# BeWithU 交接文档（2026-11-19，v1.0.6）
+# BeWithU 交接文档（2026-11-19，v1.0.7）
 
 > 给接手的 Agent：**先读 §0、§1，再读 §8 环境坑**，其余按需查。
 > 本文覆盖「白天那版交接文档」的全部内容，并加上今晚的全部改动，可当作唯一版本。
@@ -10,9 +10,9 @@
 | 项 | 值 |
 |---|---|
 | 代码位置 | `C:\Users\jiangchengrui\Desktop\BeWithU` |
-| 版本 | **1.0.6**（`package.json` 的 `version`） |
+| 版本 | **1.0.7**（`package.json` 的 `version`） |
 | HEAD | 见 `git log`（1.0.3 提交已推送） |
-| 产物 | `release/BeWithU-1.0.6-x64.exe`、`BeWithU-1.0.6-portable.exe` |
+| 产物 | `release/BeWithU-1.0.7-x64.exe`、`BeWithU-1.0.7-portable.exe` |
 | 工作区 | 干净，无遗留进程/临时目录 |
 
 **白天那版**：Agent 能力层 M1（键鼠注入）+ M2（工具循环/审批/审计）+ 设置页，19 个内置工具。
@@ -199,6 +199,19 @@
 - 修复：`layoutBubble()` 在 `!bubbleVisible` 时直接 return；`setBubbleCardSize()` 隐藏时只更新尺寸不布局；`isBubbleVisible()` 改成**同时检查窗口真实坐标**（`|x|<30000`），避免测试被标志位骗过。
 
 验证：`agent-ui 14/14`（新增布局分割线/缩进断言、真实可见性断言）、`agent-run 8/8`（新增"过程叙述不混入回答"）、`thinking 6/6`、`app 16/16`、`menu 6/6`、`router 18/18`、`agent-settings 8/8`、`shell-encoding 3/3`。
+截图：`agent-approve.png`。
+
+---
+
+## 1.16 v1.0.7（本次）
+
+| 问题 | 根因 | 修法 |
+|---|---|---|
+| 图一：模型说"工具集里没有截图" | Agent 只有任务开始时的一张**输入图片**，没有截图工具；而 `deepseek-flash` 之类纯文本模型根本看不到那张图，于是它"诚实地"说自己没有截图能力 | 新增第 22 个工具 `screen.capture`（截屏存 PNG 返回路径）；系统提示第 9 条说明"能否看图取决于模型"；模型一旦拒绝图片就记到 `vision-state`，后续任务不再抓屏也不再硬塞图 |
+| 图二：上面分割线会跟着滚 | `.proc` 原来在 `.card__body`（滚动容器）里 | `.proc` 移到 header 与 body 之间，`flex: none`；body 只滚消息。测试新增 `procNotScrollable`（滚动 body 后 proc 位置不变） |
+| 分割线深浅不一 | `.proc` 用 0.14、`.composer`/`.card__foot` 用 0.06 | 新增 CSS 变量 `--line: rgba(var(--ink), 0.1)`，三处统一用它 |
+
+验证：`agent-ui 15/15`（新增 proc 不滚动断言）、`agent-run 8/8`（工具清单含 `screen.capture`）、`thinking 6/6`、`app 16/16`。
 截图：`agent-approve.png`。
 
 ---

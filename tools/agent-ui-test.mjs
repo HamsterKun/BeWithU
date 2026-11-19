@@ -187,6 +187,24 @@ try {
       cardWidth: Math.round(card.width)
     }
   })()`)
+  // proc 应该固定在头部下方，不随消息区滚动
+  const scrollInfo = await bubble.eval(`(() => {
+    const proc = document.querySelector('.proc')
+    const body = document.querySelector('.card__body')
+    if (!proc || !body) return null
+    const before = Math.round(proc.getBoundingClientRect().top)
+    body.scrollTop = 9999
+    const after = Math.round(proc.getBoundingClientRect().top)
+    const scrolled = body.scrollTop > 0
+    body.scrollTop = 0
+    return { before, after, scrolled }
+  })()`)
+  ok(
+    'procNotScrollable',
+    scrollInfo && Math.abs(scrollInfo.after - scrollInfo.before) <= 1,
+    scrollInfo
+  )
+
   ok(
     'procBlockDivided',
     layoutInfo &&
