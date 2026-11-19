@@ -11,9 +11,10 @@
 |---|---|
 | 代码位置 | `D:\coding\BeWithU` |
 | 版本 | **1.0.13**（C7 快捷键降级 = 切换模式；B4 审计默认元数据 + 历史/记忆加密；已打包，未签名，未对外发布） |
-| HEAD | `main` 上 1.0.13 的提交：产品代码/测试在 `0b7fea6`，本文档与发布清单紧随其后一个提交（`git log --oneline -3` 可看到） |
+| HEAD | 以 `git rev-parse HEAD` 为准（已在 `origin/main` 上）：1.0.13 代码 `0b7fea6` → 发布清单 `f7f5fad` → 之后的交接/打包修订提交；`git status` 应为空 |
 | 产物 | `release/` 已是 1.0.13 安装器 + 便携包（含 `SHA256SUMS-1.0.13.txt`、`RELEASE-1.0.13.md`）；1.0.10 / 1.0.11 / 1.0.12 产物分别在 `release/archive-1.0.10/`、`archive-1.0.11/`、`archive-1.0.12/` |
 | 工作区 | 干净（`git status` 无输出）；`out/` 是本轮源码 bundle，`release/`、`out/` 都被 gitignore |
+| 搬家 | **先看 §11**：哪些目录必带/可以删、一键压缩命令、新机器恢复与自检步骤 |
 
 **白天那版**：Agent 能力层 M1（键鼠注入）+ M2（工具循环/审批/审计）+ 设置页，19 个内置工具。
 **今晚这版**：把 Agent 能力补完整（自定义工具、Skill、MCP、联网搜索），修掉一批把功能打到不可用的 bug，
@@ -360,6 +361,22 @@ scripts/install-app.cmd ★
 
 内置工具 **22 个**（19 + `skill.read` + `web.search` + `screen.capture`），MCP 工具运行时动态追加。
 
+**1.0.11–1.0.13 新增/拆出的模块**（上面的树是早期版本，这里补齐）：
+
+```
+src/main/agent/tool-budget.ts        单次响应内多工具按剩余步数截断
+src/main/agent/audit.ts              审计：默认只记元数据；auditDetail 才写摘要/参数并脱敏
+src/main/services/sse.ts             统一 SSE 行切分（含流结束尾帧）
+src/main/services/asr-model-manifest.ts  官方 ASR 归档与两个文件的 size/sha256 固定值
+src/main/services/asr-generation.ts  录音会话代次（防跨轮回写）
+src/main/services/http-error.ts      结构化 HTTP 错误（状态码不再靠猜文案）
+src/main/services/retry-policy.ts    视觉回退 / Breeze 429 的重试判定
+src/main/store/secure-json.ts        历史/记忆的 BWU1: 加密落盘（safeStorage）
+src/main/input/voice-mode.ts         按键监听降级时强制切换模式
+tools/lib/settings-window.mjs        E2E 共用：点球 → 气泡 → 设置窗（管理接口只在该窗口）
+tools/smoke-test.mjs                 隔离 userData 冒烟（支持 BWU_TEST_EXE 指打包产物）
+```
+
 ---
 
 ## 3. 关键机制速记
@@ -539,6 +556,12 @@ $d = "$env:USERPROFILE\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies"
 | 主题 | `src/renderer/theme.ts` + `settings.css` / `bubble.css` / `menu.css` |
 | 窗口几何 / 菜单 / 托盘 | `src/main/windows.ts` + `src/main/tray.ts` |
 | 设置页 | `src/renderer/settings/panes/*.tsx` + `src/shared/{types,defaults,ipc}.ts` |
+| 审批 / 审计 | `agent/approval.ts` / `agent/audit.ts`（默认元数据，`agent.auditDetail` 开详细） |
+| 历史 / 记忆落盘 | `store/history.ts`、`store/memory.ts` + `store/secure-json.ts`（`BWU1:` 加密） |
+| SSE 解析（回答/音频尾帧） | `services/sse.ts` → 被 `llm.ts` 与 `tts.ts` 使用 |
+| 快捷键 / 降级行为 | `input/hotkey.ts` + `input/voice-mode.ts` + `pipeline.onHotkey` |
+| 本地语音模型下载/校验 | `services/asr-model.ts` + `asr-model-manifest.ts` + `tools/asr-download-test.mjs` |
+| 发版清单 / 校验 | `docs/RELEASE-<版本>.md` + `release/SHA256SUMS-<版本>.txt` + `scripts/check-installer.ps1` |
 
 ---
 
@@ -580,7 +603,119 @@ $d = "$env:USERPROFILE\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies"
 
 ### 源码搬运
 
-- 现在可以直接 `git archive HEAD` 或 clone（工作区已提交、`git status` 干净），但要带上 `release/` 里的产物与清单
-  （`release/` 被 gitignore，不在仓库里）、以及 [docs/RELEASE-1.0.13.md](docs/RELEASE-1.0.13.md)。
-- 可排除 `node_modules/`、`.pnpm-store/`、`.cache/`、`out/`、`release/archive-*`、`.shots/` 和本地日志/录音样本；
-  不要打入真实应用数据目录（`%APPDATA%\BeWithU`）、API Key 或凭据。
+见 **§11 打包工作区 / 搬家清单**：目录体积、必带与可删、一键压缩命令、新机器恢复与自检步骤。
+
+---
+
+## 11. 打包工作区 / 搬家清单（2026-11-20 实测）
+
+> 目标：把"能继续开发 + 能发版 + 能复现验证"的最小集合带走，不要把 4 GB 的缓存和旧安装包一起搬。
+
+### 11.1 体积构成（本机实测，`Get-ChildItem -Recurse | Measure-Object Length -Sum`）
+
+| 路径 | 体积 | 带不带 | 说明 |
+|---|---:|---|---|
+| git 跟踪的源码/文档/脚本（183 个文件） | ~2 MB | **必带** | 就是全部可维护内容 |
+| `release/BeWithU-1.0.13-*.exe` + 清单/校验/latest.yml | ~247 MB | **必带** | 安装器 129 MB + 便携版 117 MB；发版/验收用 |
+| `release/win-unpacked/` | 392 MB | 选带 | 打包版冒烟（`BWU_TEST_EXE`）用；不带也能从安装器/重新打包得到 |
+| `release/archive-1.0.10|1.0.11|1.0.12/` | 各 ~626 MB | 不带 | 旧版本，需要时重新打包即可 |
+| `node_modules/` | 553 MB | **不带** | pnpm 符号链接指向别的机器的 store，换机必坏（§8.6） |
+| `.git/` | 1.17 GB | 选带 | 其中 `.git/lfs/` 932 MB 是**旧对象**：当前树没有任何 LFS 指针，构建不需要它 |
+| `.cache/` | 15 MB | 不带 | electron-builder 缓存，重下即可 |
+| `.pnpm-store/` | 32 MB | 不带 | 本机 pnpm store 的残留；新机器按 §11.3 重装 |
+| `out/` | 1.5 MB | 不带 | `electron-vite build` 可重建 |
+| `.shots/` | 43 MB | 不带 | 截图与测试临时 userData |
+
+结论：**带源码 + `release/1.0.13` 两个 exe 与清单 ≈ 236 MB**；再带 `win-unpacked` ≈ 389 MB；全带 4.3 GB。
+
+### 11.2 一键打包（推荐：轻量包，约 640 MB）
+
+在任意 PowerShell 里执行（`tar.exe` 是 Windows 自带的 bsdtar，本项目打包脚本也在用它）：
+
+```powershell
+$src = 'D:\coding\BeWithU'
+$out = 'D:\coding\bwu-1.0.13-handoff.zip'
+if (Test-Path -LiteralPath $out) { Remove-Item -LiteralPath $out }
+Push-Location $src
+tar.exe -a -c -f $out `
+  --exclude='node_modules' --exclude='.cache' --exclude='.pnpm-store' `
+  --exclude='out' --exclude='.shots' --exclude='.git' `
+  --exclude='release/archive-*' --exclude='*.log' --exclude='*.wav' `
+  .
+Pop-Location
+Get-Item -LiteralPath $out | Select-Object FullName, Length
+```
+
+实测（不含 `win-unpacked`）：**236 MB / 216 个条目 / 5 秒**；带 `win-unpacked` 时 **389 MB / 297 个条目 / 16 秒**。
+zip 内已确认没有 `node_modules`、`.git`、`.cache`、`.pnpm-store`、`.shots`、`out`、`release/archive-*`，
+且包含 1.0.13 安装器、便携版、`SHA256SUMS-1.0.13.txt` 与 `docs/RELEASE-1.0.13.md`。
+
+- 想再小一点（不要 `win-unpacked`，约 250 MB）：加一条 `--exclude='release/win-unpacked'`。
+- 想连 git 历史一起带：**不要**整个 `.git`（1.17 GB，且大头是没用的旧 LFS 对象），用 bundle：
+
+  ```powershell
+  Set-Location 'D:\coding\BeWithU'
+  git bundle create 'D:\coding\bwu-1.0.13.bundle' --all   # 实测约 1.7 MB
+  ```
+
+  新机器 `git clone D:\coding\bwu-1.0.13.bundle BeWithU` 即可拿到完整提交历史。
+  bundle 不含 `.git/lfs` 里的旧对象——当前 HEAD 用不到；要翻极老版本再需要时从 GitHub 拉。
+
+### 11.3 新机器恢复步骤
+
+1. **解压**到任意目录（建议同盘符固定路径，文档里的 `D:\coding\BeWithU` 是默认假设）。
+   注意本机曾遇到目录 ACL 缺少当前用户写权限（§8.11）；换用户/换机器解压后如果命令跑不起来，用
+   `diagnose-windows-sandbox-acl.ps1` 那套流程检查，或直接在解压目录属性里给自己完全控制。
+2. **装依赖**（不要拷 `node_modules`）：
+   ```powershell
+   Set-Location <解压后的目录>
+   .\scripts\install.cmd          # 或： pnpm install --frozen-lockfile --store-dir .pnpm-store
+   ```
+   `pnpm-lock.yaml` 是唯一的依赖真值；`package.json` 里是范围版本，别用 `npm install`。
+3. **构建**：
+   ```powershell
+   Remove-Item Env:\ELECTRON_RUN_AS_NODE -ErrorAction SilentlyContinue
+   $d = "$env:USERPROFILE\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies"   # 没有 DSH 就用系统 node
+   & "$d\node\bin\node.exe" node_modules\electron-vite\bin\electron-vite.js build
+   ```
+4. **自检**（三条，几十秒）：
+   ```powershell
+   & $node tools\smoke-test.mjs            # 期望 11/11
+   & $node --test tools\approval.test.mjs  # 单测：完整列表见 §5，期望 49/49
+   & $node tools\agent-run-test.mjs        # 冒烟一条 E2E，期望 10/10
+   ```
+5. **打包版验收**（可选，需 `release/win-unpacked`）：
+   ```powershell
+   $env:BWU_TEST_EXE = 'release\win-unpacked\BeWithU.exe'; & $node tools\smoke-test.mjs
+   ```
+   安装器校验用 `release/SHA256SUMS-1.0.13.txt` 里的 SHA-256 配 `scripts/check-installer.ps1`。
+6. **本地语音模型不在仓库里**：`%APPDATA%\BeWithU\models\sensevoice-2024-07-17` 需要在新机器上重新下载
+   （设置 → 语音 → 下载模型）。想离线装：带上 `D:\coding\bwu-asr-dl\archive.tar.bz2`（163 MB，官方归档，
+   SHA-256 已核对），用 `tools/asr-download-test.mjs` 的流程验证后手工放进上述目录。
+
+### 11.4 仓库外的资产（本机专用）
+
+| 路径 | 体积 | 处理 |
+|---|---:|---|
+| `D:\coding\bwu-asr-dl\` | 155 MB | 选带：`archive.tar.bz2`（已校验的官方 ASR 归档）+ `fetch-asr.ps1`（续传/校验）+ `run-e2e.ps1`（E2E 驱动）+ 最近一次 E2E 日志 |
+| `D:\coding\bwu-staging-1.0.13\`（还有 1.0.11/1.0.12） | 各 ~626 MB | **删**：与 `release/win-unpacked` 重复，只是打包中间产物 |
+| `D:\coding\bwu-acl-recovery\` | 0.1 MB | 不带：本机工作区权限修复的回滚记录，换机器无意义 |
+
+### 11.5 绝对不要打包的东西
+
+- `%APPDATA%\BeWithU\`（或自定义数据目录）：真实设置、`secrets.bin`、`history.json`、`memory.json`、
+  日志、本地模型。里面有你的 API Key、MCP 凭据和聊天记录。
+- 任何 `.env` / Key 文件 / MCP headers。
+- `.shots/` 里的临时 userData（测试用的假配置，混进去容易误判）。
+- 打好的 zip/bundle 本身不要放进仓库目录再压一次。
+
+### 11.6 交接前 30 秒自检
+
+```powershell
+Set-Location 'D:\coding\BeWithU'
+git status --porcelain          # 应为空
+git log --oneline -5            # 确认 HEAD 与 origin/main 一致（git rev-parse HEAD; git rev-parse origin/main）
+Get-Content release\SHA256SUMS-1.0.13.txt
+Get-FileHash release\BeWithU-1.0.13-x64.exe -Algorithm SHA256   # 与清单一致
+```
+
