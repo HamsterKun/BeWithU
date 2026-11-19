@@ -1,4 +1,4 @@
-# BeWithU 交接文档（2026-11-19，v1.0.7）
+# BeWithU 交接文档（2026-11-19，v1.0.8）
 
 > 给接手的 Agent：**先读 §0、§1，再读 §8 环境坑**，其余按需查。
 > 本文覆盖「白天那版交接文档」的全部内容，并加上今晚的全部改动，可当作唯一版本。
@@ -10,9 +10,9 @@
 | 项 | 值 |
 |---|---|
 | 代码位置 | `C:\Users\jiangchengrui\Desktop\BeWithU` |
-| 版本 | **1.0.7**（`package.json` 的 `version`） |
+| 版本 | **1.0.8**（`package.json` 的 `version`） |
 | HEAD | 见 `git log`（1.0.3 提交已推送） |
-| 产物 | `release/BeWithU-1.0.7-x64.exe`、`BeWithU-1.0.7-portable.exe` |
+| 产物 | `release/BeWithU-1.0.8-x64.exe`、`BeWithU-1.0.8-portable.exe` |
 | 工作区 | 干净，无遗留进程/临时目录 |
 
 **白天那版**：Agent 能力层 M1（键鼠注入）+ M2（工具循环/审批/审计）+ 设置页，19 个内置工具。
@@ -212,6 +212,23 @@
 | 分割线深浅不一 | `.proc` 用 0.14、`.composer`/`.card__foot` 用 0.06 | 新增 CSS 变量 `--line: rgba(var(--ink), 0.1)`，三处统一用它 |
 
 验证：`agent-ui 15/15`（新增 proc 不滚动断言）、`agent-run 8/8`（工具清单含 `screen.capture`）、`thinking 6/6`、`app 16/16`。
+截图：`agent-approve.png`。
+
+---
+
+## 1.17 v1.0.8（本次）
+
+上一版把 `.proc` 移出滚动容器后，**卡片没有总高度上限**，于是展开思考会把整个窗口撑大；同时 `.card__body` 只有 `max-height` 没有 `flex`，在固定头部/输入区挤压下滚动会失效。这次把"三段式"补齐：
+
+| 区域 | 规则 |
+|---|---|
+| 头部 / 思考步骤区（`.proc`）/ 输入区（`.composer`、`.card__foot`） | `flex: none`，永远固定 |
+| 消息区（`.card__body`） | `flex: 1 1 auto; min-height: 96px; max-height: 302px; overflow-y: auto` —— 唯一可伸缩、可滚动 |
+| 卡片（`.card`） | `max-height: 520px` —— 展开思考时压缩消息区，而不是顶大窗口 |
+| 思考正文（`.think__body`） | `max-height: 108px; overflow: auto` —— 内容多时自己滚 |
+| 审批卡 | `margin: 12px 12px 10px`，与上方分割线留白 |
+
+验证：`agent-ui 18/18`，新增三条断言：`bodyStillScrollable`（滚动 body 生效）、`thinkExpandNoGrow`（展开思考后卡片 ≤520）、`approveSpacing`（审批卡与分割线间距 ≥8px，实测 12px）。
 截图：`agent-approve.png`。
 
 ---

@@ -204,6 +204,27 @@ try {
     scrollInfo && Math.abs(scrollInfo.after - scrollInfo.before) <= 1,
     scrollInfo
   )
+  ok('bodyStillScrollable', scrollInfo && scrollInfo.scrolled === true, scrollInfo)
+
+  // 审批卡与上方分割线要有间距
+  const gapInfo = await bubble.eval(`(() => {
+    const proc = document.querySelector('.proc')?.getBoundingClientRect()
+    const card = document.querySelector('.approve')?.getBoundingClientRect()
+    if (!proc || !card) return null
+    return { gap: Math.round(card.top - proc.bottom) }
+  })()`)
+  ok('approveSpacing', gapInfo && gapInfo.gap >= 8, gapInfo)
+
+  // 展开思考：卡片高度不超过上限（由消息区压缩承担）
+  const thinkOpen = await bubble.eval(`(() => {
+    const head = document.querySelector('.think__head')
+    head?.click()
+    const card = document.querySelector('.card')?.getBoundingClientRect()
+    return { h: card ? Math.round(card.height) : 0 }
+  })()`)
+  await sleep(300)
+  const cardH = await bubble.eval("Math.round(document.querySelector('.card')?.getBoundingClientRect().height || 0)")
+  ok('thinkExpandNoGrow', cardH <= 520, { cardH, atOpen: thinkOpen })
 
   ok(
     'procBlockDivided',

@@ -179,6 +179,8 @@ body {
   box-shadow: none;
   /* 透明窗口里 backdrop-filter 会画出一层灰底，去掉更干净 */
   overflow: hidden;
+  /* 总高上限：思考展开时压缩消息区，而不是把整个窗口顶大 */
+  max-height: 520px;
   transform-origin: left center;
 }
 
@@ -297,6 +299,9 @@ body {
 }
 
 .card__body {
+  /* 固定头部/步骤区之后，消息区是唯一可伸缩、可滚动的区域 */
+  flex: 1 1 auto;
+  min-height: 96px;
   overflow-y: auto;
   overflow-x: hidden;
   max-height: 302px;
@@ -422,6 +427,7 @@ body {
 }
 
 .card__foot {
+  flex: none;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -432,6 +438,7 @@ body {
 
 /* 打字输入区 */
 .composer {
+  flex: none;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -714,7 +721,7 @@ body {
 .think__body {
   margin: 0;
   padding: 0 10px 8px;
-  max-height: 150px;
+  max-height: 108px;
   overflow: auto;
   font-family: inherit;
   font-size: 11px;
@@ -744,5 +751,5 @@ body {
 
 /* 审批卡也缩进，和消息文字对齐 */
 .card__body > .approve {
-  margin: 0 12px 10px;
+  margin: 12px 12px 10px;
 }
