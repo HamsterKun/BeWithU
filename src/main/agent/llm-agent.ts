@@ -181,5 +181,9 @@ export async function chatWithTools(opts: {
     name: c.function?.name ?? '',
     args: c.function?.arguments ?? '{}'
   }))
+  log(
+    'agent: llm turn',
+    `content=${text.length} reasoning=${reasoning.length} tools=${toolCalls.length} model=${llm.model}`
+  )
   return { text, toolCalls, reasoning }
 }

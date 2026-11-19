@@ -16,6 +16,8 @@ export interface AgentEvents {
   onText: (text: string) => void
   /** 模型的思考内容（只展示，不播报） */
   onReasoning?: (text: string) => void
+  /** 中间轮的过程叙述（带工具调用的那一轮说的话），不进最终回答 */
+  onNarration?: (text: string) => void
   /** 一步工具开始 */
   onStep: (info: { index: number; total: number; toolId: string; summary: string }) => void
   /** 一步工具结束 */
@@ -28,6 +30,31 @@ export interface AgentRunResult {
   text: string
   steps: number
   stopped: boolean
+}
+
+
+/** 两个字符串的最长公共前缀长度 */
+function commonPrefixLen(a: string, b: string): number {
+  const n = Math.min(a.length, b.length)
+  let i = 0
+  while (i < n && a[i] === b[i]) i++
+  return i
+}
+
+/**
+ * 有些模型/网关会把思考内容再抄一份到正文开头，或者用 <thinking> 包住。
+ * 这里做最小限度的清理：去标签、裁掉与 reasoning 重合的前缀。
+ */
+export function stripReasoningLeak(text: string, reasoning?: string): string {
+  let t = String(text ?? '')
+    .replace(/<think(?:ing)?>[\s\S]*?<\/think(?:ing)?>/gi, '')
+    .trim()
+  const r = String(reasoning ?? '').trim()
+  if (t && r.length >= 20) {
+    const n = commonPrefixLen(t, r)
+    if (n >= 12) t = t.slice(n).trim() || t
+  }
+  return t
 }
 
 function buildSystemPrompt(maxSteps: number, shellEnabled: boolean): string {
@@ -47,6 +74,8 @@ function buildSystemPrompt(maxSteps: number, shellEnabled: boolean): string {
       : '4. 高风险操作会弹确认卡；看到"用户拒绝"就停下并说明。如果用户嫌麻烦，可以让 TA 去「设置 → Agent 能力」开「完全信任模式」。',
     '5. 高风险操作需要用户确认；看到"用户拒绝"就停下并说明，不要绕过。',
     '6. 不要编造工具结果，只根据工具返回汇报。',
+    '7. 调用工具之前不要写"我先把…打开"这类过程叙述；直接用工具，最后一次性汇报结果。',
+    '8. 汇报时不要复述用户的原话，不要描述你的思考过程或用了哪个工具。',
     searchOn
       ? '7. 遇到时效性问题（今天/最近/最新、新闻、比分、价格、版本、发布会、谁赢了、有没有出新东西）先调 web.search 查，再基于结果回答，并带上来源链接；日常闲聊、情感陪伴、写代码、常识问题不要搜。'
       : '7. 现在没有联网搜索能力：涉及最新消息时如实说查不到，不要编造。',
@@ -163,11 +192,18 @@ export async function runAgentTask(
       return { text, steps, stopped: false }
     }
     if (turn.reasoning?.trim()) opts.events.onReasoning?.(turn.reasoning)
+    const hasTools = turn.toolCalls.length > 0
     if (turn.text.trim()) {
-      finalText = turn.text.trim()
-      opts.events.onText(turn.text)
+      if (hasTools) {
+        // 带工具调用的那一轮：模型往往在"边想边说"，这段不是给用户的回答，
+        // 混进气泡就会变成"回复里掺思考"，这里只留给日志
+        opts.events.onNarration?.(turn.text)
+      } else {
+        finalText = stripReasoningLeak(turn.text, turn.reasoning)
+        opts.events.onText(finalText)
+      }
     }
-    if (!turn.toolCalls.length) break
+    if (!hasTools) break
 
     messages.push({
       role: 'assistant',

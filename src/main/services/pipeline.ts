@@ -652,6 +652,10 @@ class Conversation {
             if (turn !== this.turnId) return
             sendBubble({ type: 'reasoning-delta', text })
           },
+          onNarration: (text) => {
+            // 过程叙述不进气泡，只记日志，方便排查模型行为
+            log('agent: narration', text.replace(/\s+/g, ' ').slice(0, 80))
+          },
           onText: (text) => {
             if (turn !== this.turnId) return
             answer += text

@@ -171,6 +171,32 @@ try {
   const stepText = await bubble.eval("document.querySelector('.card__step-text')?.textContent || ''")
   ok('stepLineShown', /写入/.test(stepText), stepText.trim())
 
+  // 3.5) 新布局：思考/步骤在带上下分割线的 proc 区块里，且左右有缩进
+  const layoutInfo = await bubble.eval(`(() => {
+    const card = document.querySelector('.card')?.getBoundingClientRect()
+    const proc = document.querySelector('.proc')
+    const step = document.querySelector('.card__step')?.getBoundingClientRect()
+    if (!card || !proc || !step) return null
+    const cs = getComputedStyle(proc)
+    return {
+      top: cs.borderTopWidth,
+      bottom: cs.borderBottomWidth,
+      insetLeft: Math.round(step.left - card.left),
+      insetRight: Math.round(card.right - step.right),
+      procWidth: Math.round(proc.getBoundingClientRect().width),
+      cardWidth: Math.round(card.width)
+    }
+  })()`)
+  ok(
+    'procBlockDivided',
+    layoutInfo &&
+      layoutInfo.top === '1px' &&
+      layoutInfo.bottom === '1px' &&
+      layoutInfo.insetLeft >= 10 &&
+      layoutInfo.insetRight >= 10,
+    layoutInfo
+  )
+
   // 4) 徽标：working（金）→ 注入 thinking 看是否变绿
   const badgeClass = await ball.eval("document.querySelector('.work-badge')?.className || ''")
   ok('badgeWorking', /work-badge/.test(badgeClass) && !/is-think/.test(badgeClass), badgeClass)

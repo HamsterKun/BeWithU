@@ -205,7 +205,11 @@ export function getBubbleWindow(): BrowserWindow | null {
 }
 
 export function isBubbleVisible(): boolean {
-  return bubbleVisible
+  const win = getBubbleWindow()
+  if (!win || win.isDestroyed()) return false
+  const b = win.getBounds()
+  // 窗口被挪到屏幕外（OFFSCREEN）就是这个值，光看标志位会误判
+  return bubbleVisible && Math.abs(b.x) < 30000 && Math.abs(b.y) < 30000
 }
 
 export function bubbleBounds(): Electron.Rectangle | null {
@@ -214,6 +218,9 @@ export function bubbleBounds(): Electron.Rectangle | null {
 }
 
 export function layoutBubble(): void {
+  // 隐藏期间渲染进程仍会上报尺寸（步骤/思考在变），这里绝不能再布局，
+  // 否则会把已经挪到屏幕外的窗口又挪回可见位置——表现就是"说收起了其实没收"
+  if (!bubbleVisible) return
   const win = getBubbleWindow()
   const center = ballCenter()
   if (!win || !center) return
@@ -262,7 +269,8 @@ export function setBubbleCardSize(w: number, h: number): void {
   const nh = Math.max(72, Math.min(520, Math.round(h)))
   if (Math.abs(nw - bubbleCard.w) < 1 && Math.abs(nh - bubbleCard.h) < 1) return
   bubbleCard = { w: nw, h: nh }
-  layoutBubble()
+  // 隐藏时只更新尺寸，等 showBubble() 再统一布局
+  if (bubbleVisible) layoutBubble()
 }
 
 /**

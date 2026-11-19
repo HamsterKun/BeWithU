@@ -720,3 +720,25 @@ body {
   white-space: pre-wrap;
   word-break: break-word;
 }
+
+
+/* ---------------------------------------------- 思考/步骤区：分割线分组 */
+/* 上下用分割线和头部、消息区分开；气泡本身左右各缩进 12px，不再贴边 */
+.proc {
+  margin: 0 0 8px;
+  padding: 8px 12px;
+  border-top: 1px solid rgba(var(--ink), 0.14);
+  border-bottom: 1px solid rgba(var(--ink), 0.14);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.proc .think,
+.proc .card__step {
+  margin: 0;
+}
+
+/* 审批卡也缩进，和消息文字对齐 */
+.card__body > .approve {
+  margin: 0 12px 10px;
+}

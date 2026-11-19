@@ -1,4 +1,4 @@
-# BeWithU 交接文档（2026-11-19，v1.0.5）
+# BeWithU 交接文档（2026-11-19，v1.0.6）
 
 > 给接手的 Agent：**先读 §0、§1，再读 §8 环境坑**，其余按需查。
 > 本文覆盖「白天那版交接文档」的全部内容，并加上今晚的全部改动，可当作唯一版本。
@@ -10,9 +10,9 @@
 | 项 | 值 |
 |---|---|
 | 代码位置 | `C:\Users\jiangchengrui\Desktop\BeWithU` |
-| 版本 | **1.0.5**（`package.json` 的 `version`） |
+| 版本 | **1.0.6**（`package.json` 的 `version`） |
 | HEAD | 见 `git log`（1.0.3 提交已推送） |
-| 产物 | `release/BeWithU-1.0.5-x64.exe`、`BeWithU-1.0.5-portable.exe` |
+| 产物 | `release/BeWithU-1.0.6-x64.exe`、`BeWithU-1.0.6-portable.exe` |
 | 工作区 | 干净，无遗留进程/临时目录 |
 
 **白天那版**：Agent 能力层 M1（键鼠注入）+ M2（工具循环/审批/审计）+ 设置页，19 个内置工具。
@@ -172,6 +172,34 @@
 验证：`tools/thinking-test.mjs` 6/6 —— 聊天带 `reasoning_effort:"high"`、思考块展示、Agent 非流式同样带参数、服务端 400 时自动降级后仍能正常回答。
 回归：`app 16/16`、`menu 6/6`、`agent-ui 13/13`、`agent-run 7/7`、`router 18/18`、`agent-settings 8/8`。
 截图：`settings-model-thinking.png`（亮色 + 思考开关 + 空模型名）。
+
+---
+
+## 1.15 v1.0.6（本次）
+
+### 气泡结构（思考/步骤区）
+
+- 思考（灰底）与步骤（绿底）两行**左右各缩进 12px**，不再通栏贴边；
+- 外层 `.proc` 用 1px 分割线与**头部**和**消息区**分开（`rgba(var(--ink),0.14)`）；
+- 审批卡从 proc 里移出，回到消息层（`.card__body > .approve` 缩进 12px）；
+- 结构：`头部 ─ 分割线 ─ [思考][步骤] ─ 分割线 ─ [审批卡] ─ 消息 ─ composer`
+- 注意：`bubble.css` 里没有 `--border` 变量，气泡内的分割线必须用 `rgba(var(--ink), a)`，用 `var(--border)` 会因为变量不存在而整条边框失效（这次踩过）。
+
+### 思考混进回答（真因与三层修复）
+
+1. **中间轮的过程叙述被当成回答**：带 `tool_calls` 的那一轮，模型常写"好，我先把 B 站打开…"；之前每轮 `text` 都 append 到同一条回答里，于是看起来像"思考掺进回复 / 分段冒出来"。
+   → `runner` 现在把带工具调用那轮的 text 归为 `onNarration`（只写日志），**只有最后一轮/收尾轮的 text 才进气泡**。
+2. **提示词收紧**：Agent 系统提示第 7/8 条 —— 调用工具前不要写过程叙述、汇报时不要复述用户原话/不要描述思考与工具选择。
+3. **正文去重**：`stripReasoningLeak()` 去掉 `<thinking>…</thinking>` 标签，并在 `content` 与 `reasoning` 公共前缀 ≥12 字时裁掉重复段（应对少数把思考抄进正文的实现）。
+4. **诊断**：新增日志 `agent: llm turn content=<len> reasoning=<len> tools=<n> model=…`（只记长度不记内容），下次可直接确认模型返回形态。
+
+### 气泡"说收起却没收起"（真因）
+
+- `setBubbleCardSize()` 无条件调用 `layoutBubble()`；任务中隐藏时，渲染进程仍在测量尺寸（步骤/思考在变），主进程就把已经挪到屏幕外的窗口**又挪回了可见位置**，而 `bubbleVisible` 标志仍是 false —— 所以日志显示 hide、用户看到还在。
+- 修复：`layoutBubble()` 在 `!bubbleVisible` 时直接 return；`setBubbleCardSize()` 隐藏时只更新尺寸不布局；`isBubbleVisible()` 改成**同时检查窗口真实坐标**（`|x|<30000`），避免测试被标志位骗过。
+
+验证：`agent-ui 14/14`（新增布局分割线/缩进断言、真实可见性断言）、`agent-run 8/8`（新增"过程叙述不混入回答"）、`thinking 6/6`、`app 16/16`、`menu 6/6`、`router 18/18`、`agent-settings 8/8`、`shell-encoding 3/3`。
+截图：`agent-approve.png`。
 
 ---
 

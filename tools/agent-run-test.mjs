@@ -164,6 +164,13 @@ try {
     { text: allowed?.text, tools: allowed?.tools, content }
   )
 
+  // 2.5) 中间轮的过程叙述不能混进最终回答
+  ok(
+    'narrationNotLeaked',
+    typeof allowed?.text === 'string' && !allowed.text.includes('我来写这个文件'),
+    allowed?.text
+  )
+
   // 3) Shell 未开启：引导语 + 不执行
   const shellDenied = await ball.eval("window.bwu.agentTest.run('帮我看下现在几点', true)")
   const shellSummary = String(shellDenied?.tools?.[0]?.summary || '')
