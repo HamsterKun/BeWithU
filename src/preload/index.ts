@@ -120,6 +120,7 @@ contextBridge.exposeInMainWorld('bwu', {
     list: () => ipcRenderer.invoke(IPC.agentTestList),
     call: (id: string, args: Record<string, unknown>) => ipcRenderer.invoke(IPC.agentTestCall, id, args),
     bubbleVisible: () => ipcRenderer.invoke(IPC.agentTestBubble),
+    ballTop: (action: 'drop' | 'check') => ipcRenderer.invoke(IPC.agentTestBallTop, action),
     progress: (p: { active: boolean; mode?: 'thinking' | 'working'; step?: number; total?: number }) =>
       ipcRenderer.invoke(IPC.agentTestProgress, p),
     run: (text: string, autoApprove?: boolean) => ipcRenderer.invoke(IPC.agentTestRun, text, autoApprove),

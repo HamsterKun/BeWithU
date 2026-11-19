@@ -226,7 +226,7 @@ export default function ModelPane({ s, patch }: PaneProps): React.ReactElement {
         title="联网搜索"
         desc="查实时信息（新闻、赛事、价格、版本）。闲聊和 Agent 都能用，按成功次数计费，搜不到不收费。"
       >
-        <Field label="启用联网搜索" hint="关掉后既不自动搜，Agent 的 web.search 也会引导去打开">
+        <Field label="启用联网搜索" hint="关掉后 Agent 的 web.search 会提示你去打开">
           <Toggle
             checked={s.search.enabled}
             onChange={(v) => patch({ search: { enabled: v } }, true)}

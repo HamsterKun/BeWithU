@@ -225,35 +225,32 @@ export default function Bubble(): React.ReactElement {
             </button>
           </div>
         </header>
-
-        {state.reasoning || state.step ? (
-          <div className="proc">
-            {state.reasoning ? (
-              <div className={state.reasoningOpen ? 'think is-open' : 'think'}>
-                <button
-                  className="think__head"
-                  onClick={() => setState((p) => ({ ...p, reasoningOpen: !p.reasoningOpen }))}
-                >
-                  <span className="think__dot" />
-                  <span>💭 思考过程</span>
-                  <span className="think__caret">{state.reasoningOpen ? '收起' : '展开'}</span>
-                </button>
-                {state.reasoningOpen ? <pre className="think__body">{state.reasoning}</pre> : null}
-              </div>
-            ) : null}
-
-            {state.step ? (
-              <div className="card__step" data-done={state.step.done} data-ok={state.step.ok}>
-                <span className="card__step-dot" />
-                <span className="card__step-text">
-                  {state.step.done ? (state.step.ok ? '已完成' : '失败') : '正在'}：{state.step.text}
-                </span>
-              </div>
-            ) : null}
-          </div>
-        ) : null}
-
         <div className="card__body" ref={bodyRef}>
+          {state.reasoning || state.step ? (
+            <div className="proc">
+              {state.reasoning ? (
+                <div className={state.reasoningOpen ? 'think is-open' : 'think'}>
+                  <button
+                    className="think__head"
+                    onClick={() => setState((p) => ({ ...p, reasoningOpen: !p.reasoningOpen }))}
+                  >
+                    <span className="think__dot" />
+                    <span>💭 思考过程</span>
+                    <span className="think__caret">{state.reasoningOpen ? '收起' : '展开'}</span>
+                  </button>
+                  {state.reasoningOpen ? <pre className="think__body">{state.reasoning}</pre> : null}
+                </div>
+              ) : null}
+              {state.step ? (
+                <div className="card__step" data-done={state.step.done} data-ok={state.step.ok}>
+                  <span className="card__step-dot" />
+                  <span className="card__step-text">
+                    {state.step.done ? (state.step.ok ? '已完成' : '失败') : '正在'}：{state.step.text}
+                  </span>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
 
           {state.approve ? (
             <div className="approve">

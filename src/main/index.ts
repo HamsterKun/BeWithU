@@ -1,3 +1,4 @@
+import { startBallTopWatchdog } from './windows'
 import { app, BrowserWindow, Menu, desktopCapturer, globalShortcut, screen, session } from 'electron'
 import { settingsStore } from './store/settings'
 import { historyStore } from './store/history'
@@ -84,6 +85,7 @@ async function boot(): Promise<void> {
 
   registerIpc(() => app.quit())
   createBallWindow()
+  startBallTopWatchdog()
   preloadBubble()
   preloadMenu()
   createTray(() => app.quit())

@@ -108,6 +108,11 @@ export function createBallWindow(): BrowserWindow {
 
   ballWin.setAlwaysOnTop(true, 'screen-saver')
   ballWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+  // 置顶被系统/别的窗口改掉时立刻拉回，并常驻一个低速看门狗兜底
+  ballWin.on('always-on-top-changed', (_e, isTop) => {
+    if (!isTop) setTimeout(ensureBallTop, 50)
+  })
+  ballWin.on('show', () => ensureBallTop())
   // 默认整块穿透；主进程轮询光标（updateHitTests），光标进到球体圆内才恢复可点击
   ballWin.setIgnoreMouseEvents(true)
   loadRenderer(ballWin, 'ball')
@@ -697,6 +702,36 @@ export function broadcastSettings(s: PublicSettings): void {
 export function sendAgentProgress(p: AgentProgress): void {
   log('agent: progress', p.active ? `${p.mode ?? 'thinking'} ${p.step}/${p.total}` : 'idle')
   getBallWindow()?.webContents.send(IPC.agentProgress, p)
+}
+
+/* ---------------------------------------------------- 置顶看门狗 ---- */
+
+let topWatchdog: NodeJS.Timeout | null = null
+
+/**
+ * 球窗口偶尔会莫名其妙丢掉"置顶"（Windows 上被别的 topmost 窗口挤掉、
+ * 或某些全屏程序退出后 z-order 没恢复）。这里定期重新声明一次置顶，
+ * 只设标志、不 moveTop，避免把气泡/菜单压下去。
+ */
+export function ensureBallTop(): void {
+  const win = getBallWindow()
+  if (!win || win.isDestroyed()) return
+  try {
+    win.setAlwaysOnTop(true, 'screen-saver')
+  } catch (e) {
+    log('windows: 重置置顶失败', e)
+  }
+}
+
+export function startBallTopWatchdog(): void {
+  if (topWatchdog) return
+  topWatchdog = setInterval(ensureBallTop, 1500)
+  topWatchdog.unref?.()
+}
+
+export function stopBallTopWatchdog(): void {
+  if (topWatchdog) clearInterval(topWatchdog)
+  topWatchdog = null
 }
 
 export function broadcastPhase(phase: Phase): void {

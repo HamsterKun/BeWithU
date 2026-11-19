@@ -1,4 +1,4 @@
-# BeWithU 交接文档（2026-11-19，v1.0.9）
+# BeWithU 交接文档（2026-11-19，v1.0.10）
 
 > 给接手的 Agent：**先读 §0、§1，再读 §8 环境坑**，其余按需查。
 > 本文覆盖「白天那版交接文档」的全部内容，并加上今晚的全部改动，可当作唯一版本。
@@ -10,9 +10,9 @@
 | 项 | 值 |
 |---|---|
 | 代码位置 | `C:\Users\jiangchengrui\Desktop\BeWithU` |
-| 版本 | **1.0.9**（`package.json` 的 `version`） |
+| 版本 | **1.0.10**（`package.json` 的 `version`） |
 | HEAD | 见 `git log`（1.0.3 提交已推送） |
-| 产物 | `release/BeWithU-1.0.9-x64.exe`、`BeWithU-1.0.9-portable.exe` |
+| 产物 | `release/BeWithU-1.0.10-x64.exe`、`BeWithU-1.0.10-portable.exe` |
 | 工作区 | 干净，无遗留进程/临时目录 |
 
 **白天那版**：Agent 能力层 M1（键鼠注入）+ M2（工具循环/审批/审计）+ 设置页，19 个内置工具。
@@ -244,6 +244,18 @@
 | **收起时机** | 不再"任务一开始就收起"，改为**模型第一次真的调工具时**才收起；纯聊天保持窗口可见（审核卡临时弹出后按需再收起） |
 
 验证：`prompts-test 4/4`（默认值存在、四个区块可见、自定义能持久化、请求里真的用上自定义内容）、`agent-ui 18/18`、`agent-run 8/8`、`thinking 6/6`、`app 16/16`。
+
+---
+
+## 1.19 v1.0.10（本次）
+
+| 改动 | 说明 |
+|---|---|
+| **气泡布局改回方案 A** | 头部固定（`.card__head` 加 `border-bottom: var(--line)`）→ 思考/步骤 + 消息都在 `.card__body` 里一起滚 → 输入区固定。`.proc` 回到 body 内、去掉上下分割线，只保留 12px 缩进 |
+| **悬浮球置顶看门狗** | 现象：一开始置顶，用着用着就谁都能盖。修复：`ensureBallTop()` 每 1.5s 重新 `setAlwaysOnTop(true,'screen-saver')`；监听 `always-on-top-changed` 与 `show` 立刻拉回。只声明标志、不 `moveTop`，所以不会把气泡/菜单压下去 |
+| 搜索提示文案 | 去掉"自动搜"的旧说法 |
+
+测试：`agent-ui 19/19`，新增 `procInScrollBody`、`headerDividerAndInset`、`ballTopWatchdog`（故意 `setAlwaysOnTop(false)`，1.5s 内必须恢复）。
 
 ---
 

@@ -709,6 +709,15 @@ export function registerIpc(getQuit: () => void): void {
       callTool(String(id ?? ''), (args ?? {}) as Record<string, unknown>)
     )
     ipcMain.handle(IPC.agentTestBubble, () => isBubbleVisible())
+    ipcMain.handle(IPC.agentTestBallTop, (_e, action: string) => {
+      const win = getBallWindow()
+      if (!win) return false
+      if (action === 'drop') {
+        win.setAlwaysOnTop(false)
+        return win.isAlwaysOnTop()
+      }
+      return win.isAlwaysOnTop()
+    })
     ipcMain.handle(IPC.agentTestProgress, (_e, p: Record<string, unknown>) => {
       sendAgentProgress({
         active: Boolean(p.active),

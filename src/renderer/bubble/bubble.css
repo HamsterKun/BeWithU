@@ -207,7 +207,8 @@ body {
   display: flex;
   align-items: center;
   gap: 7px;
-  padding: 10px 12px 6px;
+  padding: 10px 12px 8px;
+  border-bottom: 1px solid var(--line);
 }
 
 .pulse {
@@ -735,11 +736,9 @@ body {
 /* ---------------------------------------------- 思考/步骤区：分割线分组 */
 /* 上下用分割线和头部、消息区分开；气泡本身左右各缩进 12px，不再贴边 */
 .proc {
-  flex: none;
+  /* 方案 A：思考/步骤和消息一起滚动，所以不再固定、也不画分割线 */
   margin: 0;
-  padding: 8px 12px;
-  border-top: 1px solid var(--line);
-  border-bottom: 1px solid var(--line);
+  padding: 8px 12px 2px;
   display: flex;
   flex-direction: column;
   gap: 6px;

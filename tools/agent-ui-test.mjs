@@ -200,11 +200,9 @@ try {
     body.scrollTop = 0
     return { before, after, scrolled }
   })()`)
-  ok(
-    'procNotScrollable',
-    scrollInfo && Math.abs(scrollInfo.after - scrollInfo.before) <= 1,
-    scrollInfo
-  )
+  // 方案 A：思考/步骤在滚动容器内（跟随消息一起滚）
+  const procInBody = await bubble.eval("Boolean(document.querySelector('.proc')?.closest('.card__body'))")
+  ok('procInScrollBody', procInBody === true, { procInBody })
   ok('bodyStillScrollable', scrollInfo && scrollInfo.scrolled === true, scrollInfo)
 
   // 审批卡与上方分割线要有间距
@@ -227,14 +225,21 @@ try {
   const cardH = await bubble.eval("Math.round(document.querySelector('.card')?.getBoundingClientRect().height || 0)")
   ok('thinkExpandNoGrow', cardH <= 520, { cardH, atOpen: thinkOpen })
 
+  const headerLine = await bubble.eval(`(() => {
+    const card = document.querySelector('.card')?.getBoundingClientRect()
+    const head = document.querySelector('.card__head')
+    const step = document.querySelector('.card__step')?.getBoundingClientRect()
+    if (!card || !head || !step) return null
+    return {
+      headBorder: getComputedStyle(head).borderBottomWidth,
+      insetLeft: Math.round(step.left - card.left),
+      insetRight: Math.round(card.right - step.right)
+    }
+  })()`)
   ok(
-    'procBlockDivided',
-    layoutInfo &&
-      layoutInfo.top === '1px' &&
-      layoutInfo.bottom === '1px' &&
-      layoutInfo.insetLeft >= 10 &&
-      layoutInfo.insetRight >= 10,
-    layoutInfo
+    'headerDividerAndInset',
+    headerLine && headerLine.headBorder === '1px' && headerLine.insetLeft >= 10,
+    headerLine
   )
 
   // 4) 徽标：working（金）→ 注入 thinking 看是否变绿
@@ -294,6 +299,18 @@ try {
   ok('backToIdle', finalPhase === 'idle' && badgeGone, { finalPhase, badgeGone })
   ok('bubbleShownAfterTask', (await bubbleVisible()) === true)
   ok('finalReport', /已完成/.test(aiText), aiText.slice(0, 60))
+
+  // 6.5) 置顶看门狗：故意取消置顶，1.5s 内应被拉回
+  const dropped = await ball.eval("window.bwu.agentTest.ballTop('drop')")
+  let topBack = false
+  for (let i = 0; i < 30; i++) {
+    await sleep(300)
+    if (await ball.eval("window.bwu.agentTest.ballTop('check')")) {
+      topBack = true
+      break
+    }
+  }
+  ok('ballTopWatchdog', dropped === false && topBack === true, { dropped, topBack })
 
   // 7) 日志里的 progress 顺序：thinking → working → thinking
   const logText = existsSync(LOG) ? readFileSync(LOG, 'utf8') : ''
