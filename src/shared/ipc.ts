@@ -115,6 +115,7 @@ export const IPC = {
   agentTestBubble: 'agent:test-bubble',
   agentTestBallTop: 'agent:test-ball-top',
   agentTestRec: 'agent:test-rec',
+  agentTestHotkey: 'agent:test-hotkey',
   agentTestProgress: 'agent:test-progress',
   agentTestImportTool: 'agent:test-import-tool',
   agentTestTrustTool: 'agent:test-trust-tool',
@@ -301,6 +302,8 @@ export interface BwuApi {
     ballTop(action: 'drop' | 'check'): Promise<boolean>
     /** 测试用：让球窗收到一次"开始/停止录音"（和真实按键走同一条主进程路径） */
     rec(action: 'start' | 'stop'): Promise<boolean>
+    /** 测试用：模拟一次全局热键按下/抬起 */
+    hotkey(phase: 'down' | 'up'): Promise<boolean>
     progress(p: { active: boolean; mode?: 'thinking' | 'working'; step?: number; total?: number }): Promise<boolean>
     run(
       text: string,

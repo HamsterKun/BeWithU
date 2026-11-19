@@ -1,8 +1,9 @@
 import { app } from 'electron'
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { HistoryMessage } from '../../shared/types'
 import { log } from '../logger'
+import { encodeSecureJson, readSecureJson } from './secure-json'
 
 const MAX_MESSAGES = 200
 
@@ -19,7 +20,7 @@ class HistoryStore {
     this.loaded = true
     try {
       if (existsSync(this.file)) {
-        const raw = JSON.parse(readFileSync(this.file, 'utf8').replace(/^\uFEFF/, '')) as unknown
+        const raw = readSecureJson(this.file)
         if (Array.isArray(raw)) {
           this.messages = raw
             .filter((m): m is HistoryMessage => Boolean(m) && typeof (m as HistoryMessage).content === 'string')
@@ -75,7 +76,7 @@ class HistoryStore {
       const dir = app.getPath('userData')
       mkdirSync(dir, { recursive: true })
       const tmp = `${this.file}.tmp`
-      writeFileSync(tmp, JSON.stringify(this.messages), 'utf8')
+      writeFileSync(tmp, encodeSecureJson(this.messages), 'utf8')
       renameSync(tmp, this.file)
     } catch (e) {
       log('history: 保存失败', e)

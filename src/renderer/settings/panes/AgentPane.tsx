@@ -14,7 +14,10 @@ interface RunEntry {
   at: number
   toolId: string
   ok: boolean
-  summary: string
+  durationMs?: number
+  argsKeys?: string[]
+  summaryBytes?: number
+  summary?: string
 }
 
 function timeText(ts: number): string {
@@ -453,6 +456,18 @@ export default function AgentPane({ s, patch }: PaneProps): React.ReactElement {
       </Section>
 
       <Section title="运行记录" desc="最近 50 次工具调用；日志按天保存，只保留 7 天。">
+        <Field label="记录调用" hint="关掉后不再写审计日志">
+          <Toggle checked={s.agent.audit} onChange={(v) => patch({ agent: { audit: v } })} />
+        </Field>
+        <Field
+          label="详细审计"
+          hint="默认只记工具、成败、耗时和参数名；打开后才写结果摘要与参数值（密钥类字段会打码）"
+        >
+          <Toggle
+            checked={s.agent.auditDetail}
+            onChange={(v) => patch({ agent: { auditDetail: v } })}
+          />
+        </Field>
         <div className="agent-runs">
           {runs.length === 0 ? (
             <span className="agent-empty">还没有调用记录</span>
@@ -462,8 +477,10 @@ export default function AgentPane({ s, patch }: PaneProps): React.ReactElement {
                 <span className="agent-run__time">{timeText(r.at)}</span>
                 <span className={r.ok ? 'agent-run__ok' : 'agent-run__fail'}>{r.ok ? '✓' : '✗'}</span>
                 <span className="agent-run__tool">{r.toolId}</span>
-                <span className="agent-run__text" title={r.summary}>
-                  {r.summary.replace(/\s+/g, ' ').slice(0, 80)}
+                <span className="agent-run__text" title={r.summary ?? ''}>
+                  {r.summary
+                    ? r.summary.replace(/\s+/g, ' ').slice(0, 80)
+                    : `仅元数据 · ${r.argsKeys?.join(', ') || '无参数'}${r.durationMs ? ` · ${r.durationMs}ms` : ''}`}
                 </span>
               </div>
             ))

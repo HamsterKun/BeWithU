@@ -1,7 +1,8 @@
 import { app } from 'electron'
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { log } from '../logger'
+import { encodeSecureJson, readSecureJson } from './secure-json'
 
 interface MemoryState {
   summary: string
@@ -22,7 +23,7 @@ class MemoryStore {
     this.loaded = true
     try {
       if (existsSync(this.file)) {
-        const raw = JSON.parse(readFileSync(this.file, 'utf8').replace(/^\uFEFF/, '')) as unknown
+        const raw = readSecureJson(this.file)
         if (raw && typeof raw === 'object') {
           const obj = raw as Record<string, unknown>
           this.state = {
@@ -62,7 +63,7 @@ class MemoryStore {
     try {
       mkdirSync(app.getPath('userData'), { recursive: true })
       const tmp = `${this.file}.tmp`
-      writeFileSync(tmp, JSON.stringify(this.state), 'utf8')
+      writeFileSync(tmp, encodeSecureJson(this.state), 'utf8')
       renameSync(tmp, this.file)
     } catch (e) {
       log('memory: 保存失败', e)

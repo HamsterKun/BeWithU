@@ -123,6 +123,7 @@ const api = {
     bubbleVisible: () => ipcRenderer.invoke(IPC.agentTestBubble),
     ballTop: (action: 'drop' | 'check') => ipcRenderer.invoke(IPC.agentTestBallTop, action),
     rec: (action: 'start' | 'stop') => ipcRenderer.invoke(IPC.agentTestRec, action),
+    hotkey: (phase: 'down' | 'up') => ipcRenderer.invoke(IPC.agentTestHotkey, phase),
     progress: (p: { active: boolean; mode?: 'thinking' | 'working'; step?: number; total?: number }) =>
       ipcRenderer.invoke(IPC.agentTestProgress, p),
     run: (text: string, autoApprove?: boolean) => ipcRenderer.invoke(IPC.agentTestRun, text, autoApprove),

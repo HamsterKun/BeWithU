@@ -36,7 +36,8 @@ import {
   showBallWindow,
   showBubble
 } from '../windows'
-import { prettyChord } from '../input/hotkey'
+import { isHotkeyFallback, prettyChord } from '../input/hotkey'
+import { effectiveVoiceMode } from '../input/voice-mode'
 import { formatHits, webSearch } from './web-search'
 
 /** 闲聊模式判断"这句话要不要联网"：够不够像时效性问题 */
@@ -196,7 +197,9 @@ class Conversation {
 
   onHotkey(phase: 'down' | 'up'): void {
     const s = settingsStore.get()
-    if (s.voice.mode === 'toggle') {
+    // 降级监听拿不到真实的按下/抬起时序，只能按"切换模式"处理（REVIEW C7）
+    const mode = effectiveVoiceMode(s.voice.mode, isHotkeyFallback())
+    if (mode === 'toggle') {
       if (phase === 'down') {
         if (this.listening) void this.stopListening()
         else void this.startListening()

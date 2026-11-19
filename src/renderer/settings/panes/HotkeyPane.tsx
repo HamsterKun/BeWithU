@@ -54,7 +54,16 @@ export default function HotkeyPane({ s, patch }: PaneProps): React.ReactElement 
           />
         </Field>
 
-        {s.voice.mode === 'hold' ? (
+        {info?.hotkeyFallback ? (
+          <p className="agent-warn">
+            这台机器监听不了按键的按下/抬起（系统限制），实际按「按一下开始 / 再按结束」工作；
+            {s.voice.hotkey.toLowerCase().startsWith('mouse')
+              ? '鼠标键在这种模式下也监听不了，请用「重新绑定」换成一个键盘组合。'
+              : '「按住说话」在此环境下不可用。'}
+          </p>
+        ) : null}
+
+        {s.voice.mode === 'hold' && !info?.hotkeyFallback ? (
           <Field label="最短按住时长" hint="太短的误触会被忽略">
             <Range
               value={s.voice.minHoldMs}

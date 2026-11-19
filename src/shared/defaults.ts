@@ -130,6 +130,7 @@ export const DEFAULT_SETTINGS: Settings = {
     maxSteps: 30,
     stepTimeoutMs: 20000,
     audit: true,
+    auditDetail: false,
     files: { fullAccess: false, dirs: [] },
     disabledTools: [],
     trustedTools: [],

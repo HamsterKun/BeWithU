@@ -45,7 +45,15 @@ import {
 } from './data-dir'
 import { resolveGrab } from './vision-grab'
 import type { GrabResult } from '../shared/ipc'
-import { captureNextChord, prettyChord, reloadHotkey, hotkeyStatus, setGlobalMouseHandlers } from './input/hotkey'
+import {
+  captureNextChord,
+  prettyChord,
+  reloadHotkey,
+  hotkeyStatus,
+  isHotkeyFallback,
+  setGlobalMouseHandlers
+} from './input/hotkey'
+import { secureStorageAvailable } from './store/secure-json'
 import {
   broadcastSettings,
   ballCenter,
@@ -274,7 +282,9 @@ export function registerIpc(getQuit: () => void): void {
       userData: app.getPath('userData'),
       hotkeyActive: status.ok,
       hotkeyMessage: status.message,
+      hotkeyFallback: isHotkeyFallback(),
       hotkeyPretty: prettyChord(settingsStore.get().voice.hotkey),
+      secureStorage: secureStorageAvailable(),
       platform: process.platform,
       logPath: logPath()
     }
@@ -787,6 +797,11 @@ export function registerIpc(getQuit: () => void): void {
       const win = getBallWindow()
       if (!win) return false
       win.webContents.send(action === 'stop' ? IPC.voiceRecStop : IPC.voiceRecStart)
+      return true
+    })
+    // 模拟一次全局热键事件（验证降级时按切换模式工作）
+    handle(IPC.agentTestHotkey, (_e, phase: string) => {
+      conversation.onHotkey(phase === 'up' ? 'up' : 'down')
       return true
     })
     handle(IPC.agentTestProgress, (_e, p: Record<string, unknown>) => {

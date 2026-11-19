@@ -70,6 +70,12 @@ export default function AboutPane({ s }: PaneProps): React.ReactElement {
           </b>
         </div>
         <div className="kv">
+          <span>本机加密</span>
+          <b className={info?.secureStorage ? 'ok' : 'warn'}>
+            {info ? (info.secureStorage ? '可用（密钥、历史与记忆已加密）' : '不可用（历史与记忆将明文保存）') : '—'}
+          </b>
+        </div>
+        <div className="kv">
           <span>语音识别</span>
           <b>{s.asr.mode === 'local' ? '本地' : '火山引擎'}</b>
         </div>

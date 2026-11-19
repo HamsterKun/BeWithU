@@ -27,6 +27,8 @@ let activeKey = ''
 let listener: ((phase: 'down' | 'up') => void) | null = null
 let started = false
 let usingFallback = false
+/** 降级时是否真的注册上了（鼠标键在降级路径下注册不了） */
+let fallbackRegistered = false
 let captureResolve: ((chord: string) => void) | null = null
 let globalMouseDown: ((button: number) => void) | null = null
 let globalMouseUp: ((button: number) => void) | null = null
@@ -110,6 +112,11 @@ function buildKeyMaps(UiohookKey: Record<string, number>): void {
 
 function initUiohook(): boolean {
   if (uio) return true
+  // 仅测试用：强制走降级路径，验证"降级=切换模式"的行为
+  if (process.env['BWU_AGENT_TEST'] === '1' && process.env['BWU_HOTKEY_FALLBACK'] === '1') {
+    log('hotkey: 测试开关 BWU_HOTKEY_FALLBACK=1，强制降级')
+    return false
+  }
   try {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const mod = require('uiohook-napi')
@@ -202,9 +209,20 @@ function onMouse(phase: 'down' | 'up', button: number): void {
 }
 
 export function hotkeyStatus(): { ok: boolean; message: string } {
-  if (usingFallback) return { ok: false, message: '受系统限制，按键监听已降级为切换模式' }
+  if (usingFallback) {
+    if (hotkeySpec?.type === 'mouse') {
+      return { ok: false, message: '受系统限制，鼠标键监听不了；已按切换模式处理，请在设置里改用键盘组合' }
+    }
+    if (!fallbackRegistered) return { ok: false, message: '受系统限制，按键注册失败；请到设置里换一个键盘组合' }
+    return { ok: false, message: '受系统限制，已降级为切换模式（按下开始、再按结束）' }
+  }
   if (!uio) return { ok: false, message: '按键监听未启动' }
   return started ? { ok: true, message: '按键监听正常' } : { ok: false, message: '按键监听未启动' }
+}
+
+/** 是否处于降级监听（降级时只能用切换模式） */
+export function isHotkeyFallback(): boolean {
+  return usingFallback
 }
 
 export function startHotkey(rawSpec: string, cb: (phase: 'down' | 'up') => void): void {
@@ -232,14 +250,20 @@ export function startHotkey(rawSpec: string, cb: (phase: 'down' | 'up') => void)
 
 function startFallback(rawSpec: string): void {
   usingFallback = true
+  fallbackRegistered = false
   const chord = parseChord(rawSpec)
-  if (!chord || chord.type !== 'key') return
+  if (!chord || chord.type !== 'key') {
+    log('hotkey: 降级路径只能注册键盘组合，鼠标键无法监听', rawSpec)
+    return
+  }
   try {
-    globalShortcut.register(chordToString(chord), () => {
+    fallbackRegistered = globalShortcut.register(chordToString(chord), () => {
       listener?.('down')
       setTimeout(() => listener?.('up'), 60)
     })
+    if (!fallbackRegistered) log('hotkey: globalShortcut 注册失败', rawSpec)
   } catch (e) {
+    fallbackRegistered = false
     log('hotkey: globalShortcut 注册失败', e)
   }
 }

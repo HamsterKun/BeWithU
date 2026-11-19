@@ -179,6 +179,11 @@ export interface AgentSettings {
   stepTimeoutMs: number
   /** 审计日志 */
   audit: boolean
+  /**
+   * 详细审计：默认只记元数据（工具、成败、耗时、参数名与体积）。
+   * 打开后才把结果摘要和参数片段（脱敏后）写进本地 JSONL。
+   */
+  auditDetail: boolean
   files: AgentFileSettings
   /** 被禁用的工具 id */
   disabledTools: string[]
@@ -360,6 +365,10 @@ export interface AppInfo {
   hotkeyActive: boolean
   hotkeyMessage?: string
   hotkeyPretty?: string
+  /** 按键监听是否已降级（降级时只能用切换模式） */
+  hotkeyFallback?: boolean
+  /** 系统加密（DPAPI）是否可用；不可用时历史与记忆退回明文并提示 */
+  secureStorage?: boolean
   platform: string
   logPath?: string
 }

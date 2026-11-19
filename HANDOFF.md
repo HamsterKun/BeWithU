@@ -302,6 +302,24 @@ E2E **15 个套件 / 106 条断言全绿**（新增 `sse-tail` 3、`recorder-can
 
 ---
 
+## 1.22 v1.0.13（本次）：快捷键降级 + 落盘隐私
+
+| 改动 | 位置 | 说明 |
+|---|---|---|
+| **降级即切换模式**（REVIEW C7） | `input/voice-mode.ts`（新）、`input/hotkey.ts`、`services/pipeline.ts` | 降级监听（globalShortcut）拿不到按下/抬起时序，`effectiveVoiceMode()` 在降级时强制 `toggle`；`hotkeyStatus()` 区分"鼠标键监听不了/注册失败/已降级"三种文案；设置页显示提示，并在降级时隐藏"最短按住时长"。默认 Mouse4 在降级路径注册不了，会明确提示改键盘组合 |
+| **审计默认只记元数据**（REVIEW B4） | `agent/audit.ts`、`agent/index.ts` | 默认只写工具 id、成败、耗时、参数名与字节数；新增设置 `agent.auditDetail`（默认关），打开后才写结果摘要与参数片段，写入前对 `key/token/secret/password/authorization/cookie` 类字段和 `Bearer …` 打码。运行记录页显示"仅元数据 · 参数名 · 耗时" |
+| **历史与记忆加密落盘**（REVIEW B4） | `store/secure-json.ts`（新）、`store/history.ts`、`store/memory.ts` | 优先用系统加密（DPAPI/safeStorage），文件为一行 `BWU1:` + 密文；旧明文文件照常读取、下次保存自动升级；加密不可用时退回明文并记日志，设置 → 关于显示"本机加密：可用/不可用" |
+| **测试** | `tools/*` | 新增 `voice-mode`、`audit`、`secure-json` 单测与 `hotkey-fallback`、`privacy-at-rest` 端到端 |
+
+验证：typecheck 双端通过；单元/安全 **49/49**（16 个文件，新增 `voice-mode` 1、`audit` 4、`secure-json` 7）；
+E2E **17 个套件 / 115 条断言全绿**（新增 `hotkey-fallback` 4、`privacy-at-rest` 5）；隔离冒烟见下。
+
+> `hotkey-fallback` 用 `BWU_HOTKEY_FALLBACK=1`（仅 `BWU_AGENT_TEST=1` 时生效）强制走降级路径，
+> 断言"第一次按开始录音、第二次按结束录音"；本机没有本地识别模型时该行为项会打印 SKIP。
+> `privacy-at-rest` 直接检查落盘文件：`history.json` 以 `BWU1:` 开头且搜不到聊天原文；审计默认无 summary/argsPreview，开详细后有。
+
+---
+
 ## 2. 代码结构（今晚新增的用 ★）
 
 ```
@@ -382,11 +400,11 @@ Remove-Item Env:\ELECTRON_RUN_AS_NODE -ErrorAction SilentlyContinue
 & $node node_modules\typescript\lib\tsc.js --noEmit -p tsconfig.web.json
 & $node node_modules\electron-vite\bin\electron-vite.js build
 
-# —— 单元 / 安全（node:test，不需要 Electron；13 个文件 37 条）——
+# —— 单元 / 安全（node:test，不需要 Electron；16 个文件 49 条）——
 & $node --test tools\agent-tool-budget.test.mjs tools\approval.test.mjs tools\asr-generation.test.mjs `
   tools\asr-model-manifest.test.mjs tools\data-dir-migration.test.mjs tools\file-boundary.test.mjs `
   tools\file-io.test.mjs tools\mcp-secrets.test.mjs tools\retry-policy.test.mjs tools\sse-parse.test.mjs `
-  tools\vision-grab.test.mjs tools\player-test.mjs
+  tools\vision-grab.test.mjs tools\voice-mode.test.mjs tools\player-test.mjs tools\audit.test.mjs tools\secure-json.test.mjs
 # 需要本机有已校验归档（D:\coding\bwu-asr-dl\archive.tar.bz2，可用 BWU_ASR_ARCHIVE 覆盖）：
 & $node --test tools\asr-download-test.mjs   # 下载→校验→解包→发布 3/3（归档不在时 SKIP）
 
@@ -405,6 +423,8 @@ Remove-Item Env:\ELECTRON_RUN_AS_NODE -ErrorAction SilentlyContinue
 & $node tools\menu-test.mjs           # 右键菜单              6/6
 & $node tools\app-test.mjs            # 界面回归              16/16
 & $node tools\recorder-cancel-test.mjs # 录音启动取消/失败清理  8/8
+& $node tools\hotkey-fallback-test.mjs # 降级=切换模式           4/4
+& $node tools\privacy-at-rest-test.mjs # 历史/审计落盘口径       5/5
 & $node tools\local-asr-test.mjs      # 本机 ASR 真实识别（需要已装模型）
 & $node tools\agent-input-test.mjs    # 键鼠注入（依赖真实前台，可能不稳）
 ```
@@ -475,8 +495,6 @@ $d = "$env:USERPROFILE\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies"
 | **用量** | 仅 token/字数/秒数，不折算金额（各家单价不同） |
 | **主题** | ball 窗口是透明角色图，未做亮暗区分；气泡亮色下已补对比度，但样式是 second-pass 的 |
 | **签名** | 无（见 §6） |
-| **快捷键降级**（REVIEW C7） | 驱动不可用时提示"已降级"，但降级只模拟 60ms 按键，按住说话基本不可用；默认 Mouse4 也不在这条路上 |
-| **审计内容**（REVIEW B4） | 审计 JSONL 仍记录参数与结果片段（可能含文件内容）；历史/记忆明文落盘。建议默认只记元数据 |
 
 ---
 

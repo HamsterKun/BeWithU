@@ -68,8 +68,9 @@ export async function callTool(
       callId,
       toolId: id,
       ok: res.ok,
-      summary: res.summary.slice(0, 500),
-      argsPreview: JSON.stringify(args).slice(0, 300)
+      durationMs: Date.now() - started,
+      args,
+      summary: res.summary
     })
     return res
   } catch (e) {
