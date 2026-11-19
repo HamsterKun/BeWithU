@@ -1,7 +1,7 @@
-# BeWithU 交接文档（2026-11-19，1.0.12 已打包待签名/发布）
+# BeWithU 交接文档（2026-11-20，1.0.13 已打包待签名/发布）
 
-> 接手先读 §0 和 §10。1.0.12 已提交、已打包、已跑完整回归（含本轮新增的 SSE 尾帧与录音取消测试），
-> 剩下来的只有签名、外部发布和真机矩阵；官方 ASR 归档整包已下完并校验通过（见 §10）。
+> 接手先读 §0 和 §10。1.0.13 已提交、已打包、已跑完整回归（含快捷键降级与落盘隐私两条新 E2E），
+> 剩下的只有签名、外部发布和真机矩阵；官方 ASR 归档整包已下完并校验通过（见 §10）。
 
 ---
 
@@ -10,9 +10,9 @@
 | 项 | 值 |
 |---|---|
 | 代码位置 | `D:\coding\BeWithU` |
-| 版本 | **1.0.12**（C8 SSE 尾帧 + C1 录音启动取消 + A8 文件 I/O 限流；已打包，未签名，未对外发布） |
-| HEAD | `main` 上 1.0.12 的提交：产品代码/测试在 `b343897`，本文档与发布清单紧随其后一个提交（`git log --oneline -3` 可看到） |
-| 产物 | `release/` 已是 1.0.12 安装器 + 便携包（含 `SHA256SUMS-1.0.12.txt`、`RELEASE-1.0.12.md`）；1.0.10 / 1.0.11 产物分别在 `release/archive-1.0.10/`、`release/archive-1.0.11/` |
+| 版本 | **1.0.13**（C7 快捷键降级 = 切换模式；B4 审计默认元数据 + 历史/记忆加密；已打包，未签名，未对外发布） |
+| HEAD | `main` 上 1.0.13 的提交：产品代码/测试在 `0b7fea6`，本文档与发布清单紧随其后一个提交（`git log --oneline -3` 可看到） |
+| 产物 | `release/` 已是 1.0.13 安装器 + 便携包（含 `SHA256SUMS-1.0.13.txt`、`RELEASE-1.0.13.md`）；1.0.10 / 1.0.11 / 1.0.12 产物分别在 `release/archive-1.0.10/`、`archive-1.0.11/`、`archive-1.0.12/` |
 | 工作区 | 干净（`git status` 无输出）；`out/` 是本轮源码 bundle，`release/`、`out/` 都被 gitignore |
 
 **白天那版**：Agent 能力层 M1（键鼠注入）+ M2（工具循环/审批/审计）+ 设置页，19 个内置工具。
@@ -542,28 +542,29 @@ $d = "$env:USERPROFILE\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies"
 
 ---
 
-## 10. 当前状态：1.0.12 已提交、已打包、已验证
+## 10. 当前状态：1.0.13 已提交、已打包、已验证
 
 ### 已完成
 
 - **1.0.11（commit `23f55b6`）**：审批撤销、MCP 撤权、文件落点校验、窗口角色收敛、截图隐私、数据迁移校验、ASR 固定归档、结构化错误重试、安装脚本收紧（详见 §1.20 与 [REVIEW.md](REVIEW.md) 的对应条目）。
 - **1.0.12（commit `b343897`）**：SSE 尾帧（C8）、录音启动取消与失败清理（C1）、文件 I/O 限流与目录分页（A8），见 §1.21。
+- **1.0.13（commit `0b7fea6`）**：快捷键降级 = 切换模式（C7）、审计默认只记元数据 + 可选详细（B4）、历史/记忆加密落盘（B4），见 §1.22。REVIEW 里需要改代码的条目到此全部处理完。
 
 ### 已验证（本轮实跑，可复现）
 
 - 运行环境：Node.js **v24.21.0**、Electron **45.3.3**、electron-builder **26.18.0**；`pnpm-lock.yaml` 未改。
 - TypeScript 双端检查通过；`electron-vite build` 通过（输出 `out/`）；`git diff --check` 通过。
-- 单元/安全 **37/37**（13 个 `node --test` 文件：审批、迁移、文件边界、文件 I/O 分页、SSE 解析、ASR 下载/解包/发布、抓屏、MCP 密钥、ASR manifest/generation、工具预算、重试策略、播放器）。
-- E2E **15 个套件 / 106 条断言全绿**：agent-run 10、ext 10、mcp-zip 6、agent-llm 3、agent-settings 8、agent-ui 19、prompts 4、thinking 6、sse-tail 3、search 4、shell-encoding 3、menu 6、app 16、recorder-cancel 8；local-asr 用本机真实模型完成识别（RTF≈0.035）。
+- 单元/安全 **49/49**（16 个 `node --test` 文件：审批、迁移、文件边界、文件 I/O 分页、SSE 解析、ASR 下载/解包/发布、审计、安全 JSON、语音模式、抓屏、MCP 密钥、ASR manifest/generation、工具预算、重试策略、播放器）。
+- E2E **17 个套件 / 115 条断言全绿**：agent-run 10、ext 10、mcp-zip 6、agent-llm 3、agent-settings 8、agent-ui 19、prompts 4、thinking 6、sse-tail 3、search 4、shell-encoding 3、menu 6、app 16、recorder-cancel 8、hotkey-fallback 4、privacy-at-rest 5；local-asr 用本机真实模型完成识别（RTF≈0.037）。
 - 隔离冒烟 `tools/smoke-test.mjs`：`out/` 11/11、`release/win-unpacked/BeWithU.exe` 11/11；包含"球窗没有管理接口、打包版没有测试 IPC"的角色隔离断言。
-- **打包验收**：先输出到 `D:\coding\bwu-staging-1.0.12`，校验 `app.asar`（10,118,743 bytes，版本 1.0.12）、
+- **打包验收**：先输出到 `D:\coding\bwu-staging-1.0.13`，校验 `app.asar`（10,126,107 bytes，版本 1.0.13）、
   `@koromix/koffi-win32-x64/win32_x64/koffi.node`、`uiohook-napi`、`sherpa-onnx-win-x64` 均在 unpacked 里，
   asar 内 `out/main/index.js` 带 ASR 归档 SHA 常量与 `--bwu-role=`；`koffi 3.3.8` 在 Electron 45.3.3/Node 24.22.3(ABI 150)
-  下可加载，应用日志出现 `input: 工作进程已启动`；安装器 129,021,885 bytes / `00a0241a…ec5a`，
-  便携版 116,745,110 bytes / `c883a5e5…ce6f`，`check-installer.ps1` 正/反例/缺摘要三种情况都验过。
-  完整记录见 [docs/RELEASE-1.0.12.md](docs/RELEASE-1.0.12.md)。
-- **产物已就位**：`release/` 是 1.0.12；1.0.10 / 1.0.11 分别在 `release/archive-1.0.10/`、`release/archive-1.0.11/`；
-  `release/SHA256SUMS-1.0.12.txt`。
+  下可加载，应用日志出现 `input: 工作进程已启动`；安装器 129,023,638 bytes / `a3f27713…0063`，
+  便携版 116,745,124 bytes / `1a0af2c7…a1bb`，`check-installer.ps1` 正/反例/缺摘要三种情况都验过。
+  完整记录见 [docs/RELEASE-1.0.13.md](docs/RELEASE-1.0.13.md)。
+- **产物已就位**：`release/` 是 1.0.13；1.0.10 / 1.0.11 / 1.0.12 分别在 `release/archive-1.0.10/`、`archive-1.0.11/`、`archive-1.0.12/`；
+  `release/SHA256SUMS-1.0.13.txt`。
 - **ASR 官方归档整包（已闭环）**：`sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17.tar.bz2`
   163,002,883 bytes / SHA-256 `7d1efa21…d347e`，已在 `D:\coding\bwu-asr-dl\archive.tar.bz2` 下完并比对通过
   （续传脚本 `fetch-asr.ps1` 自带校验）。tar 清单 12 项、根目录与 manifest 的 `root` 一致、无符号链接/越界路径；
@@ -580,6 +581,6 @@ $d = "$env:USERPROFILE\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies"
 ### 源码搬运
 
 - 现在可以直接 `git archive HEAD` 或 clone（工作区已提交、`git status` 干净），但要带上 `release/` 里的产物与清单
-  （`release/` 被 gitignore，不在仓库里）、以及 [docs/RELEASE-1.0.12.md](docs/RELEASE-1.0.12.md)。
+  （`release/` 被 gitignore，不在仓库里）、以及 [docs/RELEASE-1.0.13.md](docs/RELEASE-1.0.13.md)。
 - 可排除 `node_modules/`、`.pnpm-store/`、`.cache/`、`out/`、`release/archive-*`、`.shots/` 和本地日志/录音样本；
   不要打入真实应用数据目录（`%APPDATA%\BeWithU`）、API Key 或凭据。

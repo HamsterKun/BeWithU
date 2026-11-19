@@ -31,21 +31,21 @@
 
 ### 用打好的安装包
 
-- 安装版：`release/BeWithU-1.0.12-x64.exe`（可自选安装目录，带开始菜单与桌面快捷方式）。仅在对应版本发布包已生成并附带可信清单时使用；请先核验，再运行。
-- 便携版：`release/BeWithU-1.0.12-portable.exe`（无需安装，不写注册表）。同样请先核验，再运行。
+- 安装版：`release/BeWithU-1.0.13-x64.exe`（可自选安装目录，带开始菜单与桌面快捷方式）。仅在对应版本发布包已生成并附带可信清单时使用；请先核验，再运行。
+- 便携版：`release/BeWithU-1.0.13-portable.exe`（无需安装，不写注册表）。同样请先核验，再运行。
 
 在仓库根目录，从独立可信渠道取得与该版本、该文件对应的发布清单（例如经过验证的签名清单），将其中的 SHA-256 填入下方占位符。
-本仓库为 1.0.12 生成的清单位于 [docs/RELEASE-1.0.12.md](docs/RELEASE-1.0.12.md)（`release/SHA256SUMS-1.0.12.txt`
+本仓库为 1.0.13 生成的清单位于 [docs/RELEASE-1.0.13.md](docs/RELEASE-1.0.13.md)（`release/SHA256SUMS-1.0.13.txt`
 是同内容的机器可读版本）；如果你是从别处下载的安装包，仍应以独立渠道核实的摘要为准，而不是只信随包附带的这份清单。
 
 ```powershell
 $env:BEWITHU_INSTALLER_SHA256 = '<发布清单中的 64 位十六进制 SHA-256>'
 
 # 仅核验，不启动
-.\scripts\check-installer.ps1 -Path '.\release\BeWithU-1.0.12-x64.exe'
+.\scripts\check-installer.ps1 -Path '.\release\BeWithU-1.0.13-x64.exe'
 
 # 核验通过后，按 Windows 正常流程启动安装
-.\scripts\install-app.cmd '.\release\BeWithU-1.0.12-x64.exe'
+.\scripts\install-app.cmd '.\release\BeWithU-1.0.13-x64.exe'
 ```
 
 也可以将从独立可信渠道取得的预期发布者证书 SHA-256 指纹（证书 DER 字节的哈希，不是安装包的哈希）设为 `BEWITHU_PUBLISHER_CERT_SHA256`，此时要求 Windows 判定 Authenticode 签名有效，且签名证书指纹与预期一致。若两项都配置，则必须同时通过。不要从正在验证的安装包本身推导预期值，也不要使用仅与安装包一同下载、未经独立验证的校验值。项目未预置签名证书指纹；若没有可信清单或可信指纹，请勿运行下载的包。
