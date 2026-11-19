@@ -56,7 +56,17 @@ export function registerInputTools(): void {
       const text = String(args.text ?? '')
       if (!text) return { ok: false, summary: '没有可输入的内容' }
       await needUnlocked()
-      if (args.expectTitle) await assertForeground(String(args.expectTitle))
+      if (args.expectTitle) {
+        try {
+          await assertForeground(String(args.expectTitle))
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e)
+          return {
+            ok: false,
+            summary: `${msg}。可以先用 window.focus 切到目标窗口；切不过去就请用户手动点一下窗口，或者改用不依赖前台的 file/shell 工具。`
+          }
+        }
+      }
       const res = await typeText(text)
       return {
         ok: true,
@@ -83,7 +93,17 @@ export function registerInputTools(): void {
       needInput()
       const keys = String(args.keys ?? '')
       await needUnlocked()
-      if (args.expectTitle) await assertForeground(String(args.expectTitle))
+      if (args.expectTitle) {
+        try {
+          await assertForeground(String(args.expectTitle))
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e)
+          return {
+            ok: false,
+            summary: `${msg}。可以先用 window.focus 切到目标窗口；切不过去就请用户手动点一下窗口。`
+          }
+        }
+      }
       await sendKeys(keys)
       return { ok: true, summary: `已发送按键 ${keys}` }
     }
@@ -221,9 +241,16 @@ export function registerInputTools(): void {
       if (!title) return { ok: false, summary: '需要提供窗口标题' }
       if (!(await findWindowByTitle(title))) return { ok: false, summary: `没有找到标题为「${title}」的窗口` }
       const res = await focusWindowByTitle(title)
-      return res.focused
-        ? { ok: true, summary: `已切换到「${title}」` }
-        : { ok: false, summary: `尝试切换「${title}」失败（当前前台：${res.foreground || '未知'}）` }
+      if (res.focused) return { ok: true, summary: `已切换到「${title}」` }
+      // 切不过去时别只说"失败"：告诉模型接下来还能怎么干
+      return {
+        ok: false,
+        summary:
+          `切不到「${title}」前台（当前前台是「${res.foreground || '未知'}」，可能被 Windows 前台锁挡住）。` +
+          '建议按顺序尝试：1) 用 app.launch 重新打开目标程序（新开的窗口通常会自动到前台）；' +
+          '2) 告诉用户"请手动点一下那个窗口，我再继续"；' +
+          '3) 如果这件事不依赖界面（读写文件、处理文档），改用 file.* 或 shell.ps 直接做，不要卡在切窗口上。'
+      }
     }
   })
 
