@@ -177,6 +177,23 @@ try {
     about
   )
 
+  // 关于页：开机自启默认开、能关掉并落盘
+  const autoLaunch = await ui.eval(`(() => {
+    const rows = Array.from(document.querySelectorAll('.main__body .field'))
+    const row = rows.find(r => r.textContent.includes('开机自启动'))
+    return { has: Boolean(row), on: row?.querySelector('.toggle')?.getAttribute('aria-checked') }
+  })()`)
+  ok('autoLaunchDefaultOn', autoLaunch.has && autoLaunch.on === 'true', autoLaunch)
+
+  await ui.eval(`(() => {
+    const rows = Array.from(document.querySelectorAll('.main__body .field'))
+    const row = rows.find(r => r.textContent.includes('开机自启动'))
+    row?.querySelector('.toggle')?.click()
+  })()`)
+  await sleep(900)
+  const cfgAuto = await ball.eval('window.bwu.settings.get()')
+  ok('autoLaunchTogglePersists', cfgAuto?.ui?.autoLaunch === false, cfgAuto?.ui?.autoLaunch)
+
   admin.close()
   ball.close()
   app.kill()

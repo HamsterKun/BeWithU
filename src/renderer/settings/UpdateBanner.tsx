@@ -1,11 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { UpdateStatus } from '@shared/types'
 
-function mb(bytes?: number): string {
-  if (!bytes) return ''
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
-}
-
 /**
  * 侧栏底部的更新横幅。
  * 安装版：点一下开始下载 → 进度条 → 下完变「立即重启」。
@@ -42,21 +37,11 @@ export default function UpdateBanner(): React.ReactElement | null {
 
   const label = ((): string => {
     if (st.kind === 'available') {
-      return st.portable ? `新版本 ${st.version} · 点此下载` : `新版本 ${st.version} · 点击更新`
+      return st.portable ? `新版本 ${st.version} · 便携版点此下载` : `新版本 ${st.version} · 点击更新`
     }
     if (st.kind === 'downloading') return `正在下载 ${st.percent ?? 0}%`
     if (st.kind === 'ready') return '立即重启完成更新'
     return st.message || '更新失败，点此重试'
-  })()
-
-  const hint = ((): string => {
-    if (st.kind === 'available' && !st.portable) return '装好后重启即可，不用重装'
-    if (st.kind === 'available' && st.portable) return '便携版需手动替换'
-    if (st.kind === 'downloading') {
-      return st.total ? `${mb(st.transferred)} / ${mb(st.total)}` : '后台下载，可以继续用'
-    }
-    if (st.kind === 'ready') return '重启后就是新版本'
-    return ''
   })()
 
   return (
@@ -65,7 +50,7 @@ export default function UpdateBanner(): React.ReactElement | null {
       className={`upd-banner is-${st.kind}`}
       onClick={click}
       disabled={busy}
-      title={hint || label}
+      title={label}
     >
       <span className="upd-banner__main">
         {st.kind === 'ready' ? (
@@ -80,7 +65,6 @@ export default function UpdateBanner(): React.ReactElement | null {
         )}
         <span className="upd-banner__label">{label}</span>
       </span>
-      {hint ? <span className="upd-banner__hint">{hint}</span> : null}
       {busy ? (
         <span className="upd-banner__bar">
           <span style={{ width: `${st.percent ?? 0}%` }} />

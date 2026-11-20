@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
 import type { AppInfo } from '@shared/types'
-import { Btn, Section } from '../ui'
+import { Btn, Field, Section, Toggle } from '../ui'
 import type { PaneProps } from './types'
 
-export default function AboutPane({ s }: PaneProps): React.ReactElement {
+export default function AboutPane({ s, patch }: PaneProps): React.ReactElement {
   const [info, setInfo] = useState<AppInfo | null>(null)
   const [starMsg, setStarMsg] = useState('')
   const [checking, setChecking] = useState(false)
@@ -78,6 +78,19 @@ export default function AboutPane({ s }: PaneProps): React.ReactElement {
             {s.tts.enabled ? `已开启 · ${s.tts.provider === 'breeze' ? 'Breeze' : '火山引擎'}` : '已关闭'}
           </b>
         </div>
+        {info?.portable ? (
+          <Field label="开机自启动" hint="便携版每次解压到临时目录，无法注册开机启动">
+            <span className="muted small">不可用</span>
+          </Field>
+        ) : (
+          <Field label="开机自启动" hint="登录 Windows 后自动启动">
+            <Toggle
+              checked={s.ui.autoLaunch}
+              onChange={(v) => patch({ ui: { autoLaunch: v } }, true)}
+            />
+          </Field>
+        )}
+
         <div className="row-actions">
           <Btn onClick={() => void window.bwu.settings.restartHotkey()}>重新检测按键</Btn>
           <Btn onClick={() => void checkNow()} disabled={checking}>

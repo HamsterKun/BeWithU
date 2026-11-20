@@ -33,6 +33,8 @@ import { webSearch } from './services/web-search'
 import { listModels } from './services/llm'
 import { clearUsage, usageSummary } from './store/usage'
 import { readLogTail } from './services/log-tail'
+import { isPortable } from './platform'
+import { applyAutoLaunch } from './services/auto-launch'
 import { check as checkUpdate, currentStatus, download as downloadUpdate, install as installUpdate, openReleasePage } from './services/update'
 import { APP_REPO_URL } from '../shared/defaults'
 import { deleteModel, downloadModel, modelStatus } from './services/asr-model'
@@ -261,6 +263,7 @@ export function registerIpc(getQuit: () => void): void {
     if (before.voice.hotkey !== next.voice.hotkey || before.voice.mode !== next.voice.mode) {
       reloadHotkey(next.voice.hotkey)
     }
+    if (before.ui.autoLaunch !== next.ui.autoLaunch) applyAutoLaunch(next.ui.autoLaunch)
     broadcastSettings(next)
     return next
   })
@@ -289,6 +292,7 @@ export function registerIpc(getQuit: () => void): void {
       hotkeyPretty: prettyChord(settingsStore.get().voice.hotkey),
       secureStorage: secureStorageAvailable(),
       platform: process.platform,
+      portable: isPortable(),
       logPath: logPath()
     }
   })

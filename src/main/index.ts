@@ -19,6 +19,7 @@ import { startHotkey, stopHotkey } from './input/hotkey'
 import { conversation } from './services/pipeline'
 import { createTray } from './tray'
 import { initUpdate } from './services/update'
+import { applyAutoLaunch } from './services/auto-launch'
 import { log } from './logger'
 import { consumeWgcPermission, getPendingWgcPermission, isWgcPermissionRequest } from './vision-grab'
 import { getBallWindow, rendererFrameMatches } from './windows'
@@ -100,6 +101,8 @@ async function boot(): Promise<void> {
   createTray(() => app.quit())
 
   startHotkey(settings.voice.hotkey, (phase) => conversation.onHotkey(phase))
+  // 开机自启：按设置对齐注册表（便携版会跳过）
+  applyAutoLaunch(settings.ui.autoLaunch)
   // 自动更新：延后检查，安装版走 electron-updater，便携版只提示去下载
   initUpdate()
   log('boot: 就绪', { version: app.getVersion(), hotkey: settings.voice.hotkey })

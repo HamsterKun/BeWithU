@@ -16,11 +16,11 @@
 
 | 文件 | 大小 | SHA-256 |
 |---|---|---|
-| `BeWithU-1.1.0-x64.exe`（安装版） | 129,218,769 | `43194cc57c5bdcfcd693ba3329d179fa6b30b39dffad08e5414a1fffff6eee2a` |
-| `BeWithU-1.1.0-portable.exe`（便携版） | 116,837,592 | `91890fff7a11ce3e200cc88110eeb622cb95b0b3ca64eb9ebf9bf07924d6cc35` |
+| `BeWithU-1.1.0-x64.exe`（安装版） | 129,218,811 | `640447b2a32ae849fb0fa497594e39f7a382b463e14a36375849d5ad0497ff5e` |
+| `BeWithU-1.1.0-portable.exe`（便携版） | 116,834,551 | `91aebc7d7fd3fdf5e9b114e1687aacdd7c495578f74ae27fbb4a893633b8bd70` |
 
 安装版的 SHA-512（base64，electron-updater 用的就是这个）：
-`lb3/UurW6gaDpsgP1Ajd5OfhOYtfUToCrrhXDK2x0Y9A0y0pXCL73qdT6feW04cm/lZfgDpsnUyhF05hefjMKA==`
+`4qopBJBS+tSLmxS6GrYWH/aqXdQwqiFF8+VmhO7wHsV1Qmux+u9cgUT9hac5WNDsYG3Shd74AjqfoSxeelfzAw==`
 
 `latest.yml` 里的 sha512 与 size 已与安装包实际值核对一致。
 
@@ -31,7 +31,8 @@
 - **上下文管理**（新，取代「对话记忆」）：低/中/高三挡 token 预算、85% 水位自动压缩、
   时间感知、历史只追加不改写以便命中服务端前缀缓存；压缩改用当前对话模型，不再单独配置。
 - **数据与日志**（新页）：用量统计（从关于页搬来）+ 运行日志查看器（关键字、只看问题、自动刷新）+ 数据目录。
-- **关于页**：项目主页点星卡、手动「检查更新」。
+- **关于页**：项目主页点星卡、手动「检查更新」、**开机自启动（默认开）**。
+  > 自启只对安装版生效；便携版每次解压到临时目录，注册进去会是死链，所以直接不注册并在页面上标注「不可用」。
 - **修复**：REVIEW C2（滚轮绕过输入守卫）、A6（归档导入无资源限制）。
 
 ## 4. 升级说明

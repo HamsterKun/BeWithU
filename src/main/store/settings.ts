@@ -200,6 +200,8 @@ class SettingsStore {
     // 名字允许留空（气泡里会显示为 TA），不要在这里强行填回默认值，
     // 否则用户清空输入框时会被"变回小伴"，根本改不了名
     s.ui.assistantName = (s.ui.assistantName || '').trim()
+    // 老配置没有这个字段：按默认值视为开启
+    s.ui.autoLaunch = s.ui.autoLaunch === undefined ? true : Boolean(s.ui.autoLaunch)
     // 提示词兜底（老配置没有这些字段）
     const prompts = s.prompts ?? DEFAULT_SETTINGS.prompts
     s.prompts = {

@@ -428,6 +428,15 @@ E2E `update-test` **6/6**（本地 generic feed：横幅出现 → 点击 → �
 `download()` 被挡住，API 确实被打到）；
 回归 `smoke` 11/11、`context-ui` 10/10、`data-pane` 10/10、`agent-run` 10/10。
 
+**1.1.0 打补丁（同日，仍在 1.1.0 内，未发布）**：
+- 更新横幅去掉第二行小字，单行显示（`新版本 x · 点击更新` / `正在下载 42%` / `立即重启完成更新`）；
+  便携版文案改成 `便携版点此下载`（原来那句"需手动替换"在副标题里）。
+- 新增**开机自启动**（`ui.autoLaunch`，默认 **开**）：`services/auto-launch.ts` 用
+  `app.setLoginItemSettings` 对齐注册表，幂等（值没变不写）。**只在安装版生效** —— 便携版的
+  `process.execPath` 指向临时解压目录，注册进去是死链，所以直接跳过并在关于页显示「不可用」。
+  实测：打包版首次启动写入了 `HKCU\...\Run\com.bewithu.app`，把设置改成 false 再启动会被移除。
+- 开关位置：设置 → 关于 → 开机自启动（`AppInfo.portable` 决定是否可用）。
+
 **发布步骤（没有令牌做不了）**：设置环境变量 `GH_TOKEN`（需 repo 权限），
 然后跑 `node node_modules\electron-builder\cli.js --win --x64 --publish always`；
 或者用 `gh release create v1.1.0` 手动把 `release/` 里的 exe、blockmap、latest.yml 传上去。

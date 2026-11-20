@@ -124,7 +124,7 @@ try {
     await sleep(500)
   }
   ok('portableBannerShown', Boolean(banner && banner.text.includes('9.9.9')), banner)
-  ok('portableUsesDownloadWording', Boolean(banner && banner.text.includes('点此下载') && banner.text.includes('手动')), banner?.text)
+  ok('portableUsesDownloadWording', Boolean(banner && banner.text.includes('点此下载')), banner?.text)
 
   const status = await ui.eval('window.bwu.update.get()')
   ok('portableFlag', status?.portable === true && status?.kind === 'available', status)

@@ -127,6 +127,8 @@ export interface UiSettings {
   muted: boolean
   assistantName: string
   micDeviceId: string
+  /** 开机自启动（默认开）；便携版不会注册 */
+  autoLaunch: boolean
 }
 
 export interface MetaSettings {
@@ -441,4 +443,6 @@ export interface AppInfo {
   secureStorage?: boolean
   platform: string
   logPath?: string
+  /** 便携版：开机自启动与自动更新都不可用 */
+  portable?: boolean
 }

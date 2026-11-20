@@ -11,6 +11,7 @@ import { APP_REPO_URL } from '../../shared/defaults'
 import { isNewer } from '../../shared/version'
 import type { UpdateStatus } from '../../shared/types'
 import { log } from '../logger'
+import { isPortable } from '../platform'
 
 const CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000
 /** 启动后延后检查，别和窗口/录音抢资源 */
@@ -22,11 +23,6 @@ const API_URL =
 let status: UpdateStatus = { kind: 'idle' }
 let started = false
 let inflight: Promise<UpdateStatus> | null = null
-
-/** 便携版：electron-builder 的 portable 目标会注入这两个环境变量 */
-export function isPortable(): boolean {
-  return Boolean(process.env.PORTABLE_EXECUTABLE_DIR || process.env.PORTABLE_EXECUTABLE_FILE)
-}
 
 /**
  * 开发模式下默认不联网检查，只有显式给了本地 feed（BWU_UPDATE_CONFIG）

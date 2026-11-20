@@ -1715,12 +1715,6 @@ body {
   font-weight: 500;
 }
 
-.upd-banner__hint {
-  padding-left: 12px;
-  font-size: 11px;
-  opacity: 0.75;
-}
-
 .upd-banner__bar {
   display: block;
   height: 3px;

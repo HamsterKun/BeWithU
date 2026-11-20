@@ -127,7 +127,9 @@ export const DEFAULT_SETTINGS: Settings = {
     theme: 'light',
     muted: false,
     assistantName: '小伴',
-    micDeviceId: ''
+    micDeviceId: '',
+    // 默认开机自启：常驻陪伴类工具，装了就是希望它一直在
+    autoLaunch: true
   },
   prompts: {
     agent: DEFAULT_AGENT_PROMPT,
