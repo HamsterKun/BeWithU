@@ -104,7 +104,8 @@ async function boot(): Promise<void> {
   startHotkey(settings.voice.hotkey, (phase) => conversation.onHotkey(phase))
   // 开机自启：按设置对齐注册表（便携版会跳过）
   applyAutoLaunch(settings.ui.autoLaunch)
-  // 拉一次模型元信息：供应商若在 /v1/models 里给了上下文长度，就用它的（比内置表准）
+  // 模型元信息只在启动后拉这一次（不轮询）：供应商若在 /v1/models 里给了
+  // 上下文长度就用它的，比内置表准；换模型/地址/Key 时才再拉一次。
   setTimeout(() => void refreshModelInfo(settingsStore.get().llm), 3000)
   // 自动更新：延后检查，安装版走 electron-updater，便携版只提示去下载
   initUpdate()

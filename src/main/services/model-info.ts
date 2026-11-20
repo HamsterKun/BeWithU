@@ -2,13 +2,11 @@
  * 模型元信息缓存：供应商在 `/v1/models` 里可能直接给上下文长度，
  * 这比内置表准（表会过期）。拿不到就返回 0，交给 model-window 的内置表兜底。
  *
- * 只在主进程缓存，10 分钟过期；换模型/换服务商时强制刷新一次。
+ * 只拉两个时机：**启动后一次**，以及换模型/地址/Key 时一次。这里没有轮询。
  */
 import type { LlmSettings } from '../../shared/types'
 import { log } from '../logger'
 import { listModelInfo } from './llm'
-
-const TTL_MS = 10 * 60 * 1000
 
 let cache: { key: string; windows: Record<string, number>; at: number } = {
   key: '',
@@ -29,10 +27,6 @@ export function providerWindow(model: string): number {
   return Number.isFinite(n) && n > 0 ? n : 0
 }
 
-export function cachedAt(): number {
-  return cache.at
-}
-
 /**
  * 拉一次模型列表。失败只写日志，不打扰用户 —— 这个信息是"锦上添花"，
  * 拿不到就用内置表，不影响任何功能。
@@ -43,7 +37,8 @@ export async function refreshModelInfo(llm: LlmSettings, force = false): Promise
   const local = /^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])/i.test(llm.baseUrl)
   if (!llm.apiKey.trim() && !local) return
   const key = cacheKey(llm)
-  if (!force && cache.key === key && Date.now() - cache.at < TTL_MS) return
+  // 同一个服务商+模型已经拉过就不再打接口（除非配置变了 / 显式 force）
+  if (!force && cache.key === key && cache.at > 0) return
   try {
     const list = await listModelInfo(llm)
     const windows: Record<string, number> = {}

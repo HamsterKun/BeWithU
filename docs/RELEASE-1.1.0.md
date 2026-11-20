@@ -16,11 +16,11 @@
 
 | 文件 | 大小 | SHA-256 |
 |---|---|---|
-| `BeWithU-1.1.0-x64.exe`（安装版） | 129,219,828 | `17ac11af6c90bdf41166ac492c360cea93c348fd767523dfb8918a85836886f5` |
-| `BeWithU-1.1.0-portable.exe`（便携版） | 116,838,363 | `5c1aaa5e070a2272e731222c1cb14ec6199cc410744724f2d9aa82620abcf339` |
+| `BeWithU-1.1.0-x64.exe`（安装版） | 129,220,002 | `030e1951697dccf7047873383a579981c6f330026169191de940f8c21c377b7a` |
+| `BeWithU-1.1.0-portable.exe`（便携版） | 116,838,920 | `166e5043aa928152eaa107febedfb5d8a8399b75b61145f17b04e464823d094e` |
 
 安装版的 SHA-512（base64，electron-updater 用的就是这个）：
-`IE1c0kEu0kwYkE1CWCbIozt6iqn1qSp+XJNw/CDxAu8MSBx+xthzAhGG6s93ptaf01YQ5dS7HClSLQZt0oolpA==`
+`ie2sICikzkzEqRz4voop6ZveNr+ktfV5Ww9OF9rEBKtLA+IYDdRmdvAv5tHptG1Edy2apwJQSqn3y1kYkG4aUA==`
 
 `latest.yml` 里的 sha512 与 size 已与安装包实际值核对一致。
 

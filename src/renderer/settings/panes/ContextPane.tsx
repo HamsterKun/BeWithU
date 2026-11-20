@@ -1,13 +1,8 @@
 import { useEffect, useState } from 'react'
 import type { ContextInfo, ContextLevel, TimeAwareness } from '@shared/types'
+import { formatTokens } from '@shared/format'
 import { Btn, Field, NumberInput, Section, Segmented } from '../ui'
 import type { PaneProps } from './types'
-
-function fmtTokens(n: number): string {
-  if (!Number.isFinite(n) || n <= 0) return '0'
-  if (n >= 10000) return `${(n / 1000).toFixed(n >= 100000 ? 0 : 1)}k`
-  return String(Math.round(n))
-}
 
 function fmtTime(ms: number): string {
   if (!ms) return '—'
@@ -33,13 +28,13 @@ function sourceHint(info: ContextInfo | null): string {
   const window = info?.window ?? 0
   switch (info?.windowSource ?? 'fallback') {
     case 'manual':
-      return `${fmtTokens(window)} · 手动指定`
+      return `${formatTokens(window)} · 手动指定`
     case 'provider':
-      return `${fmtTokens(window)} · 供应商提供`
+      return `${formatTokens(window)} · 供应商提供`
     case 'table':
-      return `${fmtTokens(window)} · 内置表匹配`
+      return `${formatTokens(window)} · 内置表匹配`
     default:
-      return `未识别，按 ${fmtTokens(window)} 兜底`
+      return `未识别，按 ${formatTokens(window)} 兜底`
   }
 }
 
@@ -124,7 +119,7 @@ export default function ContextPane({ s, patch }: PaneProps): React.ReactElement
               <span style={{ width: `${Math.max(percent, used > 0 ? 2 : 0)}%` }} />
             </div>
             <span className="muted small">
-              当前占用 {fmtTokens(used)} / {fmtTokens(budget)}（{percent}%）
+              当前占用 {formatTokens(used)} / {formatTokens(budget)}（{percent}%）
               {percent >= 85 ? ' · 已到压缩水位' : ''}
             </span>
           </div>
@@ -172,7 +167,7 @@ export default function ContextPane({ s, patch }: PaneProps): React.ReactElement
           <span className="muted small">
             累计 {info?.compressions ?? 0} 次
             {info && info.lastBefore > 0
-              ? ` · 上次 ${fmtTokens(info.lastBefore)} → ${fmtTokens(info.lastAfter)}`
+              ? ` · 上次 ${formatTokens(info.lastBefore)} → ${formatTokens(info.lastAfter)}`
               : ''}
           </span>
         </Field>
@@ -180,7 +175,7 @@ export default function ContextPane({ s, patch }: PaneProps): React.ReactElement
         <Field label="缓存命中" hint="服务端返回 usage 才有；命中越高越省钱">
           <span className="muted small">
             {info?.cacheHit && info.cacheHit.total > 0
-              ? `${Math.round((info.cacheHit.hit / info.cacheHit.total) * 100)}%（${fmtTokens(info.cacheHit.hit)} / ${fmtTokens(info.cacheHit.total)}）`
+              ? `${Math.round((info.cacheHit.hit / info.cacheHit.total) * 100)}%（${formatTokens(info.cacheHit.hit)} / ${formatTokens(info.cacheHit.total)}）`
               : '—'}
           </span>
         </Field>

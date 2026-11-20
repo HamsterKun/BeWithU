@@ -449,6 +449,12 @@ E2E `update-test` **6/6**（本地 generic feed：横幅出现 → 点击 → �
   内置表里 deepseek 也从 64k 改成 128k（原来的值太旧，会把高档压得很小）。
 - 占用条在占用极低时保留 2% 的可见填充，否则整条看着像坏的。
 
+**1.1.0 第三组修补（同日，未发布）**：
+- 模型元信息**只在启动后拉一次**（不轮询）；换模型/地址/Key 时再拉一次。去掉了原来的 10 分钟 TTL，
+  改成「同一 baseUrl+模型拉过就不再打」，代码里不再有定时器语义。
+- token 显示修成 `1M`（之前 1 000 000 会写成 `1000k`）：抽了 `shared/format.ts` 的 `formatTokens`，
+  十万以下保留一位小数（77.1k），百万级用 M。
+
 **发布步骤（没有令牌做不了）**：设置环境变量 `GH_TOKEN`（需 repo 权限），
 然后跑 `node node_modules\electron-builder\cli.js --win --x64 --publish always`；
 或者用 `gh release create v1.1.0` 手动把 `release/` 里的 exe、blockmap、latest.yml 传上去。
