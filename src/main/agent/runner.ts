@@ -2,6 +2,9 @@
 import { settingsStore } from '../store/settings'
 import { DEFAULT_SETTINGS } from '../../shared/defaults'
 import { historyStore } from '../store/history'
+import { contextStore } from '../store/context'
+import { assembleMessages } from '../services/context'
+import type { HistoryMessage } from '../../shared/types'
 import { log } from '../logger'
 import { getTool, listTools, toOpenAiTools, buildWireMap } from './registry'
 import { callTool } from './index'
@@ -116,9 +119,16 @@ function summarizeArgs(def: ToolDef, args: Record<string, unknown>): string {
 
 export async function runAgentTask(
   userText: string,
-  opts: { signal: AbortSignal; events: AgentEvents; image?: { dataUrl: string } }
+  opts: {
+    signal: AbortSignal
+    events: AgentEvents
+    image?: { dataUrl: string }
+    /** 未归档的历史快照（由调用方在写入本轮输入之前取） */
+    history?: HistoryMessage[]
+  }
 ): Promise<AgentRunResult> {
-  const cfg = settingsStore.get().agent
+  const s = settingsStore.get()
+  const cfg = s.agent
   const maxSteps = cfg.maxSteps
   // MCP 工具是动态的：每次任务开始前刷新一次（连不上就跳过）
   await ensureMcpTools()
@@ -129,24 +139,23 @@ export async function runAgentTask(
   const tools = toOpenAiTools(enabled.map((t) => t.id))
   // 模型看到的是 input_type，回来要换回 input.type
   const wireToReal = buildWireMap(enabled.map((t) => t.id))
-  const history = historyStore.recent(6).map((m) => ({ role: m.role, content: m.content }))
+  // 和闲聊走同一套组装：摘要、时间戳、历史口径完全一致（以前这里是 recent(6) 且没有摘要）
+  const buildMessages = (withImage: boolean): unknown[] =>
+    assembleMessages({
+      systemPrompt: buildSystemPrompt(maxSteps, cfg.shellEnabled),
+      summary: contextStore.getSummary(),
+      history: opts.history ?? historyStore.since(contextStore.archivedUpTo()),
+      userText,
+      now: Date.now(),
+      timeAwareness: s.context.timeAwareness,
+      image:
+        withImage && opts.image
+          ? { dataUrl: opts.image.dataUrl, note: s.prompts?.visionNote || '（附上我此刻的屏幕截图）' }
+          : undefined
+    })
   // 屏幕理解：首轮带上截图；模型不支持图片时自动降级为纯文字
   let useImage = Boolean(opts.image?.dataUrl)
-  const userMessage = (): Record<string, unknown> =>
-    useImage && opts.image
-      ? {
-          role: 'user',
-          content: [
-            { type: 'text', text: userText },
-            { type: 'image_url', image_url: { url: opts.image.dataUrl } }
-          ]
-        }
-      : { role: 'user', content: userText }
-  const messages: unknown[] = [
-    { role: 'system', content: buildSystemPrompt(maxSteps, cfg.shellEnabled) },
-    ...history,
-    userMessage()
-  ]
+  const messages: unknown[] = buildMessages(useImage)
   const userIndex = messages.length - 1
   let retriedNoImage = false
 
@@ -166,7 +175,7 @@ export async function runAgentTask(
       if (useImage && !retriedNoImage && /image|vision|multi-?modal|content[ _-]?type|unsupported/i.test(msg)) {
         retriedNoImage = true
         useImage = false
-        messages[userIndex] = { role: 'user', content: userText }
+        messages[userIndex] = buildMessages(false)[userIndex]
         log('vision: Agent 模型拒绝图片，降级为纯文字', msg)
         continue
       }

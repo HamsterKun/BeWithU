@@ -34,8 +34,8 @@ const api = {
     clearHistory: () => invoke<void>(IPC.settingsClearHistory),
     appInfo: () => invoke(IPC.settingsAppInfo),
     revealSecret: (path: string) => invoke<string>(IPC.settingsRevealSecret, path),
-    memoryInfo: () => invoke(IPC.memoryGet),
-    summarizeNow: () => invoke<TestResult>(IPC.memorySummarize),
+    contextInfo: () => invoke(IPC.contextGet),
+    contextCompact: () => invoke<TestResult>(IPC.contextCompact),
     captureTest: () => invoke(IPC.visionCapture),
     asrModelStatus: () => invoke(IPC.asrModelStatus),
     asrModelDownload: () => invoke(IPC.asrModelDownload),
@@ -112,6 +112,10 @@ const api = {
   llmModels: () => ipcRenderer.invoke(IPC.llmModels),
   usageStats: () => ipcRenderer.invoke(IPC.usageStats),
   clearUsage: () => ipcRenderer.invoke(IPC.usageClear),
+  logsTail: (opts?: { lines?: number; keyword?: string; onlyProblems?: boolean }) =>
+    ipcRenderer.invoke(IPC.logsTail, opts),
+  logsOpenDir: () => ipcRenderer.invoke(IPC.logsOpenDir),
+  openRepo: () => ipcRenderer.invoke(IPC.appOpenRepo),
   /** Agent 审批 */
   agent: {
     approve: (id: string, allow: boolean) => ipcRenderer.send(IPC.agentApprove, id, allow)

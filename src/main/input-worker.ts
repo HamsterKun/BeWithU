@@ -341,6 +341,8 @@ const handlers: Record<string, Handler> = {
       return { ok: true }
     },
   scroll: (a) => {
+    // 和其他注入操作一样要过锁屏/登录支付页检查：滚动同样能改变前台窗口状态
+    assertSafe()
     send([packMouse(0, 0, Math.round(Number(a.notches ?? 0) * 120), MOUSEEVENTF_WHEEL)])
     return { ok: true }
   },

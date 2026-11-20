@@ -103,6 +103,12 @@ export async function* streamChat(opts: {
   purpose?: 'chat' | 'summary'
   /** 思考内容增量（不参与播报） */
   onReasoning?: (text: string) => void
+  /**
+   * 服务端返回的用量。cached = 命中前缀缓存的 token 数：
+   * OpenAI 在 prompt_tokens_details.cached_tokens，DeepSeek 在 prompt_cache_hit_tokens，
+   * 都不返回时给 null（设置页显示"—"）。
+   */
+  onUsage?: (usage: { prompt: number; completion: number; cached: number | null }) => void
 }): AsyncGenerator<string> {
   const { llm, messages, signal } = opts
   if (!llm.model.trim()) throw new Error('还没填模型名')
@@ -167,11 +173,16 @@ export async function* streamChat(opts: {
       if (choice?.finish_reason === 'error') throw new Error('模型返回错误')
       // usage 可能在最后一个 chunk（choices 为空）
       if (json.usage) {
-        recordTokens(
-          opts.purpose ?? 'chat',
-          Number(json.usage.prompt_tokens) || 0,
-          Number(json.usage.completion_tokens) || 0
-        )
+        const prompt = Number(json.usage.prompt_tokens) || 0
+        const completion = Number(json.usage.completion_tokens) || 0
+        recordTokens(opts.purpose ?? 'chat', prompt, completion)
+        const rawCached =
+          json.usage.prompt_tokens_details?.cached_tokens ?? json.usage.prompt_cache_hit_tokens
+        opts.onUsage?.({
+          prompt,
+          completion,
+          cached: typeof rawCached === 'number' ? rawCached : null
+        })
       }
     } catch (e) {
       if (e instanceof SyntaxError) continue

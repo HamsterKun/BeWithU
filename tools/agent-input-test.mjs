@@ -70,7 +70,8 @@ class Conn {
   }
   async eval(expression) {
     const r = await this.call('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true })
-    if (r.result?.exceptionDetails) throw new Error('eval: ' + r.result.exceptionDetails.text)
+    const ex = r.result?.exceptionDetails
+    if (ex) throw new Error('eval: ' + (ex.exception?.description || ex.text || 'unknown'))
     return r.result?.result?.value
   }
   close() {
@@ -113,9 +114,25 @@ try {
     await sleep(300)
   }
 
-  // 占位 Key：避免首次运行引导气泡抢焦点
-  await ball.eval("window.bwu.settings.update({ llm: { apiKey: 'sk-agent-input-test' }, bubble: { keepOpen: true } })")
-  await sleep(800)
+  // 占位 Key：避免首次运行引导气泡抢焦点。
+  // 注意：设置写入只暴露在「设置」窗口的桥里（1.0.11 起按窗口角色隔离 IPC），
+  // 球窗口上只有 settings.get，所以这里借气泡打开设置窗口再改。
+  const setPlaceholderSettings = async () => {
+    await bubble.eval("window.bwu.settings.open('model')")
+    let target = null
+    for (let i = 0; i < 25 && !target; i++) {
+      await sleep(200)
+      target = (await jget('/json')).find((x) => x.type === 'page' && x.url.includes('/settings/'))
+    }
+    if (!target) throw new Error('设置窗口没有打开')
+    const settingsWin = await Conn.open(target.webSocketDebuggerUrl)
+    await settingsWin.eval(
+      "window.bwu.settings.update({ llm: { apiKey: 'sk-agent-input-test' }, bubble: { keepOpen: true } })"
+    )
+    await settingsWin.eval('window.close()').catch(() => {})
+    settingsWin.close()
+    await sleep(600)
+  }
 
   const call = (id, args) => ball.eval(`window.bwu.agentTest.call(${JSON.stringify(id)}, ${JSON.stringify(args ?? {})})`)
 
@@ -135,13 +152,26 @@ try {
   const bubbleTarget = l2.find((x) => x.type === 'page' && x.url.includes('/bubble/'))
   bubble = await Conn.open(bubbleTarget.webSocketDebuggerUrl)
   await sleep(400)
-  const geo = await bubble.eval(`(() => {
+  await setPlaceholderSettings()
+  // 设置窗口抢焦点时气泡会被隐藏（Windows 最小化位置 x≈-32000），所以重开再量
+  const measure = () =>
+    bubble.eval(`(() => {
     const input = document.querySelector('.composer__input')
     const pin = document.querySelector('.card__actions .icon-btn')
     const rect = (el) => { const r = el.getBoundingClientRect(); return { x: window.screenX + Math.round(r.x + r.width/2), y: window.screenY + Math.round(r.y + r.height/2) } }
     return { input: rect(input), pin: rect(pin) }
   })()`)
-  ok('bubbleGeometry', Boolean(geo?.input && geo?.pin), geo)
+  let geo = null
+  for (let i = 0; i < 4; i++) {
+    if (!(await ball.eval('window.bwu.agentTest.bubbleVisible()'))) {
+      await ball.eval('window.bwu.ball.toggleBubble()')
+      await sleep(900)
+    }
+    geo = await measure()
+    if (geo?.input && Math.abs(geo.input.x) < 20000 && geo.input.y > -20000) break
+    await sleep(500)
+  }
+  ok('bubbleGeometry', Boolean(geo?.input && geo?.pin && Math.abs(geo.input.x) < 20000), geo)
 
   // 预热一次工作进程
   await call('window.foreground', {})
@@ -208,6 +238,21 @@ try {
   // 7) 目标窗口校验必须生效
   const guard = await call('input.type', { text: 'should-not-appear', expectTitle: 'NoSuchWindowTitle' })
   ok('expectTitleGuard', guard?.ok === false, guard?.summary)
+
+  // 7.5) 登录/支付类窗口下，滚动滚轮也必须被拒绝（REVIEW C2：滚动曾绕过 assertSafe）
+  await bubble.eval('window.bwu.bubble.requestFocus()')
+  await sleep(300)
+  await bubble.eval("document.title = '登录确认'")
+  await sleep(400)
+  const blockedFg = (await call('window.foreground', {}))?.data?.title || ''
+  const scrollBlocked = await call('input.scroll', { amount: 3 })
+  await bubble.eval("document.title = 'BeWithU Bubble'")
+  await sleep(200)
+  ok(
+    'scrollGateOnBlockedTitle',
+    blockedFg.includes('登录') && scrollBlocked?.ok === false && /登录|支付/.test(String(scrollBlocked?.summary || '')),
+    { foreground: blockedFg, scroll: scrollBlocked }
+  )
 
   // 8) 鼠标位置 / 屏幕信息
   const cur = await call('input.cursor', {})

@@ -7,14 +7,6 @@ export type TtsProvider = 'volc' | 'breeze'
 export type VoiceMode = 'hold' | 'toggle'
 export type Phase = 'idle' | 'listening' | 'thinking' | 'speaking' | 'acting'
 
-export interface SummaryModelSettings {
-  /** 开启后用专用（更快的）模型做记忆总结，否则复用对话模型 */
-  enabled: boolean
-  baseUrl: string
-  apiKey: string
-  model: string
-}
-
 export interface VisionSettings {
   /** 每次说话自动截一张当前屏幕发给模型 */
   enabled: boolean
@@ -36,11 +28,29 @@ export interface LlmSettings {
   apiKey: string
   model: string
   temperature: number
-  historyTurns: number
   systemPrompt: string
-  summary: SummaryModelSettings
   vision: VisionSettings
   thinking: ThinkingSettings
+}
+
+/** 上下文长度档位：低=可用上限的 1/3，中=2/3，高=可用上限 */
+export type ContextLevel = 'low' | 'mid' | 'high'
+
+/**
+ * 时间感知粒度：
+ * - off：不带任何时间
+ * - current：只给「本轮消息」带时间与间隔（默认，几乎零成本）
+ * - full：每条历史消息都带（约 +8 token/条）
+ */
+export type TimeAwareness = 'off' | 'current' | 'full'
+
+export interface ContextSettings {
+  level: ContextLevel
+  /** 0 = 按模型名自动识别；>0 = 用户手动指定模型窗口 */
+  modelWindow: number
+  timeAwareness: TimeAwareness
+  /** 压缩时逐字保留的最近轮数（1–12） */
+  keepRecentTurns: number
 }
 
 export interface BreezeTtsSettings {
@@ -263,6 +273,8 @@ export interface PromptSettings {
 
 export interface Settings {
   llm: LlmSettings
+  /** 上下文管理：永远开启，不再提供总开关 */
+  context: ContextSettings
   tts: TtsSettings
   asr: AsrSettings
   voice: VoiceSettings
@@ -278,7 +290,6 @@ export interface Settings {
 
 export type SecretPath =
   | 'llm.apiKey'
-  | 'llm.summary.apiKey'
   | 'tts.accessToken'
   | 'tts.apiKey'
   | 'tts.breeze.apiKey'
@@ -341,13 +352,51 @@ export interface AsrModelProgress {
   error?: string
 }
 
-export interface MemoryInfo {
-  summary: string
-  updatedAt: number
-  /** 待总结的对话条数 / 触发阈值 */
-  pending: number
-  threshold: number
+/** 日志行（级别是按关键字推断的，日志格式本身不带级别字段） */
+export type LogLevel = 'info' | 'warn' | 'error'
+
+export interface LogLine {
+  /** 原始时间戳（ISO），解析不出来就是空串 */
+  at: string
+  level: LogLevel
+  text: string
 }
+
+export interface LogTail {
+  path: string
+  /** 日志文件总大小（字节） */
+  sizeBytes: number
+  /** 文件里的总行数（只数读过的那一段） */
+  total: number
+  /** 过滤后返回的行数 */
+  shown: number
+  lines: LogLine[]
+}
+
+/** 设置页「上下文」分区用：只给统计，不给摘要正文（可能几万字） */
+export interface ContextInfo {
+  /** 摘要字数（0 = 还没有摘要） */
+  summaryChars: number
+  updatedAt: number
+  /** 已归档进摘要的消息条数 */
+  archived: number
+  /** 还没归档、会原文发出去的消息条数 */
+  pending: number
+  /** 估算的当前占用 tokens */
+  used: number
+  /** 当前档位预算 */
+  budget: number
+  level: ContextLevel
+  window: number
+  windowSource: 'manual' | 'table' | 'fallback'
+  /** 累计压缩次数与最近一次的前后体积 */
+  compressions: number
+  lastBefore: number
+  lastAfter: number
+  /** 最近一次请求的缓存命中（服务端不返回就是 null） */
+  cacheHit: { hit: number; total: number } | null
+}
+
 
 export interface ScreenCaptureInfo {
   ok: boolean

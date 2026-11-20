@@ -8,7 +8,8 @@ import type {
   BubbleNotice,
   DataDirInfo,
   McpServerConfig,
-  MemoryInfo,
+  ContextInfo,
+  LogTail,
   UsageSummary,
   Phase,
   PublicSettings,
@@ -34,8 +35,8 @@ export const IPC = {
   settingsClearHistory: 'settings:clear-history',
   settingsAppInfo: 'settings:app-info',
   settingsRevealSecret: 'settings:reveal-secret',
-  memoryGet: 'memory:get',
-  memorySummarize: 'memory:summarize',
+  contextGet: 'context:get',
+  contextCompact: 'context:compact',
   visionCapture: 'vision:capture',
   asrModelStatus: 'asr:model-status',
   asrModelDownload: 'asr:model-download',
@@ -145,6 +146,9 @@ export const IPC = {
   llmModels: 'llm:models',
   usageStats: 'usage:stats',
   usageClear: 'usage:clear',
+  logsTail: 'logs:tail',
+  logsOpenDir: 'logs:open-dir',
+  appOpenRepo: 'app:open-repo',
   searchTest: 'search:test',
   appPickDir: 'app:pick-dir'
 } as const
@@ -201,8 +205,8 @@ export interface BwuApi {
     clearHistory(): Promise<void>
     appInfo(): Promise<AppInfo>
     revealSecret(path: SecretPath): Promise<string>
-    memoryInfo(): Promise<MemoryInfo>
-    summarizeNow(): Promise<TestResult>
+    contextInfo(): Promise<ContextInfo>
+    contextCompact(): Promise<TestResult>
     captureTest(): Promise<ScreenCaptureInfo>
     asrModelStatus(): Promise<AsrModelProgress>
     asrModelDownload(): Promise<AsrModelProgress>
@@ -284,6 +288,11 @@ export interface BwuApi {
   /** 用量统计 */
   usageStats(): Promise<UsageSummary>
   clearUsage(): Promise<UsageSummary>
+  /** 日志尾部（只读最后一段，按关键字/问题级别过滤） */
+  logsTail(opts?: { lines?: number; keyword?: string; onlyProblems?: boolean }): Promise<LogTail>
+  logsOpenDir(): Promise<void>
+  /** 打开项目主页（固定地址，不接受渲染进程传 URL） */
+  openRepo(): Promise<void>
   /** Agent 审批（气泡里点允许/拒绝） */
   agent: {
     approve(id: string, allow: boolean): void

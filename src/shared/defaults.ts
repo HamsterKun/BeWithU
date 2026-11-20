@@ -2,6 +2,8 @@ import type { Settings } from './types'
 
 export const APP_NAME = 'BeWithU'
 export const APP_ID = 'com.bewithu.app'
+/** 项目主页：关于页的「给颗星星」卡片会打开它 */
+export const APP_REPO_URL = 'https://github.com/HamsterKun/BeWithU'
 
 export const DEFAULT_SYSTEM_PROMPT =
   '你是「小伴」，用户的桌面 AI 游戏搭子。说话像真人队友：短句、口语、有情绪，先给结论再补一句理由。' +
@@ -21,18 +23,27 @@ export const DEFAULT_AGENT_PROMPT = `【你现在可以使用工具直接操作�
 export const DEFAULT_CLOSING_PROMPT =
   '现在用 1-3 句话直接告诉用户结果（做了什么、结果如何、下一步建议），不要再调用任何工具。'
 
-export const DEFAULT_SUMMARY_PROMPT = `你负责记住「你和这个人之间发生过什么」。把【已有记忆】和【新增对话】合并成一段自然、连贯的回忆，之后的对话会把它当成你已经知道的事。
+export const DEFAULT_SUMMARY_PROMPT = `你负责压缩「你和这个人之间的对话历史」。把【已有摘要】和【新增对话】合并成一份新的摘要，之后的对话会把它当成已经发生过的事。
 
-怎么写：
-1. 像跟朋友回忆往事那样说话，用「他/她」叙事，不要写成「- 」条目、备忘录或会议纪要。
-2. 每件事都要交代来龙去脉：因为什么起头、中间怎么折腾的、最后成了没有；没解决的写清楚卡在哪。
-3. 留住有人味的东西：他怎么称呼自己、当时什么情绪（烦、乐、急）、反复提过的偏好和雷区、你们之间的约定和玩笑。
-4. 正在玩的游戏、正在做的事，要写清进度和状态，不要只丢一个名字。
-5. 宁可少写几件事，也要把写下的那几件说清楚；不要为了凑字数罗列。
-6. 不编造、不脑补工具结果，不确定的事就不写。
-7. 全文 300 字以内，只输出这段回忆本身：不要标题、不要 Markdown、不要分点符号。
+总体风格：
+1. 用「他/她」第三人称叙事，像跟朋友回忆往事，不要写成会议纪要或流水账。
+2. 每件事交代来龙去脉：因为什么起头、中间怎么折腾、最后成没成；没解决的写清楚卡在哪。
+3. 留住有人味的东西：他自称什么、当时的情绪（烦、乐、急）、反复提过的偏好和雷区、你们之间的约定和玩笑。
+4. 正在玩的游戏、正在做的事，写清进度和状态，不要只丢一个名字。
+5. 不编造、不脑补工具结果；不确定的事就不写。
 
-【已有记忆】
+必须保留下来的具体信息（最容易在压缩中丢失，丢了用户下一轮就接不上）：
+6. 具体数字、文件名、路径、命令、报错原文、配置项名，原样保留，不要改写成「一些文件」。
+7. 已经做过的决定和结论，直接写结论本身，不要只写「讨论过 X」。
+8. 没做完的待办和答应过的事，单独写清楚还差什么。
+9. 对话里出现过的时间（日期、昨天、上周）保留时间锚点，方便判断事情先后。
+
+输出格式：
+10. 先写叙事段落（主体），再写一节「【关键事实】」，用短条目列第 6-9 条要求的内容。
+11. 只输出摘要本身，不要标题、不要代码块、不要解释你在做什么。
+12. 字数上限按下面给出的要求执行；宁可写长一点把事说清楚，也不要为了简短丢掉细节。
+
+【已有摘要】
 `
 
 export const DEFAULT_VISION_NOTE = '（附上我此刻的屏幕截图）'
@@ -45,14 +56,7 @@ export const DEFAULT_SETTINGS: Settings = {
     // 模型名不预填：让用户自己「获取列表」或手填
     model: '',
     temperature: 0.8,
-    historyTurns: 8,
     systemPrompt: DEFAULT_SYSTEM_PROMPT,
-    summary: {
-      enabled: false,
-      baseUrl: '',
-      apiKey: '',
-      model: ''
-    },
     thinking: {
       // 默认不开启：思考更慢也更贵，交给用户自己决定
       enabled: false,
@@ -61,6 +65,15 @@ export const DEFAULT_SETTINGS: Settings = {
     vision: {
       enabled: false
     }
+  },
+  context: {
+    // 中档：约等于模型可用上限的 2/3，兼顾记忆深度与首字延迟
+    level: 'mid',
+    // 0 = 按模型名自动识别
+    modelWindow: 0,
+    // 只给本轮带时间：几乎零成本，且「距上一条多久」比每条打戳更有用
+    timeAwareness: 'current',
+    keepRecentTurns: 4
   },
   tts: {
     enabled: false,

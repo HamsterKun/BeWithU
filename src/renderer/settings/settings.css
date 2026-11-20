@@ -1437,3 +1437,209 @@ body {
   color: #475569;
   background: rgba(100, 116, 139, 0.16);
 }
+
+/* ------------------------------------------------------------ 上下文占用条 ---- */
+.ctx-meter {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+}
+
+.ctx-meter__bar {
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(var(--ink), 0.1);
+  overflow: hidden;
+}
+
+.ctx-meter__bar > span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+  transition: width 0.25s ease;
+}
+
+.ctx-meter__bar.is-warn > span {
+  background: #d97706;
+}
+
+.ctx-meter__bar.is-danger > span {
+  background: #dc2626;
+}
+
+/* ------------------------------------------------------------ 运行日志 ---- */
+.log-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.input--search {
+  flex: 1 1 220px;
+  min-width: 160px;
+}
+
+.log-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: rgba(var(--ink), 0.72);
+  white-space: nowrap;
+}
+
+.log-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  margin: 2px 0 6px;
+}
+
+.logbox {
+  width: 100%;
+  height: 260px;
+  overflow: auto;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(var(--ink), 0.1);
+  background: rgba(var(--ink), 0.04);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.logbox__empty {
+  color: rgba(var(--ink), 0.45);
+  padding: 8px 2px;
+}
+
+.logbox__line {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  white-space: pre-wrap;
+  word-break: break-word;
+  padding: 1px 0;
+  color: rgba(var(--ink), 0.82);
+}
+
+.logbox__line.is-warn {
+  color: #d97706;
+}
+
+.logbox__line.is-error {
+  color: #dc2626;
+}
+
+.logbox__time {
+  flex: 0 0 auto;
+  color: rgba(var(--ink), 0.42);
+}
+
+.logbox__line.is-warn .logbox__time,
+.logbox__line.is-error .logbox__time {
+  color: inherit;
+  opacity: 0.7;
+}
+
+.logbox__tag {
+  flex: 0 0 auto;
+  padding: 0 5px;
+  border-radius: 4px;
+  font-size: 10px;
+  line-height: 16px;
+  background: rgba(var(--ink), 0.1);
+}
+
+.logbox__tag.is-warn {
+  background: rgba(217, 119, 6, 0.16);
+  color: #b45309;
+}
+
+.logbox__tag.is-error {
+  background: rgba(220, 38, 38, 0.14);
+  color: #b91c1c;
+}
+
+.logbox__text {
+  flex: 1 1 auto;
+}
+
+.log-path {
+  flex: 1 1 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: rgba(var(--ink), 0.4);
+}
+
+/* ------------------------------------------------------------ 项目主页卡 ---- */
+.repo-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  width: 100%;
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1px solid rgba(var(--ink), 0.1);
+  background: linear-gradient(135deg, rgba(103, 232, 249, 0.1), rgba(167, 139, 250, 0.1));
+}
+
+.repo-card__main {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.repo-card__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  border-radius: 10px;
+  background: rgba(234, 179, 8, 0.18);
+  color: #d97706;
+}
+
+.repo-card__text {
+  min-width: 0;
+}
+
+.repo-card__text b {
+  font-size: 13px;
+}
+
+.repo-card__text p {
+  margin: 2px 0 0;
+}
+
+[data-theme='light'] .repo-card {
+  background: linear-gradient(135deg, rgba(8, 145, 178, 0.08), rgba(124, 58, 237, 0.08));
+}
+
+[data-theme='light'] .logbox {
+  background: #fff;
+  border-color: rgba(15, 23, 42, 0.12);
+}
+
+[data-theme='light'] .logbox__line {
+  color: #1f2937;
+}
+
+[data-theme='light'] .logbox__line.is-warn {
+  color: #a16207;
+}
+
+[data-theme='light'] .logbox__line.is-error {
+  color: #b91c1c;
+}

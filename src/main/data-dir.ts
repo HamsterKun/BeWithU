@@ -43,7 +43,7 @@ export function isCustomDataDir(): boolean {
 }
 
 /** 应用自有数据。Chromium 数据及指针文件不属于迁移内容。 */
-const ITEMS = ['settings.json', 'secrets.bin', 'history.json', 'memory.json', 'usage.json', 'models', 'logs', 'agent']
+const ITEMS = ['settings.json', 'secrets.bin', 'history.json', 'context.json', 'memory.json', 'usage.json', 'models', 'logs', 'agent']
 
 interface ManifestEntry {
   path: string

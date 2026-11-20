@@ -97,7 +97,10 @@ export default function PromptPane({ s, patch }: PaneProps): React.ReactElement 
         </div>
       </Section>
 
-      <Section title="记忆总结提示词" desc="把旧对话压缩成长期记忆时用的规则；只在触发自动整理时生效">
+      <Section
+        title="上下文压缩提示词"
+        desc="把较早的对话压成摘要时用的规则；字数上限由「上下文」页的档位决定，写死在这里没用"
+      >
         <TextArea
           value={s.prompts.summary}
           rows={10}

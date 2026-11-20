@@ -1,7 +1,7 @@
-import type { Phase, Settings } from '../../shared/types'
+import type { ContextInfo, Phase, Settings } from '../../shared/types'
 import { IPC } from '../../shared/ipc'
 import { historyStore } from '../store/history'
-import { memoryStore } from '../store/memory'
+import { contextStore } from '../store/context'
 import { settingsStore } from '../store/settings'
 import { log } from '../logger'
 import { VolcAsr } from './asr'
@@ -11,6 +11,16 @@ import { streamChat, type ChatMessage } from './llm'
 import { synthesize } from './tts'
 import { SentenceSplitter } from './splitter'
 import { summarizeConversation } from './summarizer'
+import {
+  assembleMessages,
+  budgetFor,
+  calibrate,
+  estimatePrompt,
+  needsCompaction,
+  splitForCompaction,
+  summaryCharsFor
+} from './context'
+import { resolveModelWindow } from '../../shared/model-window'
 import { captureScreen, type ScreenCapture } from './vision'
 import { LocalAsrSession } from './local-asr'
 import { modelReady } from './local-asr'
@@ -153,9 +163,12 @@ class Conversation {
   private hideTimer: NodeJS.Timeout | null = null
   private maxHoldTimer: NodeJS.Timeout | null = null
   private previewSeq = 900000
-  private summarizing = false
-  private memoryGen = 0
+  /** 正在进行的压缩：下一轮开始前必须等它，否则会带着旧摘要重复压缩 */
+  private compacting: Promise<void> | null = null
+  private ctxGen = 0
   private visionWarned = false
+  /** 最近一次请求的真实/估算 token，用于校准与展示 */
+  private lastUsage: { actual: number; estimated: number; cacheHit: number | null } | null = null
 
   get currentPhase(): Phase {
     return this.phase
@@ -459,20 +472,20 @@ class Conversation {
       return
     }
 
-    const history = historyStore.recent(s.llm.historyTurns)
+    // 有压缩在跑就先等它：否则会拿旧摘要重复压，前缀也会在发送前突然变一次
+    await this.settleContext()
+
     const rawName = (s.ui.assistantName || '').trim()
-    const name = rawName || 'TA'
     // 没设名字就不往提示词里塞自称，避免模型自称「TA」
     const systemPrompt =
       rawName && !s.llm.systemPrompt.includes(rawName)
         ? `${s.llm.systemPrompt}\n\n补充：你的名字是「${rawName}」，需要自称时用这个名字。`
         : s.llm.systemPrompt
-    const memory = memoryStore.get()
-    // 摘要并进同一条 system，兼容只接受单条 system 的服务端
-    let systemContent = memory
-      ? `${systemPrompt}\n\n【长期记忆摘要】以下是更早之前聊过的要点，回答时当作你已经知道：\n${memory}`
-      : systemPrompt
 
+    // 先取快照再加本轮输入，否则本轮会被当成历史重复发一遍
+    const now = Date.now()
+    contextStore.clampArchived(historyStore.count())
+    const historySnapshot = historyStore.since(contextStore.archivedUpTo())
     historyStore.add('user', userText)
 
     // 屏幕理解：开着就截图，看/不看由模型自己决定
@@ -493,25 +506,25 @@ class Conversation {
       }
     }
 
-    const buildMessages = (withImage: boolean): ChatMessage[] => {
-      const list: ChatMessage[] = [{ role: 'system', content: systemContent }]
-      list.push(...history.map((m) => ({ role: m.role, content: m.content })))
-      if (withImage && shot) {
-        list.push({
-          role: 'user',
-          content: [
-            { type: 'text', text: `${userText}\n\n${s.prompts?.visionNote || '（附上我此刻的屏幕截图）'}` },
-            { type: 'image_url', image_url: { url: shot.dataUrl } }
-          ]
-        })
-      } else {
-        list.push({ role: 'user', content: userText })
-      }
-      return list
-    }
+    // 图片只进最后一条消息：历史里永远是纯文字，否则每轮重传 base64 既贵又毁缓存
+    const buildMessages = (withImage: boolean): ChatMessage[] =>
+      assembleMessages({
+        systemPrompt,
+        summary: contextStore.getSummary(),
+        history: historySnapshot,
+        userText,
+        now,
+        timeAwareness: s.context.timeAwareness,
+        image:
+          withImage && shot
+            ? { dataUrl: shot.dataUrl, note: s.prompts?.visionNote || '（附上我此刻的屏幕截图）' }
+            : undefined
+      })
 
     let useImage = Boolean(shot)
     let messages = buildMessages(useImage)
+    const contextBudget = budgetFor(s.context.level, resolveModelWindow(s.llm.model, s.context.modelWindow).window)
+    const estimated = estimatePrompt(messages)
 
     const controller = new AbortController()
     this.abortLlm = controller
@@ -550,6 +563,15 @@ class Conversation {
           signal: controller.signal,
           onReasoning: (t) => {
             if (turn === this.turnId) sendBubble({ type: 'reasoning-delta', text: t })
+          },
+          onUsage: (usage) => {
+            // 用真实 prompt_tokens 校准估算；顺带记下缓存命中给设置页展示
+            calibrate(usage.prompt, estimated)
+            this.lastUsage = {
+              actual: usage.prompt,
+              estimated,
+              cacheHit: usage.cached === null ? null : usage.cached
+            }
           }
         })) {
           if (turn !== this.turnId) return
@@ -591,7 +613,7 @@ class Conversation {
     sendBubble({ type: 'assistant-end' })
 
     if (answer.trim()) historyStore.add('assistant', answer.trim())
-    void this.maybeSummarize()
+    this.maybeCompact()
 
     if (failed || !answer.trim()) {
       if (!answer.trim()) this.notify('info', '这次没生成出内容，再试一次？')
@@ -622,6 +644,12 @@ class Conversation {
 
   /** Agent 模式：跑工具循环，边显示边播报，结束时收起 */
   private async respondWithAgent(userText: string, turn: number, s: Settings): Promise<void> {
+    // 和闲聊一样：先等压缩落定，再取历史快照，最后才把本轮写入记录
+    await this.settleContext()
+    contextStore.clampArchived(historyStore.count())
+    const historySnapshot = historyStore.since(contextStore.archivedUpTo())
+    // 旧代码只在 Agent 结束时记 assistant，用户的问句从来没进过历史 —— 顺手补上
+    historyStore.add('user', userText)
     this.setPhase('acting', '工作中')
     sendBubble({ type: 'reasoning-reset' })
     // 不在这里收：等模型真的开始调工具再收（纯聊天不该把窗口藏起来）
@@ -666,6 +694,7 @@ class Conversation {
     try {
       const res = await runAgentTask(userText, {
         signal: controller.signal,
+        history: historySnapshot,
         image: agentShot ? { dataUrl: agentShot.dataUrl } : undefined,
         events: {
           onReasoning: (text) => {
@@ -768,7 +797,7 @@ class Conversation {
       this.setPhase('idle')
       this.scheduleHide()
     }, 5000)
-    void this.maybeSummarize()
+    this.maybeCompact()
   }
   private pushAudio(seq: number, pcm: Buffer | null): void {
     const win = getBallWindow()
@@ -804,75 +833,153 @@ class Conversation {
   }
 
   /**
-   * 记忆压缩：对话条数达到 轮数×2 时，把「已有摘要 + 这批对话」合成新摘要，
-   * 然后把已归档的对话从记录里移除，下一轮只带摘要 + 新增对话。
+   * 上下文压缩：把「已有摘要 + 待归档对话」压成新摘要，并推进归档游标。
+   *
+   * 只在两个时机调用：① 回答结束后发现水位超了（后台预压，下一轮前完成）；
+   * ② 用户在设置页点「立即压缩」。压缩**不删本地记录**，只推游标。
    */
-  private async maybeSummarize(): Promise<void> {
+  private async compact(reason: 'auto' | 'manual'): Promise<{ ok: boolean; message: string }> {
+    if (this.compacting) return { ok: false, message: '正在压缩中，稍等一下' }
     const s = settingsStore.get()
-    const turns = Math.max(0, Math.floor(s.llm.historyTurns))
-    if (turns <= 0) return
-    if (historyStore.count() < turns * 2) return
-    if (this.summarizing) return
+    const gen = this.ctxGen
+    const archived = contextStore.archivedUpTo()
+    contextStore.clampArchived(historyStore.count())
+    const pending = historyStore.since(contextStore.archivedUpTo())
+    const split = splitForCompaction(pending, s.context.keepRecentTurns)
+    if (split.cold <= 0) return { ok: false, message: '最近的对话还不够压，再聊几轮吧' }
 
-    this.summarizing = true
-    const gen = this.memoryGen
-    const snapshot = historyStore.all()
-    try {
-      const text = await summarizeConversation({
-        summary: memoryStore.get(),
-        messages: snapshot,
-        llm: s.llm
+    const cold = pending.slice(0, split.cold)
+    const budget = budgetFor(s.context.level, resolveModelWindow(s.llm.model, s.context.modelWindow).window)
+    const before = estimatePrompt(
+      assembleMessages({
+        systemPrompt: s.llm.systemPrompt,
+        summary: contextStore.getSummary(),
+        history: pending,
+        userText: '',
+        now: Date.now(),
+        timeAwareness: 'off'
       })
-      if (gen !== this.memoryGen) return
-      if (!text) {
-        log('memory: 总结返回为空，保留原对话')
+    )
+
+    this.compacting = (async () => {
+      const text = await summarizeConversation({
+        summary: contextStore.getSummary(),
+        messages: cold,
+        llm: s.llm,
+        maxChars: summaryCharsFor(s.context.level)
+      })
+      if (gen !== this.ctxGen) return
+      if (!text.trim()) {
+        log('context: 摘要为空，保留原状')
         return
       }
-      memoryStore.set(text)
-      historyStore.drop(snapshot.length)
-      log('memory: 摘要已更新', `${text.length} 字 / 归档 ${snapshot.length} 条`)
-      sendBubble({ type: 'notice', notice: { kind: 'success', text: '已自动整理刚才的对话记忆' } })
-    } catch (e) {
-      log('memory: 总结失败', e instanceof Error ? e.message : e)
-    } finally {
-      this.summarizing = false
-    }
-  }
-
-  memoryInfo(): { summary: string; updatedAt: number; pending: number; threshold: number } {
-    const turns = Math.max(0, Math.floor(settingsStore.get().llm.historyTurns))
-    return {
-      summary: memoryStore.get(),
-      updatedAt: memoryStore.updatedAt(),
-      pending: historyStore.count(),
-      threshold: turns * 2
-    }
-  }
-
-  /** 手动触发一次记忆整理（不等阈值） */
-  async summarizeNow(): Promise<{ ok: boolean; message: string }> {
-    if (this.summarizing) return { ok: false, message: '正在整理中，稍等一下' }
-    const snapshot = historyStore.all()
-    if (!snapshot.length) return { ok: false, message: '还没有可以整理的对话' }
-    this.summarizing = true
-    const gen = this.memoryGen
-    try {
-      const text = await summarizeConversation({
-        summary: memoryStore.get(),
-        messages: snapshot,
-        llm: settingsStore.get().llm
+      const after = estimatePrompt(
+        assembleMessages({
+          systemPrompt: s.llm.systemPrompt,
+          summary: text,
+          history: pending.slice(split.cold),
+          userText: '',
+          now: Date.now(),
+          timeAwareness: 'off'
+        })
+      )
+      contextStore.setSummary({
+        summary: text,
+        archivedUpTo: archived + split.cold,
+        before,
+        after
       })
-      if (gen !== this.memoryGen) return { ok: false, message: '上下文已被清空，已放弃这次整理' }
-      if (!text) return { ok: false, message: '这次没能整理出内容，已保留原有记忆' }
-      memoryStore.set(text)
-      historyStore.drop(snapshot.length)
-      log('memory: 手动整理完成', `${text.length} 字`)
-      return { ok: true, message: '记忆已更新' }
+      log('context: 已压缩', `${cold.length} 条 → ${text.length} 字 / 约 ${before} → ${after} tokens (预算 ${budget})`)
+      if (reason === 'manual') return
+      sendBubble({ type: 'notice', notice: { kind: 'success', text: '上下文已整理，刚才的对话我记住了' } })
+    })()
+
+    try {
+      await this.compacting
+      return { ok: true, message: '已压缩' }
     } catch (e) {
-      return { ok: false, message: e instanceof Error ? e.message : String(e) }
+      const msg = e instanceof Error ? e.message : String(e)
+      log('context: 压缩失败', msg)
+      return { ok: false, message: msg }
     } finally {
-      this.summarizing = false
+      this.compacting = null
     }
+  }
+
+  /** 有压缩在跑就等它（阻塞方案：宁可让这一轮多等，也不要带着旧摘要重复压） */
+  private async settleContext(): Promise<void> {
+    const running = this.compacting
+    if (!running) return
+    try {
+      await running
+    } catch {
+      /* compact 内部已记日志 */
+    }
+  }
+
+  /** 回答结束后：水位超了就预压，用户听播报的这几秒正好用来压缩 */
+  private maybeCompact(): void {
+    if (this.compacting) return
+    const s = settingsStore.get()
+    const window = resolveModelWindow(s.llm.model, s.context.modelWindow).window
+    const budget = budgetFor(s.context.level, window)
+    const used =
+      this.lastUsage?.actual ??
+      estimatePrompt(
+        assembleMessages({
+          systemPrompt: s.llm.systemPrompt,
+          summary: contextStore.getSummary(),
+          history: historyStore.since(contextStore.archivedUpTo()),
+          userText: '',
+          now: Date.now(),
+          timeAwareness: 'off'
+        })
+      )
+    if (!needsCompaction(used, budget)) return
+    void this.compact('auto').catch(() => {})
+  }
+
+  contextInfo(): ContextInfo {
+    const s = settingsStore.get()
+    const resolved = resolveModelWindow(s.llm.model, s.context.modelWindow)
+    const budget = budgetFor(s.context.level, resolved.window)
+    contextStore.clampArchived(historyStore.count())
+    const archived = contextStore.archivedUpTo()
+    const pending = historyStore.count() - archived
+    const used =
+      this.lastUsage?.actual ??
+      estimatePrompt(
+        assembleMessages({
+          systemPrompt: s.llm.systemPrompt,
+          summary: contextStore.getSummary(),
+          history: historyStore.since(archived),
+          userText: '',
+          now: Date.now(),
+          timeAwareness: 'off'
+        })
+      )
+    const stats = contextStore.stats()
+    const hit = this.lastUsage?.cacheHit
+    return {
+      summaryChars: contextStore.getSummary().length,
+      updatedAt: contextStore.updatedAt(),
+      archived,
+      pending: Math.max(0, pending),
+      used,
+      budget,
+      level: s.context.level,
+      window: resolved.window,
+      windowSource: resolved.source,
+      compressions: stats.compressions,
+      lastBefore: stats.lastBefore,
+      lastAfter: stats.lastAfter,
+      cacheHit: hit === null || hit === undefined ? null : { hit, total: this.lastUsage?.actual ?? 0 }
+    }
+  }
+
+  /** 设置页「立即压缩」：不等水位 */
+  compactNow(): Promise<{ ok: boolean; message: string }> {
+    return this.compact('manual')
   }
 
   /* ----------------------------------------------------------- control ---- */
@@ -905,8 +1012,8 @@ class Conversation {
   /** 清空多轮上下文：停掉当前播报，清历史与长期记忆，气泡回到空白状态 */
   clearContext(): void {
     historyStore.clear()
-    memoryStore.clear()
-    this.memoryGen += 1
+    contextStore.clear()
+    this.ctxGen += 1
     cancelApprovalsForTurn(this.turnId)
     this.turnId++
     this.speech?.abort()

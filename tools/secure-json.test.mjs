@@ -39,7 +39,7 @@ registerHooks({
 
 const secure = await import('../src/main/store/secure-json.ts')
 const historyUrl = new URL('../src/main/store/history.ts', import.meta.url).href
-const memoryUrl = new URL('../src/main/store/memory.ts', import.meta.url).href
+const contextUrl = new URL('../src/main/store/context.ts', import.meta.url).href
 
 test('加密可用：写入带 BWU1 前缀，读回一致', () => {
   const file = join(userData, 'a.json')
@@ -107,12 +107,13 @@ test('history 存储：加密写盘、重载能读回，旧明文自动升级', 
   assert.ok(readFileSync(file, 'utf8').startsWith('BWU1:'))
 })
 
-test('memory 存储：加密写盘、重载能读回', async () => {
-  const m1 = await import(`${memoryUrl}?v=1`)
-  m1.memoryStore.set('用户喜欢射击游戏')
-  assert.ok(readFileSync(join(userData, 'memory.json'), 'utf8').startsWith('BWU1:'))
-  const m2 = await import(`${memoryUrl}?v=2`)
-  assert.equal(m2.memoryStore.get(), '用户喜欢射击游戏')
+test('context 存储：加密写盘、重载能读回', async () => {
+  const m1 = await import(`${contextUrl}?v=1`)
+  m1.contextStore.setSummary({ summary: '用户喜欢射击游戏', archivedUpTo: 2, before: 900, after: 120 })
+  assert.ok(readFileSync(join(userData, 'context.json'), 'utf8').startsWith('BWU1:'))
+  const m2 = await import(`${contextUrl}?v=2`)
+  assert.equal(m2.contextStore.getSummary(), '用户喜欢射击游戏')
+  assert.equal(m2.contextStore.archivedUpTo(), 2)
 })
 
 process.on('exit', () => rmSync(userData, { recursive: true, force: true }))

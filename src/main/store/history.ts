@@ -48,6 +48,19 @@ class HistoryStore {
     return n === 0 ? [] : this.messages.slice(-n)
   }
 
+  /** 下标 from 之后的全部消息（上下文用的"未归档"部分） */
+  since(from: number): HistoryMessage[] {
+    this.load()
+    const start = Math.max(0, Math.floor(from) || 0)
+    return start === 0 ? this.messages.slice() : this.messages.slice(start)
+  }
+
+  at(index: number): number {
+    this.load()
+    const item = this.messages[Math.floor(index)]
+    return item ? item.at : 0
+  }
+
   all(): HistoryMessage[] {
     this.load()
     return this.messages.slice()

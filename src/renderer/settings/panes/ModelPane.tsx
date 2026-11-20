@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { LLM_PRESETS } from '@shared/presets'
-import type { LlmPreset, MemoryInfo } from '@shared/types'
+import type { LlmPreset } from '@shared/types'
 import {
   Btn,
   Field,
@@ -17,10 +17,6 @@ import {
 import type { PaneProps } from './types'
 
 export default function ModelPane({ s, patch }: PaneProps): React.ReactElement {
-  const [mem, setMem] = useState<MemoryInfo | null>(null)
-  const [showSummary, setShowSummary] = useState(false)
-  const [busy, setBusy] = useState(false)
-  const [result, setResult] = useState('')
   const [shot, setShot] = useState('')
   const [shotMsg, setShotMsg] = useState('')
   const [shotBusy, setShotBusy] = useState(false)
@@ -59,31 +55,6 @@ export default function ModelPane({ s, patch }: PaneProps): React.ReactElement {
       setShotBusy(false)
     }
   }
-
-  const refreshMem = (): void => {
-    void window.bwu.settings.memoryInfo().then(setMem)
-  }
-
-  const runSummarize = async (): Promise<void> => {
-    setBusy(true)
-    setResult('')
-    try {
-      const r = await window.bwu.settings.summarizeNow()
-      setResult(r.message)
-    } catch (e) {
-      setResult(e instanceof Error ? e.message : String(e))
-    } finally {
-      setBusy(false)
-      refreshMem()
-    }
-  }
-
-  useEffect(() => {
-    refreshMem()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [s.llm.historyTurns, s.llm.summary.enabled])
-
-  const summaryText = mem?.summary ?? ''
 
   return (
     <>
@@ -179,16 +150,6 @@ export default function ModelPane({ s, patch }: PaneProps): React.ReactElement {
               { value: 'high', label: '高' }
             ]}
             onChange={(v) => patch({ llm: { thinking: { effort: v } } })}
-          />
-        </Field>
-
-        <Field label="记忆轮数" hint="设为 0 则不记上下文">
-          <NumberInput
-            value={s.llm.historyTurns}
-            min={0}
-            max={50}
-            onChange={(v) => patch({ llm: { historyTurns: v } })}
-            suffix="轮"
           />
         </Field>
 
@@ -288,78 +249,6 @@ export default function ModelPane({ s, patch }: PaneProps): React.ReactElement {
         </div>
       </Section>
 
-      <Section
-        title="对话记忆"
-        desc={
-          s.llm.historyTurns > 0
-            ? `超过 ${s.llm.historyTurns} 轮后自动整理成记忆，之后每次对话都会带上`
-            : '记忆轮数为 0，不会保存上下文'
-        }
-      >
-        <Field label="当前记忆" hint="自动生成，不可编辑">
-          <div className="stack">
-            <span className="muted small">
-              {summaryText
-                ? `${summaryText.length} 字 · 更新于 ${new Date(mem?.updatedAt ?? 0).toLocaleString()}`
-                : '还没有记忆'}
-              {mem ? ` · 待整理 ${mem.pending}/${mem.threshold}` : ''}
-            </span>
-            <Btn onClick={refreshMem}>刷新</Btn>
-            <Btn onClick={() => setShowSummary((v) => !v)}>{showSummary ? '收起' : '查看'}</Btn>
-            <Btn onClick={() => void runSummarize()} disabled={busy}>
-              {busy ? '整理中…' : '立即整理'}
-            </Btn>
-          </div>
-          {result ? <span className="muted small">{result}</span> : null}
-        </Field>
-        {showSummary ? <div className="summary-box">{summaryText || '（空）'}</div> : null}
-
-        <Field label="专用总结模型" hint="建议选快速、便宜的模型">
-          <Toggle
-            checked={s.llm.summary.enabled}
-            onChange={(v) => patch({ llm: { summary: { enabled: v } } }, true)}
-          />
-        </Field>
-
-        {s.llm.summary.enabled ? (
-          <>
-            <Field label="Base URL">
-              <TextInput
-                mono
-                value={s.llm.summary.baseUrl}
-                placeholder={s.llm.baseUrl || 'https://ark.cn-beijing.volces.com/api/v3'}
-                onChange={(v) => patch({ llm: { summary: { baseUrl: v } } })}
-              />
-            </Field>
-            <Field label="API Key" hint="留空则使用上面的 Key">
-              <SecretInput
-                path="llm.summary.apiKey"
-                saved={s.secretSet['llm.summary.apiKey']}
-                placeholder="sk-..."
-                onSave={(v) => patch({ llm: { summary: { apiKey: v } } }, true)}
-                onClear={() => patch({ clearSecrets: ['llm.summary.apiKey'] }, true)}
-              />
-            </Field>
-            <Field label="模型名" hint="填一个更轻量的模型">
-              <TextInput
-                mono
-                value={s.llm.summary.model}
-                placeholder="doubao-seed-1.6-flash"
-                onChange={(v) => patch({ llm: { summary: { model: v } } })}
-              />
-            </Field>
-          </>
-        ) : (
-          <div className="tipbox">
-            <strong>不开启也可以</strong>
-            会使用上面的对话模型来整理记忆。
-          </div>
-        )}
-
-        <div className="tipbox">
-          记忆只保存在本机。点气泡里的「清空上下文」会同时清掉对话和记忆。
-        </div>
-      </Section>
     </>
   )
 }

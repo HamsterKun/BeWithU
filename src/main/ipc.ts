@@ -32,6 +32,8 @@ import { mcpConfigKey } from './agent/mcp'
 import { webSearch } from './services/web-search'
 import { listModels } from './services/llm'
 import { clearUsage, usageSummary } from './store/usage'
+import { readLogTail } from './services/log-tail'
+import { APP_REPO_URL } from '../shared/defaults'
 import { deleteModel, downloadModel, modelStatus } from './services/asr-model'
 import { warmupLocalAsr } from './services/local-asr'
 import {
@@ -315,8 +317,8 @@ export function registerIpc(getQuit: () => void): void {
   })
 
   handle(IPC.settingsRevealSecret, (_e, path: SecretPath) => settingsStore.reveal(path))
-  handle(IPC.memoryGet, () => conversation.memoryInfo())
-  handle(IPC.memorySummarize, () => conversation.summarizeNow())
+  handle(IPC.contextGet, () => conversation.contextInfo())
+  handle(IPC.contextCompact, () => conversation.compactNow())
 
   on(IPC.visionGrabResult, (_e, result: GrabResult) => resolveGrab(result))
 
@@ -690,6 +692,19 @@ export function registerIpc(getQuit: () => void): void {
   })
 
   handle(IPC.usageStats, () => usageSummary())
+  handle(IPC.logsTail, (_e, opts?: { lines?: number; keyword?: string; onlyProblems?: boolean }) =>
+    readLogTail(logPath(), opts ?? {})
+  )
+  handle(IPC.logsOpenDir, () => {
+    void shell.showItemInFolder(logPath())
+  })
+  // 固定地址、渲染进程传不了 URL，避免这条通道变成任意协议的外链入口
+  handle(IPC.appOpenRepo, async () => {
+    const url = new URL(APP_REPO_URL)
+    if (url.protocol !== 'https:' || url.hostname !== 'github.com') throw new Error('非法的项目地址')
+    await shell.openExternal(APP_REPO_URL)
+  })
+
   handle(IPC.usageClear, () => {
     clearUsage()
     return usageSummary()

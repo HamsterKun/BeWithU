@@ -1,7 +1,19 @@
-# BeWithU 交接文档（2026-11-20，1.0.13 已打包待签名/发布）
+# BeWithU 交接文档（2026-11-20，1.0.14 已开发完、未打包）
 
 > 接手先读 §0 和 §10。1.0.13 已提交、已打包、已跑完整回归（含快捷键降级与落盘隐私两条新 E2E），
 > 剩下的只有签名、外部发布和真机矩阵；官方 ASR 归档整包已下完并校验通过（见 §10）。
+>
+> **2026-11-20 下午第一轮：源码领先 `release/` 产物。** REVIEW 的 **C2**（滚动滚轮绕过输入守卫）
+> 和 **A6**（归档导入缺资源限制/失败不清理）已修，见 §1.23；同时修好了长期跑不起来的
+> `tools/agent-input-test.mjs`。
+>
+> **2026-11-20 傍晚：1.0.14「上下文管理」已开发完并跑完回归，仍未打包。**
+> 「对话记忆」整体换成按 token 预算管理的上下文（三挡、水位压缩、时间感知、缓存友好），
+> 删掉专用总结模型，见 §1.24 与 [docs/PLAN-CONTEXT.md](docs/PLAN-CONTEXT.md)。
+> `release/` 里仍然是**修复前**的 1.0.13 安装包，正式发布前必须重新打包并重算 SHA-256。
+>
+> **同日晚些时候：新增「数据与日志」设置页（用量统计从关于搬出）+ 关于页项目点星卡**，见 §1.25。
+> 这一轮只提交、**不打包**。
 
 ---
 
@@ -9,11 +21,11 @@
 
 | 项 | 值 |
 |---|---|
-| 代码位置 | `D:\coding\BeWithU` |
-| 版本 | **1.0.13**（C7 快捷键降级 = 切换模式；B4 审计默认元数据 + 历史/记忆加密；已打包，未签名，未对外发布） |
-| HEAD | 以 `git rev-parse HEAD` 为准（已在 `origin/main` 上）：1.0.13 代码 `0b7fea6` → 发布清单 `f7f5fad` → 之后的交接/打包修订提交；`git status` 应为空 |
-| 产物 | `release/` 已是 1.0.13 安装器 + 便携包（含 `SHA256SUMS-1.0.13.txt`、`RELEASE-1.0.13.md`）；1.0.10 / 1.0.11 / 1.0.12 产物分别在 `release/archive-1.0.10/`、`archive-1.0.11/`、`archive-1.0.12/` |
-| 工作区 | 干净（`git status` 无输出）；`out/` 是本轮源码 bundle，`release/`、`out/` 都被 gitignore |
+| 代码位置 | `C:\Users\jiangchengrui\Desktop\BeWithU`（原 `D:\coding\BeWithU`；D 盘已不存在，见 §11） |
+| 版本 | **1.0.14**（上下文管理：三挡预算 + 水位压缩 + 时间感知 + 缓存友好；删专用总结模型）。含 C2/A6 修复，见 §1.23 / §1.24。**未提交、未打包** |
+| HEAD | 已提交到 `006c229`（1.0.13 打包版）；C2/A6 修复 + 1.0.14 上下文管理都在**工作区未提交** |
+| 产物 | `release/` 仍是**修复前**的 1.0.13 安装器 + 便携包（含 `SHA256SUMS-1.0.13.txt`、`RELEASE-1.0.13.md`）；1.0.10 / 1.0.11 / 1.0.12 产物分别在 `release/archive-1.0.10/`、`archive-1.0.11/`、`archive-1.0.12/` |
+| 工作区 | 有本轮未提交改动（`import-archive.ts`、`input-worker.ts`、`agent-input-test.mjs`、新增 `tools/archive-limits.test.mjs`）；`out/` 是本轮源码 bundle，`release/`、`out/` 都被 gitignore |
 | 搬家 | **先看 §11**：哪些目录必带/可以删、一键压缩命令、新机器恢复与自检步骤 |
 
 **白天那版**：Agent 能力层 M1（键鼠注入）+ M2（工具循环/审批/审计）+ 设置页，19 个内置工具。
@@ -321,6 +333,81 @@ E2E **17 个套件 / 115 条断言全绿**（新增 `hotkey-fallback` 4、`priva
 
 ---
 
+## 1.23 REVIEW C2 + A6（2026-11-20 下午，**未打包**）
+
+| 改动 | 位置 | 说明 |
+|---|---|---|
+| **滚动也过输入守卫**（C2） | `src/main/input-worker.ts` | `scroll` 处理器直接 `send(...)`，绕过了 `assertSafe()`（锁屏检测 + 登录/支付页标题拦截），而 click / move / type / drag 四个都过了守卫。补上后，Agent 发起的滚轮不再能在密码/支付类窗口上改变前台状态 |
+| **归档导入加资源上限 + 失败清理**（A6） | `agent/import-archive.ts` | ① 解压**前**看清单：条目数 ≤ 2000、只允许普通文件/目录（拒绝 `l`/`h`/`c`/`b`/`p`/`s`）、拒绝含 `../` 的越级路径；② 用 `tar -xO` 把内容流到 stdout **边读边计数**（≤ 64MB，超限立即杀进程，**完全不落盘**）；③ 解压后按真实文件系统复核：无 symlink/junction、单文件 ≤ 32MB、层级 ≤ 8；④ 任一步失败都递归删除临时目录（原来异常路径会留下半包） |
+| **固定用系统 tar** | 同上 | 不再从 PATH 找 `tar`：PATH 上的同名程序可被安装包或当前目录劫持，而这里正是处理不可信输入的入口。改用 `%SystemRoot%\System32\tar.exe`，非 Windows 才退回 PATH |
+| **修好 `agent-input-test.mjs`** | `tools/agent-input-test.mjs` | 该套件自 1.0.11 做完窗口角色隔离后就一直跑不起来（它调用球窗口上已不存在的 `settings.update`）。改为借气泡打开设置窗口写占位 Key；气泡被设置窗口挤到隐藏（Windows 最小化坐标 ≈ -32000）时重开再量坐标；`eval` 失败补上真实异常描述 |
+| **新增单测** | `tools/archive-limits.test.mjs` | 8 条：正常解包/下钻/cleanup、条目数、总体积、单文件、层级、符号链接、越级路径、默认上限合理性。恶意归档用手写 ustar 头构造，不依赖 python |
+
+> 为什么不解析 `tar -tvf` 里的尺寸字段：清单的日期列会跟随系统 locale（本机是 `11月 20 11:59`），
+> 列位置不稳定；而 `tar -tf` 还会把 `../` 前缀 strip 掉，不能用来判断越级。
+> 所以「体积」改用流式真实计量，「越级/类型」用 `-tvf` 的**整行**特征判断，都不依赖列位置。
+
+验证：typecheck 双端通过；单测 **54/54**（16 个文件，新增 `archive-limits` 8 条）；
+`agent-input-test` **11/11**（新增 `scrollGateOnBlockedTitle`：把气泡窗口标题改成「登录确认」后
+`input.scroll` 必须返回失败——改前实测是 `ok:true`，改后是 `ok:false` 并给出拦截原因）；
+`smoke-test` 11/11、`agent-run-test` 10/10、`mcp-zip-test` 6/6（确认真实 zip 导入没被上限误伤）。
+**没有打包**，`release/` 未改动。
+
+---
+
+## 1.24 v1.0.14（本次）：对话记忆 → 上下文管理
+
+把「攒满 N 轮压成 300 字摘要」换成**按 token 预算管理上下文**。详细设计见
+[docs/PLAN-CONTEXT.md](docs/PLAN-CONTEXT.md)，这里只记结论和坑。
+
+| 改动 | 位置 | 说明 |
+|---|---|---|
+| **预算制替代轮数制** | `services/context.ts`（新）、`shared/model-window.ts`（新） | `llm.historyTurns` 退役。可用上限 = 模型窗口 − 输出预留 `min(8192, 15%)` − 4k 估算缓冲；三挡 = 可用上限的 1/3、2/3、全部 |
+| **水位 + 滞回替代滑动窗口** | `services/pipeline.ts` | 涨到预算 85% 才压，一次压到 45% 以下。**这是缓存命中率的关键**：原来的 `recent(N)` 每轮移出最老一条，前缀从第 2 条就变，缓存基本只剩 system 段 |
+| **压缩用主模型** | `services/summarizer.ts` | 删掉 `llm.summary.*`（Base URL / Key / 模型）与对应 secret；温度 0.2、60s 超时、可被 AbortSignal 打断 |
+| **压缩不删本地记录** | `store/context.ts`（新）、`store/history.ts` | 改推 `archivedUpTo` 游标，`historyStore.since(n)` 取未归档段。原来 `drop()` 直接销毁，压缩不可回退 |
+| **摘要按档位放宽** | `shared/defaults.ts` | 1800 / 3000 / 4500 字（旧的写死 1200 字 + "300 字以内"）。提示词改成「叙事 + 【关键事实】清单」，强制保留数字、路径、命令、结论、待办、时间锚点 |
+| **时间感知** | `services/context.ts` | `off / current / full` 三档，默认 `current`。**历史消息的时间在写入时冻结**（绝对时间，手写 `MM-DD HH:mm`，不能用 `toLocaleString`，否则换 locale 就变字节、前缀立刻失效）；只有本轮消息带「现在 + 距上一条多久」 |
+| **聊天 / Agent 共用组装器** | `agent/runner.ts` | Agent 以前是 `recent(6)` 且**完全没注入摘要**；现在和闲聊同一套 `assembleMessages`。顺带修了 Agent 模式从不把用户问句写进历史的老 bug |
+| **缓存命中可观测** | `services/llm.ts`、`store/...` | `streamChat` 新增 `onUsage`，读 `prompt_tokens_details.cached_tokens` / `prompt_cache_hit_tokens`；设置页显示最近一次命中率 |
+| **设置页** | `panes/ContextPane.tsx`（新）、`Settings.tsx` | 新增「上下文」tab；删掉「记忆轮数」字段与「对话记忆」整段。**不给**总开关、**不给**摘要字数上限（跟档位走）、**不给**摘要正文查看（可能几万字） |
+
+**迁移**：`historyTurns === 0` 也一律开启上下文（新设计不提供关闭）；`llm.summary.*` 丢弃；
+`memory.json` 存在时读一次，之后落到 `context.json`；`data-dir.ts` 的搬家清单已加 `context.json`。
+
+**踩过的两个坑**：
+1. **时间格式不能用 `toLocaleString()`**：它受系统语言影响（本机是 `2026/11/20 12:32:23`），
+   一旦写进历史消息，换机器/换语言就变字节，前缀缓存立刻失效。统一手写 `MM-DD HH:mm`。
+2. **设置页刷新会拿到旧预算**：`patch()` 有 420ms 防抖，改档位后立刻调 `contextInfo()` 读到的还是旧档位。
+   两个修法都要：离散开关用 `patch(..., true)` 立即落盘，刷新再延后 300ms（见 `ContextPane` 的 effect）。
+
+**验证**：typecheck 双端通过；单测 **77/77**（新增 `context-budget` 10、`context-plan` 8、`context-migrate` 5）；
+E2E：`context-ui` **10/10**（三挡切换后预算数字真的变、立即压缩给的是人话、没有查看按钮）、
+`context-compact` **6/6**（本地假 SSE 服务端：压缩真的触发，3274 → 872 tokens，游标推进 8 条，
+摘要确实出现在下一轮请求里，current 模式下历史无时间戳）、`smoke` 11/11、`agent-run` 10/10、
+`mcp-zip` 6/6、`agent-settings` 8/8、`app` 16/16、`agent-input` 11/11。
+**未打包**，`release/` 未改动。
+
+---
+
+## 1.25 v1.0.14 补丁：数据与日志页 + 关于页点星卡（只提交，未打包）
+
+| 改动 | 位置 | 说明 |
+|---|---|---|
+| **新增「数据与日志」页** | `panes/DataPane.tsx`（新）、`Settings.tsx` | 放在「快捷键」和「关于」之间。三块：用量统计（从关于页搬来）、运行日志、数据目录（也从关于页搬来——页名叫"数据"，目录留在这里更顺） |
+| **运行日志查看器** | `services/log-tail.ts`（新）、`ipc.ts`、`preload` | 只读文件**最后 512KB**（A8 的教训，不整包读），从中间截断时丢掉半行；支持关键字搜索（不区分大小写）、「只看问题」、最近 50–2000 行、3 秒自动刷新（页面不可见时跳过） |
+| **级别是推断的** | 同上 | 日志格式本身没有级别字段。只在出现 `失败/错误/异常/error/fail/ECONN` 时标红，`超时/重试/降级/warn` 标黄。**不是权威分级**，只是把问题捞出来 |
+| **关于页加项目卡** | `panes/AboutPane.tsx` | 「喜欢的话给我们一颗星星吧」+「去 GitHub 点星」按钮 |
+| **外链只走固定地址** | `ipc.ts` 的 `appOpenRepo` | 渲染进程传不了 URL，主进程用 `APP_REPO_URL` 常量并校验 `https + github.com`，避免这条通道变成任意协议的外链入口 |
+| **用量统计口径文案** | `DataPane.tsx` | 「记忆总结模型」改成「上下文压缩」，与 1.0.14 的措辞对齐 |
+
+**验证**：typecheck 双端通过；单测新增 `log-tail` 6 条（尾部截断不返回半行、关键字、级别推断、只看问题）；
+E2E `data-pane-test` **10/10**（三个区块都在、日志渲染出本地时间、关键字过滤到 0 行再恢复、
+塞一条 401 日志后能标红且「只看问题」只剩它、关于页有项目卡且用量已搬走）；
+`smoke` 11/11、`context-ui` 10/10。**未打包**。
+
+---
+
 ## 2. 代码结构（今晚新增的用 ★）
 
 ```
@@ -417,12 +504,16 @@ Remove-Item Env:\ELECTRON_RUN_AS_NODE -ErrorAction SilentlyContinue
 & $node node_modules\typescript\lib\tsc.js --noEmit -p tsconfig.web.json
 & $node node_modules\electron-vite\bin\electron-vite.js build
 
-# —— 单元 / 安全（node:test，不需要 Electron；16 个文件 49 条）——
+# —— 单元 / 安全（node:test，不需要 Electron；20 个文件 83 条）——
 & $node --test tools\agent-tool-budget.test.mjs tools\approval.test.mjs tools\asr-generation.test.mjs `
   tools\asr-model-manifest.test.mjs tools\data-dir-migration.test.mjs tools\file-boundary.test.mjs `
   tools\file-io.test.mjs tools\mcp-secrets.test.mjs tools\retry-policy.test.mjs tools\sse-parse.test.mjs `
-  tools\vision-grab.test.mjs tools\voice-mode.test.mjs tools\player-test.mjs tools\audit.test.mjs tools\secure-json.test.mjs
-# 需要本机有已校验归档（D:\coding\bwu-asr-dl\archive.tar.bz2，可用 BWU_ASR_ARCHIVE 覆盖）：
+  tools\vision-grab.test.mjs tools\voice-mode.test.mjs tools\player-test.mjs tools\audit.test.mjs `
+  tools\secure-json.test.mjs tools\archive-limits.test.mjs `
+  tools\context-budget.test.mjs tools\context-plan.test.mjs tools\context-migrate.test.mjs `
+  tools\log-tail.test.mjs
+# 需要本机有已校验归档（原在 D:\coding\bwu-asr-dl\archive.tar.bz2，**该盘已不存在**；
+# 换机后先用 BWU_ASR_ARCHIVE 指到新位置，或按 §10 重新下载）：
 & $node --test tools\asr-download-test.mjs   # 下载→校验→解包→发布 3/3（归档不在时 SKIP）
 
 # —— E2E（每个都要先 Stop-Process electron）——
@@ -443,7 +534,10 @@ Remove-Item Env:\ELECTRON_RUN_AS_NODE -ErrorAction SilentlyContinue
 & $node tools\hotkey-fallback-test.mjs # 降级=切换模式           4/4
 & $node tools\privacy-at-rest-test.mjs # 历史/审计落盘口径       5/5
 & $node tools\local-asr-test.mjs      # 本机 ASR 真实识别（需要已装模型）
-& $node tools\agent-input-test.mjs    # 键鼠注入（依赖真实前台，可能不稳）
+& $node tools\agent-input-test.mjs    # 键鼠注入（依赖真实前台，可能不稳）  11/11
+& $node tools\context-ui-test.mjs      # 上下文设置页：三挡/时间感知/保留轮数  10/10
+& $node tools\context-compact-test.mjs # 压缩全链路（本地假 SSE 服务端）      6/6
+& $node tools\data-pane-test.mjs      # 数据与日志页 + 关于页项目卡      10/10
 ```
 
 - 每个测试之间先 `Stop-Process electron`，否则单实例锁会让新实例直接退出。
@@ -571,7 +665,9 @@ $d = "$env:USERPROFILE\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies"
 
 - **1.0.11（commit `23f55b6`）**：审批撤销、MCP 撤权、文件落点校验、窗口角色收敛、截图隐私、数据迁移校验、ASR 固定归档、结构化错误重试、安装脚本收紧（详见 §1.20 与 [REVIEW.md](REVIEW.md) 的对应条目）。
 - **1.0.12（commit `b343897`）**：SSE 尾帧（C8）、录音启动取消与失败清理（C1）、文件 I/O 限流与目录分页（A8），见 §1.21。
-- **1.0.13（commit `0b7fea6`）**：快捷键降级 = 切换模式（C7）、审计默认只记元数据 + 可选详细（B4）、历史/记忆加密落盘（B4），见 §1.22。REVIEW 里需要改代码的条目到此全部处理完。
+- **1.0.13（commit `0b7fea6`）**：快捷键降级 = 切换模式（C7）、审计默认只记元数据 + 可选详细（B4）、历史/记忆加密落盘（B4），见 §1.22。
+- **未打包（工作区）**：C2（滚动绕过输入守卫）、A6（归档导入无资源上限/失败不清理），见 §1.23。
+  至此 REVIEW 里需要改代码的条目**才**全部处理完（此前 1.0.13 那句"全部处理完"是过头话，C2/A6 当时还开着）。
 
 ### 已验证（本轮实跑，可复现）
 
@@ -681,7 +777,7 @@ zip 内已确认没有 `node_modules`、`.git`、`.cache`、`.pnpm-store`、`.sh
 4. **自检**（三条，几十秒）：
    ```powershell
    & $node tools\smoke-test.mjs            # 期望 11/11
-   & $node --test tools\approval.test.mjs  # 单测：完整列表见 §5，期望 49/49
+   & $node --test tools\approval.test.mjs  # 单测：完整列表见 §5，期望 54/54（+ASR 归档 3 条）
    & $node tools\agent-run-test.mjs        # 冒烟一条 E2E，期望 10/10
    ```
 5. **打包版验收**（可选，需 `release/win-unpacked`）：

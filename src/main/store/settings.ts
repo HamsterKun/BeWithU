@@ -8,7 +8,6 @@ import { log } from '../logger'
 
 const SECRET_PATHS: SecretPath[] = [
   'llm.apiKey',
-  'llm.summary.apiKey',
   'tts.accessToken',
   'tts.apiKey',
   'tts.breeze.apiKey',
@@ -145,7 +144,20 @@ class SettingsStore {
       s.ball.image = DEFAULT_SKIN
     }
     s.llm.temperature = clamp(s.llm.temperature, 0, 2, 0.8)
-    s.llm.historyTurns = clamp(s.llm.historyTurns, 0, 50, 8)
+    // 上下文管理：旧的 historyTurns / summary 字段直接丢弃（v1.0.14 起改为预算制）
+    const ctx = s.context ?? DEFAULT_SETTINGS.context
+    const manualWindow = Math.floor(Number(ctx.modelWindow) || 0)
+    s.context = {
+      level: ctx.level === 'low' || ctx.level === 'high' ? ctx.level : 'mid',
+      // 0 = 自动识别；小于 8k 的值当没填（否则预算会被压到不可用）
+      modelWindow: manualWindow >= 8000 ? Math.min(manualWindow, 2000000) : 0,
+      timeAwareness:
+        ctx.timeAwareness === 'off' || ctx.timeAwareness === 'full' ? ctx.timeAwareness : 'current',
+      keepRecentTurns: clamp(Number(ctx.keepRecentTurns) || 4, 1, 12, 4)
+    }
+    // 老配置里的两个字段没有用了：清掉，避免继续落盘
+    delete (s.llm as unknown as Record<string, unknown>).historyTurns
+    delete (s.llm as unknown as Record<string, unknown>).summary
     s.tts.speed = clamp(s.tts.speed, -50, 100, 0)
     s.tts.loudness = clamp(s.tts.loudness, -50, 100, 0)
     s.tts.volume = clamp(s.tts.volume, 0, 1, 0.9)
