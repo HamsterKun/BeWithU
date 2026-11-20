@@ -9,6 +9,7 @@ import AboutPane from './panes/AboutPane'
 import AgentPane from './panes/AgentPane'
 import ContextPane from './panes/ContextPane'
 import DataPane from './panes/DataPane'
+import UpdateBanner from './UpdateBanner'
 
 type Tab = 'model' | 'context' | 'voice' | 'ball' | 'prompt' | 'agent' | 'hotkey' | 'data' | 'about'
 
@@ -142,6 +143,7 @@ export default function Settings(): React.ReactElement {
           ))}
         </nav>
         <div className="sidebar__foot">
+          <UpdateBanner />
           <button
             className="nav__item theme-toggle"
             onClick={() => patch({ ui: { theme: s.ui.theme === 'dark' ? 'light' : 'dark' } }, true)}

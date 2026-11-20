@@ -6,6 +6,8 @@ import type { PaneProps } from './types'
 export default function AboutPane({ s }: PaneProps): React.ReactElement {
   const [info, setInfo] = useState<AppInfo | null>(null)
   const [starMsg, setStarMsg] = useState('')
+  const [checking, setChecking] = useState(false)
+  const [checkMsg, setCheckMsg] = useState('')
 
   const refresh = (): void => {
     void window.bwu.settings.appInfo().then(setInfo)
@@ -14,6 +16,22 @@ export default function AboutPane({ s }: PaneProps): React.ReactElement {
   useEffect(() => {
     refresh()
   }, [])
+
+  const checkNow = async (): Promise<void> => {
+    setChecking(true)
+    setCheckMsg('')
+    try {
+      const r = await window.bwu.update.check()
+      if (r.kind === 'available') setCheckMsg(`发现新版本 ${r.version ?? ''}，看左下角的横幅`)
+      else if (r.kind === 'ready') setCheckMsg('新版本已下载好，重启即可')
+      else if (r.kind === 'error') setCheckMsg(r.message ?? '检查失败')
+      else setCheckMsg('已经是最新版本')
+    } catch (e) {
+      setCheckMsg(e instanceof Error ? e.message : String(e))
+    } finally {
+      setChecking(false)
+    }
+  }
 
   const openRepo = async (): Promise<void> => {
     try {
@@ -62,7 +80,11 @@ export default function AboutPane({ s }: PaneProps): React.ReactElement {
         </div>
         <div className="row-actions">
           <Btn onClick={() => void window.bwu.settings.restartHotkey()}>重新检测按键</Btn>
+          <Btn onClick={() => void checkNow()} disabled={checking}>
+            {checking ? '检查中…' : '检查更新'}
+          </Btn>
         </div>
+        {checkMsg ? <span className="muted small">{checkMsg}</span> : null}
       </Section>
 
       <Section title="项目主页" desc="开源在自己的 GitHub 上，欢迎来看代码、提问题">

@@ -1661,3 +1661,84 @@ body {
 .log-toolbar .input--num {
   width: 64px;
 }
+
+/* ------------------------------------------------------------ 更新横幅 ---- */
+.upd-banner {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  border-radius: 9px;
+  border: 1px solid rgba(16, 185, 129, 0.45);
+  background: rgba(16, 185, 129, 0.14);
+  color: #059669;
+  text-align: left;
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1.5;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.upd-banner:hover {
+  background: rgba(16, 185, 129, 0.22);
+  border-color: rgba(16, 185, 129, 0.7);
+}
+
+.upd-banner:disabled {
+  cursor: default;
+  opacity: 1;
+}
+
+.upd-banner.is-error {
+  border-color: rgba(220, 38, 38, 0.4);
+  background: rgba(220, 38, 38, 0.12);
+  color: #dc2626;
+}
+
+.upd-banner__main {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.upd-banner__dot {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.upd-banner__label {
+  font-weight: 500;
+}
+
+.upd-banner__hint {
+  padding-left: 12px;
+  font-size: 11px;
+  opacity: 0.75;
+}
+
+.upd-banner__bar {
+  display: block;
+  height: 3px;
+  margin-top: 5px;
+  border-radius: 999px;
+  background: rgba(16, 185, 129, 0.25);
+  overflow: hidden;
+}
+
+.upd-banner__bar > span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: currentColor;
+  transition: width 0.3s ease;
+}
+
+[data-theme='light'] .upd-banner {
+  color: #047857;
+  background: rgba(16, 185, 129, 0.12);
+}

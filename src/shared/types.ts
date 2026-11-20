@@ -352,6 +352,27 @@ export interface AsrModelProgress {
   error?: string
 }
 
+/**
+ * 自动更新状态。安装版走 electron-updater（下载→退出时安装）；
+ * 便携版没法原地替换文件，只能提示去 release 页手动下。
+ */
+export type UpdateKind = 'idle' | 'checking' | 'available' | 'downloading' | 'ready' | 'error'
+
+export interface UpdateStatus {
+  kind: UpdateKind
+  /** 新版本号 */
+  version?: string
+  /** 下载进度 0–100 */
+  percent?: number
+  /** 已下载/总字节，用于显示「12.3 MB / 129 MB」 */
+  transferred?: number
+  total?: number
+  /** 出错时的短句，直接给用户看 */
+  message?: string
+  /** true = 便携版，点了只能跳下载页 */
+  portable?: boolean
+}
+
 /** 日志行（级别是按关键字推断的，日志格式本身不带级别字段） */
 export type LogLevel = 'info' | 'warn' | 'error'
 

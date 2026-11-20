@@ -1,0 +1,60 @@
+# BeWithU 1.1.0 发布清单
+
+> 发布前请走一遍 §5 的核对项。本文件与 `release/SHA256SUMS-1.1.0.txt` 同源。
+
+## 1. 版本信息
+
+| 项 | 值 |
+|---|---|
+| 版本 | **1.1.0** |
+| 构建时间 | 2026-11-20 15:30 (UTC+8) |
+| 基线 | 1.0.13 打包版 + C2/A6 修复 + 上下文管理 + 数据与日志页 |
+| 签名 | **未签名**（SmartScreen 会拦手动下载的包；自动更新的文件不带 MOTW，通常不弹） |
+| 更新源 | GitHub Releases（`HamsterKun/BeWithU`），读 `latest.yml` 的 `version` |
+
+## 2. 产物
+
+| 文件 | 大小 | SHA-256 |
+|---|---|---|
+| `BeWithU-1.1.0-x64.exe`（安装版） | 129,218,769 | `43194cc57c5bdcfcd693ba3329d179fa6b30b39dffad08e5414a1fffff6eee2a` |
+| `BeWithU-1.1.0-portable.exe`（便携版） | 116,837,592 | `91890fff7a11ce3e200cc88110eeb622cb95b0b3ca64eb9ebf9bf07924d6cc35` |
+
+安装版的 SHA-512（base64，electron-updater 用的就是这个）：
+`lb3/UurW6gaDpsgP1Ajd5OfhOYtfUToCrrhXDK2x0Y9A0y0pXCL73qdT6feW04cm/lZfgDpsnUyhF05hefjMKA==`
+
+`latest.yml` 里的 sha512 与 size 已与安装包实际值核对一致。
+
+## 3. 这个版本有什么
+
+- **自动更新**（新）：安装版侧栏出现绿色横幅 → 点击后台差分下载 → 「立即重启」→ 退出时静默装好；
+  便携版只提示去 Release 页手动换包。
+- **上下文管理**（新，取代「对话记忆」）：低/中/高三挡 token 预算、85% 水位自动压缩、
+  时间感知、历史只追加不改写以便命中服务端前缀缓存；压缩改用当前对话模型，不再单独配置。
+- **数据与日志**（新页）：用量统计（从关于页搬来）+ 运行日志查看器（关键字、只看问题、自动刷新）+ 数据目录。
+- **关于页**：项目主页点星卡、手动「检查更新」。
+- **修复**：REVIEW C2（滚轮绕过输入守卫）、A6（归档导入无资源限制）。
+
+## 4. 升级说明
+
+| 用户类型 | 怎么升级 |
+|---|---|
+| 1.1.0 及以后的**安装版** | 自动：侧栏横幅点一下即可，不用重装 |
+| 1.1.0 及以后的**便携版** | 手动：横幅点开进 Release 页，下新的便携包替换旧文件 |
+| 从 1.0.x 首次升到 1.1.0 | **必须手动装一次**（1.0.x 里还没有更新模块），之后才会自动 |
+
+## 5. 发布前核对
+
+- [ ] `release/latest.yml` 的 `version` 是 `1.1.0`，`sha512` / `size` 与实际安装包一致
+- [ ] `release/win-unpacked/resources/app-update.yml` 存在（owner/repo/provider）
+- [ ] 打包产物的 `resources/app.asar` 里含 `electron-updater`
+- [ ] `SHA256SUMS-1.1.0.txt` 与 §2 一致
+- [ ] Release 的 tag 是 `v1.1.0`，且**不是** draft / prerelease
+- [ ] 上传资产：安装包、`.blockmap`、`latest.yml`（三个都要，少了 blockmap 就变成全量下载）
+- [ ] 发版顺序：按版本号递增发，`/releases/latest` 是按发布时间取的
+
+## 6. 已知限制
+
+- **未签名**：手动下载安装包会触发 SmartScreen「更多信息 → 仍要运行」；自动更新一般不受影响，
+  但个别杀软可能拦下载好的安装器。
+- **便携版不支持自动更新**：它每次运行都解压到临时目录，没有原位可换。
+- **不保留旧版本**：electron-updater 覆盖安装，降级需要手动装回旧包。

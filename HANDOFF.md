@@ -1,19 +1,14 @@
-# BeWithU 交接文档（2026-11-20，1.0.14 已开发完、未打包）
+# BeWithU 交接文档（2026-11-20，1.1.0 已打包待发布）
 
-> 接手先读 §0 和 §10。1.0.13 已提交、已打包、已跑完整回归（含快捷键降级与落盘隐私两条新 E2E），
-> 剩下的只有签名、外部发布和真机矩阵；官方 ASR 归档整包已下完并校验通过（见 §10）。
+> 接手先读 §0 和 §10。当前状态：**1.1.0 已开发完、已打包、回归全绿，卡在发 GitHub Release**（缺 `GH_TOKEN`）。
 >
-> **2026-11-20 下午第一轮：源码领先 `release/` 产物。** REVIEW 的 **C2**（滚动滚轮绕过输入守卫）
-> 和 **A6**（归档导入缺资源限制/失败不清理）已修，见 §1.23；同时修好了长期跑不起来的
-> `tools/agent-input-test.mjs`。
+> 这一天的顺序，方便追溯：
+> 1. **C2 / A6 修复**（REVIEW 最后两条）+ 修好长期跑不起来的 `tools/agent-input-test.mjs` → §1.23
+> 2. **上下文管理**（取代「对话记忆」：三挡预算、水位压缩、时间感知、缓存友好）→ §1.24
+> 3. **数据与日志页**（用量统计从关于搬出）+ 关于页点星卡 → §1.25
+> 4. **自动更新**（electron-updater）+ 版本定为 **1.1.0** → §1.26
 >
-> **2026-11-20 傍晚：1.0.14「上下文管理」已开发完并跑完回归，仍未打包。**
-> 「对话记忆」整体换成按 token 预算管理的上下文（三挡、水位压缩、时间感知、缓存友好），
-> 删掉专用总结模型，见 §1.24 与 [docs/PLAN-CONTEXT.md](docs/PLAN-CONTEXT.md)。
-> `release/` 里仍然是**修复前**的 1.0.13 安装包，正式发布前必须重新打包并重算 SHA-256。
->
-> **同日晚些时候：新增「数据与日志」设置页（用量统计从关于搬出）+ 关于页项目点星卡**，见 §1.25。
-> 这一轮只提交、**不打包**。
+> `release/` 里现在是 **1.1.0** 的安装器与便携包；1.0.13 及更早的产物已归档到 `release/archive-1.0.x/`。
 
 ---
 
@@ -22,10 +17,10 @@
 | 项 | 值 |
 |---|---|
 | 代码位置 | `C:\Users\jiangchengrui\Desktop\BeWithU`（原 `D:\coding\BeWithU`；D 盘已不存在，见 §11） |
-| 版本 | **1.0.14**（上下文管理：三挡预算 + 水位压缩 + 时间感知 + 缓存友好；删专用总结模型）。含 C2/A6 修复，见 §1.23 / §1.24。**未提交、未打包** |
-| HEAD | 已提交到 `006c229`（1.0.13 打包版）；C2/A6 修复 + 1.0.14 上下文管理都在**工作区未提交** |
-| 产物 | `release/` 仍是**修复前**的 1.0.13 安装器 + 便携包（含 `SHA256SUMS-1.0.13.txt`、`RELEASE-1.0.13.md`）；1.0.10 / 1.0.11 / 1.0.12 产物分别在 `release/archive-1.0.10/`、`archive-1.0.11/`、`archive-1.0.12/` |
-| 工作区 | 有本轮未提交改动（`import-archive.ts`、`input-worker.ts`、`agent-input-test.mjs`、新增 `tools/archive-limits.test.mjs`）；`out/` 是本轮源码 bundle，`release/`、`out/` 都被 gitignore |
+| 版本 | **1.1.0**（自动更新 + 上下文管理）。含 C2/A6 修复。安装包已出，**Release 未发布**，见 §1.26 |
+| HEAD | 1.0.13 打包版提交在 `006c229`；C2/A6、上下文管理、数据与日志、自动更新都在 1.1.0 的提交里 |
+| 产物 | `release/` = **1.1.0** 安装器 + 便携包 + `.blockmap` + `latest.yml`（校验见 `SHA256SUMS-1.1.0.txt`、`docs/RELEASE-1.1.0.md`）；旧版在 `release/archive-1.0.10…1.0.13/` |
+| 工作区 | 1.1.0 提交完成后应为干净；`out/`、`release/`、`.shots/` 都被 gitignore |
 | 搬家 | **先看 §11**：哪些目录必带/可以删、一键压缩命令、新机器恢复与自检步骤 |
 
 **白天那版**：Agent 能力层 M1（键鼠注入）+ M2（工具循环/审批/审计）+ 设置页，19 个内置工具。
@@ -408,6 +403,38 @@ E2E `data-pane-test` **10/10**（三个区块都在、日志渲染出本地时�
 
 ---
 
+## 1.26 v1.1.0：自动更新（electron-updater）
+
+| 改动 | 位置 | 说明 |
+|---|---|---|
+| **接 electron-updater** | `services/update.ts`（新）、`package.json` | `autoDownload=false`（点了才下）、`autoInstallOnAppQuit=true`（点「稍后」直接退出也能装）、禁预发布、禁降级 |
+| **状态机** | 同上 | `idle / checking / available / downloading / ready / error`，每次变化广播给所有窗口 |
+| **安装版** | 同上 | 检查 → 后台**差分**下载（走 `.blockmap`）→ `quitAndInstall(false, true)` |
+| **便携版** | 同上 | 没有原位可换，只用 GitHub Releases API 比 `tag_name`，点了 `shell.openExternal` 去 release 页；`download()` 被显式挡住 |
+| **侧栏横幅** | `settings/UpdateBanner.tsx`（新）、`Settings.tsx` | 绿色，放在侧栏底部（暗色模式上方）。文案随状态变：`新版本 x · 点击更新` → `正在下载 42%`（带进度条）→ `立即重启完成更新` |
+| **版本比较** | `shared/version.ts`（新） | 自己写的 semver 比较，不引依赖；`1.0.10 > 1.0.9`、`-beta` 小于正式版 |
+| **发布源** | `electron-builder.yml` | `publish: github / HamsterKun / BeWithU`，打包时带 `GH_TOKEN` 会自动生成 `app-update.yml` 并上传 `latest.yml` + 安装包 + blockmap |
+
+**关键认知**：更新检测读的是**已发布的 Release**（`latest.yml` 里的 `version` 字段），
+不是仓库代码、也不是 branch。只打 tag 不发 release、发成 draft、或标成 prerelease，客户端都看不到。
+
+**开发/测试怎么跑（不用真发版）**：给 `BWU_UPDATE_CONFIG` 指一个 `dev-app-update.yml`
+（`provider: generic` + 本地 http 目录），`BWU_UPDATE_API` 顶掉便携版用的 GitHub API 地址，
+`BWU_UPDATE_DELAY` 改启动检查延迟（默认 10s，测试里用 1.2s）。
+
+**验证**：typecheck 双端通过；单测 **89/89**（新增 `version` 6 条）；
+E2E `update-test` **6/6**（本地 generic feed：横幅出现 → 点击 → 看到下载进度 → 变「立即重启」→ 状态 ready 9.9.9）、
+`update-portable-test` **5/5**（模拟 `PORTABLE_EXECUTABLE_DIR`：文案是「点此下载 / 便携版需手动替换」，
+`download()` 被挡住，API 确实被打到）；
+回归 `smoke` 11/11、`context-ui` 10/10、`data-pane` 10/10、`agent-run` 10/10。
+
+**发布步骤（没有令牌做不了）**：设置环境变量 `GH_TOKEN`（需 repo 权限），
+然后跑 `node node_modules\electron-builder\cli.js --win --x64 --publish always`；
+或者用 `gh release create v1.1.0` 手动把 `release/` 里的 exe、blockmap、latest.yml 传上去。
+**发版顺序必须跟版本号顺序一致**：`/releases/latest` 是按发布时间取的，倒着发会让客户端以为"没有更新"。
+
+---
+
 ## 2. 代码结构（今晚新增的用 ★）
 
 ```
@@ -504,14 +531,14 @@ Remove-Item Env:\ELECTRON_RUN_AS_NODE -ErrorAction SilentlyContinue
 & $node node_modules\typescript\lib\tsc.js --noEmit -p tsconfig.web.json
 & $node node_modules\electron-vite\bin\electron-vite.js build
 
-# —— 单元 / 安全（node:test，不需要 Electron；20 个文件 83 条）——
+# —— 单元 / 安全（node:test，不需要 Electron；21 个文件 89 条）——
 & $node --test tools\agent-tool-budget.test.mjs tools\approval.test.mjs tools\asr-generation.test.mjs `
   tools\asr-model-manifest.test.mjs tools\data-dir-migration.test.mjs tools\file-boundary.test.mjs `
   tools\file-io.test.mjs tools\mcp-secrets.test.mjs tools\retry-policy.test.mjs tools\sse-parse.test.mjs `
   tools\vision-grab.test.mjs tools\voice-mode.test.mjs tools\player-test.mjs tools\audit.test.mjs `
   tools\secure-json.test.mjs tools\archive-limits.test.mjs `
   tools\context-budget.test.mjs tools\context-plan.test.mjs tools\context-migrate.test.mjs `
-  tools\log-tail.test.mjs
+  tools\log-tail.test.mjs tools\version.test.mjs
 # 需要本机有已校验归档（原在 D:\coding\bwu-asr-dl\archive.tar.bz2，**该盘已不存在**；
 # 换机后先用 BWU_ASR_ARCHIVE 指到新位置，或按 §10 重新下载）：
 & $node --test tools\asr-download-test.mjs   # 下载→校验→解包→发布 3/3（归档不在时 SKIP）
@@ -538,6 +565,8 @@ Remove-Item Env:\ELECTRON_RUN_AS_NODE -ErrorAction SilentlyContinue
 & $node tools\context-ui-test.mjs      # 上下文设置页：三挡/时间感知/保留轮数  10/10
 & $node tools\context-compact-test.mjs # 压缩全链路（本地假 SSE 服务端）      6/6
 & $node tools\data-pane-test.mjs      # 数据与日志页 + 关于页项目卡      10/10
+& $node tools\update-test.mjs         # 自动更新（本地 generic feed）      6/6
+& $node tools\update-portable-test.mjs # 便携版只提示下载                  5/5
 ```
 
 - 每个测试之间先 `Stop-Process electron`，否则单实例锁会让新实例直接退出。

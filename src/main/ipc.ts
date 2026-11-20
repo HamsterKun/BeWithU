@@ -33,6 +33,7 @@ import { webSearch } from './services/web-search'
 import { listModels } from './services/llm'
 import { clearUsage, usageSummary } from './store/usage'
 import { readLogTail } from './services/log-tail'
+import { check as checkUpdate, currentStatus, download as downloadUpdate, install as installUpdate, openReleasePage } from './services/update'
 import { APP_REPO_URL } from '../shared/defaults'
 import { deleteModel, downloadModel, modelStatus } from './services/asr-model'
 import { warmupLocalAsr } from './services/local-asr'
@@ -692,6 +693,12 @@ export function registerIpc(getQuit: () => void): void {
   })
 
   handle(IPC.usageStats, () => usageSummary())
+  handle(IPC.updateGet, () => currentStatus())
+  handle(IPC.updateCheck, () => checkUpdate())
+  handle(IPC.updateDownload, () => downloadUpdate())
+  handle(IPC.updateInstall, () => installUpdate())
+  handle(IPC.updateOpenPage, () => openReleasePage())
+
   handle(IPC.logsTail, (_e, opts?: { lines?: number; keyword?: string; onlyProblems?: boolean }) =>
     readLogTail(logPath(), opts ?? {})
   )

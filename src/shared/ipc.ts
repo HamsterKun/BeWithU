@@ -10,6 +10,7 @@ import type {
   McpServerConfig,
   ContextInfo,
   LogTail,
+  UpdateStatus,
   UsageSummary,
   Phase,
   PublicSettings,
@@ -146,6 +147,12 @@ export const IPC = {
   llmModels: 'llm:models',
   usageStats: 'usage:stats',
   usageClear: 'usage:clear',
+  updateGet: 'update:get',
+  updateChanged: 'update:changed',
+  updateCheck: 'update:check',
+  updateDownload: 'update:download',
+  updateInstall: 'update:install',
+  updateOpenPage: 'update:open-page',
   logsTail: 'logs:tail',
   logsOpenDir: 'logs:open-dir',
   appOpenRepo: 'app:open-repo',
@@ -289,6 +296,14 @@ export interface BwuApi {
   usageStats(): Promise<UsageSummary>
   clearUsage(): Promise<UsageSummary>
   /** 日志尾部（只读最后一段，按关键字/问题级别过滤） */
+  update: {
+    get(): Promise<UpdateStatus>
+    check(): Promise<UpdateStatus>
+    download(): Promise<UpdateStatus>
+    install(): Promise<void>
+    openPage(): Promise<void>
+    onChanged(cb: (s: UpdateStatus) => void): () => void
+  }
   logsTail(opts?: { lines?: number; keyword?: string; onlyProblems?: boolean }): Promise<LogTail>
   logsOpenDir(): Promise<void>
   /** 打开项目主页（固定地址，不接受渲染进程传 URL） */

@@ -112,6 +112,14 @@ const api = {
   llmModels: () => ipcRenderer.invoke(IPC.llmModels),
   usageStats: () => ipcRenderer.invoke(IPC.usageStats),
   clearUsage: () => ipcRenderer.invoke(IPC.usageClear),
+  update: {
+    get: () => invoke(IPC.updateGet),
+    check: () => invoke(IPC.updateCheck),
+    download: () => invoke(IPC.updateDownload),
+    install: () => invoke(IPC.updateInstall),
+    openPage: () => invoke(IPC.updateOpenPage),
+    onChanged: (cb: (s: unknown) => void) => on(IPC.updateChanged, cb)
+  },
   logsTail: (opts?: { lines?: number; keyword?: string; onlyProblems?: boolean }) =>
     ipcRenderer.invoke(IPC.logsTail, opts),
   logsOpenDir: () => ipcRenderer.invoke(IPC.logsOpenDir),

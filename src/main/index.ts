@@ -18,6 +18,7 @@ import { modelReady, warmupLocalAsr } from './services/local-asr'
 import { startHotkey, stopHotkey } from './input/hotkey'
 import { conversation } from './services/pipeline'
 import { createTray } from './tray'
+import { initUpdate } from './services/update'
 import { log } from './logger'
 import { consumeWgcPermission, getPendingWgcPermission, isWgcPermissionRequest } from './vision-grab'
 import { getBallWindow, rendererFrameMatches } from './windows'
@@ -99,6 +100,8 @@ async function boot(): Promise<void> {
   createTray(() => app.quit())
 
   startHotkey(settings.voice.hotkey, (phase) => conversation.onHotkey(phase))
+  // 自动更新：延后检查，安装版走 electron-updater，便携版只提示去下载
+  initUpdate()
   log('boot: 就绪', { version: app.getVersion(), hotkey: settings.voice.hotkey })
 
   // 悬浮球/气泡只在"球体圆内 / 卡片内"可点，其余透明区域穿透。
