@@ -5,6 +5,7 @@ import type { BallMenuItem, Phase, PublicSettings } from '../shared/types'
 import { IPC, type AgentProgress } from '../shared/ipc'
 import { settingsStore } from './store/settings'
 import { prettyChord } from './input/hotkey'
+import { windowsCursorVisible } from './input/windows-input'
 import { log } from './logger'
 
 /**
@@ -139,6 +140,7 @@ export function createBallWindow(): BrowserWindow {
   ballWin.on('show', () => ensureBallTop())
   // 默认整块穿透；主进程轮询光标（updateHitTests），光标进到球体圆内才恢复可点击
   ballWin.setIgnoreMouseEvents(true)
+  ballClickThrough = true
   loadRenderer(ballWin, 'ball')
 
   ballWin.once('ready-to-show', () => {
@@ -216,7 +218,9 @@ function createBubbleWindow(): BrowserWindow {
   bubbleWin.setAlwaysOnTop(true, 'screen-saver')
   bubbleWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
   bubbleWin.setSkipTaskbar(true)
+  bubbleWin.setIgnoreMouseEvents(windowsCursorVisible() === false)
   loadRenderer(bubbleWin, 'bubble')
+  bubbleWin.on('blur', () => getBubbleWindow()?.setFocusable(false))
   bubbleWin.on('closed', () => {
     bubbleWin = null
     bubbleVisible = false
@@ -239,11 +243,6 @@ export function isBubbleVisible(): boolean {
   const b = win.getBounds()
   // 窗口被挪到屏幕外（OFFSCREEN）就是这个值，光看标志位会误判
   return bubbleVisible && Math.abs(b.x) < 30000 && Math.abs(b.y) < 30000
-}
-
-export function bubbleBounds(): Electron.Rectangle | null {
-  const w = getBubbleWindow()
-  return w && bubbleVisible ? w.getBounds() : null
 }
 
 export function layoutBubble(): void {
@@ -360,6 +359,7 @@ export function hideBubble(): void {
   if (win) {
     const b = win.getBounds()
     win.setBounds({ x: OFFSCREEN, y: OFFSCREEN, width: b.width, height: b.height })
+    releaseBubbleFocus()
   }
   // 收起时固定状态一并复位，避免下次弹出还显示"已固定"
   if (wasPinned) sendBubble({ type: 'pin', pinned: false })
@@ -380,35 +380,43 @@ function bubbleCardRect(): Electron.Rectangle | null {
   }
 }
 
-/**
- * 主进程轮询光标，维护悬浮球的点击穿透：
- * 只有"球体圆内、且不在气泡卡片上"的区域可点，其余一律穿透。
- * 这样球和气泡无论谁在上层，都不会吃掉对方区域里的点击。
- * （气泡窗口本身始终可交互，不做穿透切换——切换后会出现"显示着却点不到"的问题。）
- */
-export function updateHitTests(): void {
-  const cursor = screen.getCursorScreenPoint()
-  const bw = getBallWindow()
-  if (!bw || !bw.isVisible()) return
-  const b = bw.getBounds()
+export function isOverBall(point: Electron.Point): boolean {
+  if (!isBallVisible()) return false
+  const center = ballCenter()
+  if (!center) return false
   const size = settingsStore.get().ball.size
-  const inCircle =
-    Math.hypot(cursor.x - (b.x + b.width / 2), cursor.y - (b.y + b.height / 2)) <= size / 2 + 8
+  return Math.hypot(point.x - center.x, point.y - center.y) <= size / 2 + 8
+}
+
+export function isOverBubble(point: Electron.Point): boolean {
   const card = bubbleCardRect()
-  const overBubble = Boolean(
-    card &&
-      cursor.x >= card.x &&
-      cursor.x <= card.x + card.width &&
-      cursor.y >= card.y &&
-      cursor.y <= card.y + card.height
-  )
-  setBallIgnore(!inCircle || overBubble)
+  return Boolean(card && point.x >= card.x && point.x < card.x + card.width &&
+    point.y >= card.y && point.y < card.y + card.height)
+}
+
+/** 全屏游戏能隐藏系统光标，坐标仍可能停在悬浮球或聊天卡片上。 */
+export function updateOverlayPointerVisibility(visible: boolean | null): void {
+  const bubble = getBubbleWindow()
+  const hidden = visible === false
+  if (hidden) hideBallMenu()
+  bubble?.setIgnoreMouseEvents(hidden)
+  if (!hidden && bubble && isBubbleVisible()) forceRelayout(bubble)
+  updateHitTests()
+}
+
+export function updateHitTests(): void {
+  if (windowsCursorVisible() === false) {
+    setBallIgnore(true)
+    return
+  }
+  const cursor = screen.getCursorScreenPoint()
+  setBallIgnore(!isOverBall(cursor) || isOverBubble(cursor))
 }
 
 /** 打字时临时允许窗口获得键盘焦点（平时不抢焦点） */
 export function focusBubble(): void {
   const win = getBubbleWindow()
-  if (!win) return
+  if (!win || !bubbleVisible || windowsCursorVisible() === false) return
   try {
     win.setFocusable(true)
     win.focus()
@@ -584,10 +592,10 @@ export function preloadMenu(): void {
   })
 }
 
-export function showBallMenu(items: BallMenuItem[], anchor?: Electron.Rectangle): void {
+export function showBallMenu(items: BallMenuItem[], anchor?: Electron.Rectangle, keepBubbleVisible = false): void {
   log('menu: show')
   // 气泡和菜单都是置顶窗口，气泡在上面会吃掉菜单的点击，先收起来
-  if (bubbleVisible) hideBubble()
+  if (bubbleVisible && !keepBubbleVisible) hideBubble()
   const win = getMenuWindow() ?? createMenuWindow()
   menuVisible = true
   menuAnchor = anchor ?? null

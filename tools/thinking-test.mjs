@@ -165,6 +165,11 @@ try {
   const answer = await bubble.eval("document.querySelector('.row__text--ai')?.textContent || ''")
   ok('thinkBlockShown', /思考过程/.test(thinkHead) && /先想一想/.test(thinkText2), { head: thinkHead, body: thinkText2.slice(0, 40) })
   ok('chatAnswerKept', /你好呀/.test(answer), answer.slice(0, 40))
+  const copy = await bubble.eval(`({
+    button: document.querySelector('.reply-copy')?.textContent,
+    selectable: getComputedStyle(document.querySelector('.row__text--ai')).userSelect
+  })`)
+  ok('chatAnswerCanBeCopied', copy.button === '复制' && copy.selectable === 'text', copy)
 
   // ---------- 2) Agent：非流式也带参数并展示思考 ----------
   await a.admin.update({ agent: { enabled: true } })

@@ -44,7 +44,8 @@ const UNITS = [
   'sse-parse.test.mjs',
   'version.test.mjs',
   'vision-grab.test.mjs',
-  'voice-mode.test.mjs'
+  'voice-mode.test.mjs',
+  'windows-hotkey.test.mjs'
 ]
 
 /** 需要本机有已校验 ASR 归档才跑得动，单独列出来 */
@@ -62,7 +63,7 @@ const E2E = [
   { file: 'app-test.mjs', expect: 16 },
   { file: 'menu-test.mjs', expect: 6 },
   { file: 'prompts-test.mjs', expect: 4 },
-  { file: 'thinking-test.mjs', expect: 6 },
+  { file: 'thinking-test.mjs', expect: 7 },
   { file: 'sse-tail-test.mjs', expect: 3 },
   { file: 'search-test.mjs', expect: 4 },
   { file: 'shell-encoding-test.mjs', expect: 3 },

@@ -172,6 +172,12 @@ export default function Ball(): React.ReactElement {
     window.bwu.ball.click(!isClick)
   }, [])
 
+  const onPointerCancel = useCallback((): void => {
+    if (!pointer.current.down) return
+    pointer.current.down = false
+    window.bwu.ball.dragEnd()
+  }, [])
+
   // 徽标两态：模型思考（绿）/ 正在调工具（金）；闲聊的思考也走绿色
   const badgeMode: 'thinking' | 'working' | null = agent
     ? agent.mode === 'working'
@@ -203,7 +209,8 @@ export default function Ball(): React.ReactElement {
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
-        onPointerCancel={onPointerUp}
+        onPointerCancel={onPointerCancel}
+        onLostPointerCapture={onPointerCancel}
         onContextMenu={(e) => {
           e.preventDefault()
           window.bwu.ball.contextMenu()

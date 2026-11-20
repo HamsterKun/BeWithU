@@ -1,4 +1,4 @@
-import { BrowserWindow, app, dialog, ipcMain, screen, shell } from 'electron'
+import { BrowserWindow, app, clipboard, dialog, ipcMain, screen, shell } from 'electron'
 import { readFileSync } from 'node:fs'
 import { extname, join } from 'node:path'
 import { IPC } from '../shared/ipc'
@@ -59,11 +59,10 @@ import {
   isHotkeyFallback,
   setGlobalMouseHandlers
 } from './input/hotkey'
+import { setWindowsPointerHandler, windowsCursorVisible } from './input/windows-input'
 import { secureStorageAvailable } from './store/secure-json'
 import {
   broadcastSettings,
-  ballCenter,
-  bubbleBounds,
   defaultBallPosition,
   focusBubble,
   getBallBounds,
@@ -78,6 +77,8 @@ import {
   hideBubble,
   isBubblePinned,
   isBubbleVisible,
+  isOverBall,
+  isOverBubble,
   sendAgentProgress,
   openSettingsWindow,
   releaseBubbleFocus,
@@ -88,7 +89,8 @@ import {
   showBallMenu,
   showBallWindow,
   hideAllWindows,
-  toggleBubble
+  toggleBubble,
+  updateOverlayPointerVisibility
 } from './windows'
 import { log, logPath } from './logger'
 
@@ -146,11 +148,8 @@ function on<A extends unknown[]>(channel: string, fn: (event: Electron.IpcMainEv
   })
 }
 
-function pointIn(rect: Electron.Rectangle, x: number, y: number): boolean {
-  return x >= rect.x && x <= rect.x + rect.width && y >= rect.y && y <= rect.y + rect.height
-}
-
 function startBallDrag(): void {
+  if (windowsCursorVisible() === false) return
   const bounds = getBallBounds()
   if (!bounds) return
   endBallDrag(false)
@@ -172,21 +171,45 @@ function endBallDrag(persist = true): void {
   if (b && persist) settingsStore.update({ ball: { x: b.x, y: b.y } })
 }
 
+function closeConversationBubble(): void {
+  conversation.stopEverything()
+  hideBubble()
+}
+
+function dismissBubbleOnOutsideClick(point: Electron.Point): void {
+  if (conversation.currentPhase === 'speaking') return
+  if (!isBubbleVisible() || isBubblePinned() || isOverBubble(point) || isOverBall(point)) return
+  if (conversation.currentPhase === 'thinking') closeConversationBubble()
+  else hideBubble()
+}
+
+function toggleBubbleFromBall(): void {
+  if (windowsCursorVisible() === false) return
+  if (isBubbleVisible() && conversation.currentPhase === 'speaking') closeConversationBubble()
+  else toggleBubble()
+}
+
+function closeBubbleFromCard(): void {
+  if (conversation.currentPhase !== 'speaking') closeConversationBubble()
+}
+
+let lastCursorVisibility: boolean | null = null
+setWindowsPointerHandler((visible, edge, point) => {
+  if (visible !== lastCursorVisibility) {
+    lastCursorVisibility = visible
+    updateOverlayPointerVisibility(visible)
+    if (visible === false && dragTimer) endBallDrag(true)
+  }
+  if (edge === 'up' && dragTimer) endBallDrag(true)
+  if (edge === 'down' && visible && point) dismissBubbleOnOutsideClick(point)
+})
+
 setGlobalMouseHandlers(
   (button) => {
-    if (button !== 1) return
-    // 注意：这里绝不能 endBallDrag，否则会和渲染层的 dragStart 抢时序，把刚起步的拖动掐掉
-    if (!isBubbleVisible() || isBubblePinned()) return
-    const p = screen.getCursorScreenPoint()
-    const bb = bubbleBounds()
-    const center = ballCenter()
-    const size = settingsStore.get().ball.size
-    const inBubble = bb ? pointIn(bb, p.x, p.y) : false
-    const inBall = center ? Math.hypot(p.x - center.x, p.y - center.y) <= size / 2 + 12 : false
-    if (!inBubble && !inBall) hideBubble()
+    if (button === 1 && windowsCursorVisible() === null) dismissBubbleOnOutsideClick(screen.getCursorScreenPoint())
   },
-  () => {
-    if (dragTimer) endBallDrag(true)
+  (button) => {
+    if (button === 1 && dragTimer) endBallDrag(true)
   }
 )
 
@@ -471,11 +494,13 @@ export function registerIpc(getQuit: () => void): void {
   on(IPC.ballDragEnd, () => endBallDrag(true))
   on(IPC.ballClick, (_e, moved: boolean) => {
     log('ball: click', moved)
-    if (!moved) toggleBubble()
+    if (!moved) toggleBubbleFromBall()
   })
-  on(IPC.ballBubbleToggle, () => toggleBubble())
+  on(IPC.ballBubbleToggle, toggleBubbleFromBall)
 
   on(IPC.ballContextMenu, () => {
+    if (windowsCursorVisible() === false) return
+    if (isBubbleVisible() && conversation.currentPhase === 'speaking') return
     const s = settingsStore.get()
     showBallMenu([
       { id: 'settings', label: '设置…' },
@@ -548,20 +573,22 @@ export function registerIpc(getQuit: () => void): void {
   /* ------------------------------------------------------------ bubble ---- */
 
   on(IPC.bubbleResize, (_e, w: number, h: number) => setBubbleCardSize(w, h))
-  on(IPC.bubbleClose, () => {
-    conversation.interrupt()
-    conversation.cancelListening()
-    hideBubble()
+  on(IPC.bubbleClose, closeBubbleFromCard)
+  handle(IPC.bubbleCopyReply, (_e, text: unknown) => {
+    if (typeof text !== 'string' || !text.trim() || !isBubbleVisible()) return false
+    try {
+      clipboard.writeText(text)
+      return true
+    } catch (error) {
+      log('bubble: 复制回答失败', error)
+      return false
+    }
   })
   on(IPC.bubblePin, (_e, pinned: boolean) => setBubblePinned(pinned))
   on(IPC.bubbleSubmit, (_e, text: string) => conversation.respondText(String(text ?? '')))
   on(IPC.bubbleFocus, () => focusBubble())
   on(IPC.bubbleBlur, () => releaseBubbleFocus())
-  on(IPC.bubbleStop, () => {
-    conversation.interrupt()
-    conversation.cancelListening()
-    hideBubble()
-  })
+  on(IPC.bubbleStop, closeBubbleFromCard)
   on(IPC.contextClear, () => conversation.clearContext())
 
   /* ------------------------------------------------------------- voice ---- */

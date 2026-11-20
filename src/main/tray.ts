@@ -1,6 +1,7 @@
 import { Tray, app, nativeImage } from 'electron'
 import { join } from 'node:path'
 import { settingsStore } from './store/settings'
+import { conversation } from './services/pipeline'
 import { openSettingsWindow, showBallMenu, showBallWindow } from './windows'
 
 let tray: Tray | null = null
@@ -39,7 +40,8 @@ export function createTray(onQuit: () => void): Tray {
         { id: 'sep2', label: '', separator: true },
         { id: 'quit', label: '退出 BeWithU', danger: true }
       ],
-      anchor
+      anchor,
+      conversation.currentPhase === 'speaking'
     )
   })
   return tray

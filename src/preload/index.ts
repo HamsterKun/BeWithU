@@ -151,6 +151,7 @@ const api = {
     resize: (w: number, h: number) => ipcRenderer.send(IPC.bubbleResize, w, h),
     onMeasure: (cb: () => void) => on(IPC.bubbleMeasure, cb),
     close: () => ipcRenderer.send(IPC.bubbleClose),
+    copyReply: (text: string): Promise<boolean> => ipcRenderer.invoke(IPC.bubbleCopyReply, text),
     pin: (pinned: boolean) => ipcRenderer.send(IPC.bubblePin, pinned),
     stop: () => ipcRenderer.send(IPC.bubbleStop),
     clearContext: () => ipcRenderer.send(IPC.contextClear),

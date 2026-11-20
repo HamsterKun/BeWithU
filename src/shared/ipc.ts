@@ -70,6 +70,7 @@ export const IPC = {
   bubbleResize: 'bubble:resize',
   bubbleMeasure: 'bubble:measure',
   bubbleClose: 'bubble:close',
+  bubbleCopyReply: 'bubble:copy-reply',
   bubblePin: 'bubble:pin',
   bubbleStop: 'bubble:stop',
   contextClear: 'context:clear',
@@ -340,6 +341,7 @@ export interface BwuApi {
     }>
   }
   bubble: {
+    copyReply: (text: string) => Promise<boolean>
     onUpdate(cb: (u: BubbleUpdate) => void): () => void
     resize(width: number, height: number): void
     onMeasure(cb: () => void): () => void

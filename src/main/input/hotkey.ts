@@ -1,12 +1,14 @@
 import { globalShortcut } from 'electron'
 import { log } from '../logger'
+import { windowsHotkey } from './windows-hotkey'
+import { stopWatchingWindowsInput, watchWindowsInput } from './windows-input'
 
 /* ---------------------------------------------------------------------------
- * 全局键鼠监听：优先用 uiohook-napi（能拿到 keyup 与鼠标侧键），
- * 失败时降级为 Electron globalShortcut（只能拿到按下，按住模式会退化为切换）。
+ * 全局键鼠监听：uiohook 负责捕获事件，Windows 键状态补齐游戏里丢失的事件。
+ * 两路都不可用时才依赖只支持按下事件的 globalShortcut。
  * ------------------------------------------------------------------------ */
 
-type Chord = { type: 'key'; mods: string[]; key: string } | { type: 'mouse'; button: number }
+export type Chord = { type: 'key'; mods: string[]; key: string } | { type: 'mouse'; button: number }
 
 const MOD_ORDER = ['Ctrl', 'Alt', 'Shift', 'Meta']
 
@@ -18,21 +20,26 @@ interface UiohookEvent {
   metaKey: boolean
 }
 
-let uio: any = null
+let uio: typeof import('uiohook-napi').uIOhook | null = null
 let keyNames: Map<number, string> = new Map()
-let modifierCodes: Set<number> = new Set()
+let modifierCodes = new Map<number, string>()
 let hotkeySpec: Chord | null = null
+let rawHotkey = ''
 let active = false
-let activeKey = ''
+let activeFromNative = false
 let listener: ((phase: 'down' | 'up') => void) | null = null
 let started = false
 let usingFallback = false
-/** 降级时是否真的注册上了（鼠标键在降级路径下注册不了） */
-let fallbackRegistered = false
+let fallbackAccelerator: string | null = null
+let nativeReady = false
+let nativeEdge: NodeJS.Timeout | undefined
 let captureResolve: ((chord: string) => void) | null = null
 let globalMouseDown: ((button: number) => void) | null = null
 let globalMouseUp: ((button: number) => void) | null = null
-let globalMouseMove: ((x: number, y: number) => void) | null = null
+
+function forceFallback(): boolean {
+  return process.env['BWU_AGENT_TEST'] === '1' && process.env['BWU_HOTKEY_FALLBACK'] === '1'
+}
 
 export function parseChord(raw: string): Chord | null {
   if (!raw) return null
@@ -78,7 +85,7 @@ export function prettyChord(raw: string): string {
 
 function buildKeyMaps(UiohookKey: Record<string, number>): void {
   const names = new Map<number, string>()
-  const mods = new Set<number>()
+  const mods = new Map<number, string>()
   const alias: Record<string, string> = {
     ArrowUp: 'Up',
     ArrowDown: 'Down',
@@ -98,8 +105,9 @@ function buildKeyMaps(UiohookKey: Record<string, number>): void {
   }
   for (const [name, code] of Object.entries(UiohookKey)) {
     if (typeof code !== 'number') continue
-    if (/^(Alt|Ctrl|Shift|Meta)(Right|Left)?$/.test(name)) {
-      mods.add(code)
+    const mod = /^(Alt|Ctrl|Shift|Meta)(Right|Left)?$/.exec(name)
+    if (mod) {
+      mods.set(code, mod[1])
       continue
     }
     if (/Right$/.test(name) && names.has(code)) continue
@@ -113,22 +121,18 @@ function buildKeyMaps(UiohookKey: Record<string, number>): void {
 function initUiohook(): boolean {
   if (uio) return true
   // 仅测试用：强制走降级路径，验证"降级=切换模式"的行为
-  if (process.env['BWU_AGENT_TEST'] === '1' && process.env['BWU_HOTKEY_FALLBACK'] === '1') {
+  if (forceFallback()) {
     log('hotkey: 测试开关 BWU_HOTKEY_FALLBACK=1，强制降级')
     return false
   }
   try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const mod = require('uiohook-napi')
+    const mod = require('uiohook-napi') as typeof import('uiohook-napi')
     buildKeyMaps(mod.UiohookKey ?? {})
     uio = mod.uIOhook
     uio.on('keydown', (e: UiohookEvent) => onKey('down', e))
     uio.on('keyup', (e: UiohookEvent) => onKey('up', e))
-    uio.on('mousedown', (e: { button: number }) => onMouse('down', e.button))
-    uio.on('mouseup', (e: { button: number }) => onMouse('up', e.button))
-    uio.on('mousemove', (e: { x: number; y: number }) => {
-      if (globalMouseMove) globalMouseMove(e.x, e.y)
-    })
+    uio.on('mousedown', (e) => onMouse('down', e.button))
+    uio.on('mouseup', (e) => onMouse('up', e.button))
     return true
   } catch (e) {
     log('hotkey: uiohook 加载失败，降级 globalShortcut', e)
@@ -155,57 +159,80 @@ function matches(chord: Chord, e: UiohookEvent): boolean {
   return want.length === mods.length && want.every((m) => mods.includes(m))
 }
 
+function setActive(down: boolean, fromNative = false): void {
+  activeFromNative = down && fromNative
+  if (active === down) return
+  active = down
+  listener?.(down ? 'down' : 'up')
+}
+
+function clearNativeEdge(): void {
+  if (nativeEdge) clearTimeout(nativeEdge)
+  nativeEdge = undefined
+}
+
+function onNativeHotkey(down?: boolean | null): void {
+  if (forceFallback()) return
+  clearNativeEdge()
+  nativeReady = down !== null
+  if (down === null && activeFromNative) setActive(false)
+  if (!started) {
+    if (down === null) {
+      setActive(false)
+      if (!usingFallback) startFallback(rawHotkey)
+    } else {
+      stopFallback()
+      if (down !== undefined && !captureResolve) setActive(down, true)
+    }
+    return
+  }
+  if (down == null || down === active || captureResolve) return
+  // 钩子先处理正常事件；给状态轮询留一个短窗口来补漏，避免同一次按键切换两次。
+  nativeEdge = setTimeout(() => {
+    nativeEdge = undefined
+    if (!captureResolve) setActive(down, true)
+  }, 36)
+}
+
+function finishCapture(chord: string): void {
+  const resolve = captureResolve
+  captureResolve = null
+  clearNativeEdge()
+  watchWindowsInput(forceFallback() ? null : windowsHotkey(hotkeySpec), onNativeHotkey)
+  resolve?.(chord)
+}
+
 function onKey(phase: 'down' | 'up', e: UiohookEvent): void {
   if (captureResolve && phase === 'down' && !modifierCodes.has(e.keycode)) {
     const name = keyNames.get(e.keycode)
     if (name) {
       const chord = chordToString({ type: 'key', mods: modsOf(e), key: name })
-      const resolve = captureResolve
-      captureResolve = null
-      resolve(chord)
+      finishCapture(chord)
       return
     }
   }
 
-  if (phase === 'down') {
-    if (modifierCodes.has(e.keycode) || active) return
-    if (hotkeySpec && matches(hotkeySpec, e)) {
-      active = true
-      activeKey = keyNames.get(e.keycode) ?? ''
-      listener?.('down')
-    }
-    return
-  }
-
-  if (!active) return
-  const name = keyNames.get(e.keycode)
-  if (modifierCodes.has(e.keycode) || (name && name.toLowerCase() === activeKey.toLowerCase())) {
-    active = false
-    listener?.('up')
+  if (hotkeySpec?.type !== 'key') return
+  const mod = modifierCodes.get(e.keycode)
+  const released = mod ? hotkeySpec.mods.includes(mod) : keyNames.get(e.keycode)?.toLowerCase() === hotkeySpec.key.toLowerCase()
+  if (phase === 'down' ? matches(hotkeySpec, e) : released) {
+    clearNativeEdge()
+    setActive(phase === 'down')
   }
 }
 
-function onMouse(phase: 'down' | 'up', button: number): void {
-  if (phase === 'down') {
-    if (captureResolve && button >= 3) {
-      const resolve = captureResolve
-      captureResolve = null
-      resolve(`Mouse${button}`)
-      globalMouseDown?.(button)
-      return
-    }
-    if (hotkeySpec?.type === 'mouse' && hotkeySpec.button === button && !active) {
-      active = true
-      listener?.('down')
-    }
-    globalMouseDown?.(button)
-  } else {
-    if (hotkeySpec?.type === 'mouse' && hotkeySpec.button === button && active) {
-      active = false
-      listener?.('up')
-    }
-    globalMouseUp?.(button)
+function onMouse(phase: 'down' | 'up', button: unknown): void {
+  if (typeof button !== 'number') return
+  if (phase === 'down' && captureResolve && button >= 3 && button <= 5) {
+    finishCapture(`Mouse${button}`)
+    return
   }
+  if (hotkeySpec?.type === 'mouse' && hotkeySpec.button === button) {
+    clearNativeEdge()
+    setActive(phase === 'down')
+  }
+  if (phase === 'down') globalMouseDown?.(button)
+  else globalMouseUp?.(button)
 }
 
 export function hotkeyStatus(): { ok: boolean; message: string } {
@@ -213,11 +240,10 @@ export function hotkeyStatus(): { ok: boolean; message: string } {
     if (hotkeySpec?.type === 'mouse') {
       return { ok: false, message: '受系统限制，鼠标键监听不了；已按切换模式处理，请在设置里改用键盘组合' }
     }
-    if (!fallbackRegistered) return { ok: false, message: '受系统限制，按键注册失败；请到设置里换一个键盘组合' }
+    if (!fallbackAccelerator) return { ok: false, message: '受系统限制，按键注册失败；请到设置里换一个键盘组合' }
     return { ok: false, message: '受系统限制，已降级为切换模式（按下开始、再按结束）' }
   }
-  if (!uio) return { ok: false, message: '按键监听未启动' }
-  return started ? { ok: true, message: '按键监听正常' } : { ok: false, message: '按键监听未启动' }
+  return started || nativeReady ? { ok: true, message: '按键监听正常' } : { ok: false, message: '按键监听未启动' }
 }
 
 /** 是否处于降级监听（降级时只能用切换模式） */
@@ -227,82 +253,67 @@ export function isHotkeyFallback(): boolean {
 
 export function startHotkey(rawSpec: string, cb: (phase: 'down' | 'up') => void): void {
   listener = cb
-  hotkeySpec = parseChord(rawSpec)
-  active = false
+  reloadHotkey(rawSpec)
+}
 
-  if (!initUiohook()) {
-    startFallback(rawSpec)
-    return
-  }
-  if (!started) {
+function startHook(): void {
+  if (started || !initUiohook()) return
+  if (uio) {
     try {
       uio.start()
       started = true
     } catch (e) {
       log('hotkey: start 失败', e)
-      startFallback(rawSpec)
-      return
     }
   }
-  usingFallback = false
-  log(`hotkey: 已监听 ${rawSpec} (${prettyChord(rawSpec)})`)
 }
 
 function startFallback(rawSpec: string): void {
   usingFallback = true
-  fallbackRegistered = false
   const chord = parseChord(rawSpec)
   if (!chord || chord.type !== 'key') {
     log('hotkey: 降级路径只能注册键盘组合，鼠标键无法监听', rawSpec)
     return
   }
   try {
-    fallbackRegistered = globalShortcut.register(chordToString(chord), () => {
-      listener?.('down')
-      setTimeout(() => listener?.('up'), 60)
-    })
-    if (!fallbackRegistered) log('hotkey: globalShortcut 注册失败', rawSpec)
+    const accelerator = chordToString(chord)
+    if (globalShortcut.register(accelerator, () => {
+      if (!captureResolve) listener?.('down')
+    })) fallbackAccelerator = accelerator
+    else log('hotkey: globalShortcut 注册失败', rawSpec)
   } catch (e) {
-    fallbackRegistered = false
     log('hotkey: globalShortcut 注册失败', e)
   }
 }
 
+function stopFallback(): void {
+  if (fallbackAccelerator) globalShortcut.unregister(fallbackAccelerator)
+  fallbackAccelerator = null
+  usingFallback = false
+}
+
 export function reloadHotkey(rawSpec: string): void {
-  try {
-    globalShortcut.unregisterAll()
-  } catch {
-    /* ignore */
-  }
-  if (uio && started) {
-    try {
-      uio.stop()
-    } catch {
-      /* ignore */
-    }
-    started = false
-  }
-  active = false
-  hotkeySpec = null
-  if (listener) startHotkey(rawSpec, listener)
+  setActive(false)
+  clearNativeEdge()
+  stopFallback()
+  rawHotkey = rawSpec
+  hotkeySpec = parseChord(rawSpec)
+  nativeReady = false
+  startHook()
+  if (!started) startFallback(rawSpec)
+  watchWindowsInput(forceFallback() ? null : windowsHotkey(hotkeySpec), onNativeHotkey)
+  if (started) log(`hotkey: 已监听 ${rawSpec} (${prettyChord(rawSpec)})`)
 }
 
 export function captureNextChord(): Promise<string> {
-  if (!initUiohook()) return Promise.resolve('')
-  if (!started) {
-    try {
-      uio.start()
-      started = true
-    } catch {
-      return Promise.resolve('')
-    }
-  }
+  startHook()
+  if (!started) return Promise.resolve('')
+  captureResolve?.('')
   return new Promise((resolve) => {
     captureResolve = resolve
     setTimeout(() => {
       if (captureResolve === resolve) {
-        captureResolve = null
-        resolve('')
+        finishCapture('')
       }
     }, 15000)
   })
@@ -313,17 +324,12 @@ export function setGlobalMouseHandlers(down: ((b: number) => void) | null, up: (
   globalMouseUp = up
 }
 
-/** 全局光标位置（用于悬浮球圆形命中测试） */
-export function setGlobalMouseMoveHandler(fn: ((x: number, y: number) => void) | null): void {
-  globalMouseMove = fn
-}
-
 export function stopHotkey(): void {
-  try {
-    globalShortcut.unregisterAll()
-  } catch {
-    /* ignore */
-  }
+  stopFallback()
+  clearNativeEdge()
+  stopWatchingWindowsInput()
+  captureResolve?.('')
+  captureResolve = null
   if (uio && started) {
     try {
       uio.stop()

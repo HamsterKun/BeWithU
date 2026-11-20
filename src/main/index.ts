@@ -111,8 +111,7 @@ async function boot(): Promise<void> {
   initUpdate()
   log('boot: 就绪', { version: app.getVersion(), hotkey: settings.voice.hotkey })
 
-  // 悬浮球/气泡只在"球体圆内 / 卡片内"可点，其余透明区域穿透。
-  // 渲染层也会上报（见 windows.setBallHitTest），这里轮询兜底，保证任何情况下都能点。
+  // 光标可见时，悬浮球只在球体圆内可点，外围透明区域穿透。
   setInterval(() => updateHitTests(), 20)
 
   // 本地识别：后台预热模型，避免第一次说话多等 1.5s（闲置 5 分钟自动回收）

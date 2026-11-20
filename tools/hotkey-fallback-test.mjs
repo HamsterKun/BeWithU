@@ -74,7 +74,7 @@ class Conn {
 }
 
 const tmp = join(ROOT, '.shots', '.tmp-hotkey-fallback')
-rmSync(tmp, { recursive: true, force: true })
+rmSync(tmp, { recursive: true, force: true, maxRetries: 8, retryDelay: 100 })
 const ud = join(tmp, 'ud')
 mkdirSync(ud, { recursive: true })
 // 行为验证需要本地识别模型能就绪：把本机已装的模型文件拷进这个隔离 userData
@@ -165,13 +165,9 @@ try {
   ball?.close()
   admin?.close()
   try {
-    app && process.kill(app.pid)
-  } catch {}
-  await sleep(400)
-  try {
     app && execFileSync('taskkill', ['/PID', String(app.pid), '/T', '/F'], { stdio: 'ignore', timeout: 10000 })
   } catch {}
-  rmSync(tmp, { recursive: true, force: true })
+  rmSync(tmp, { recursive: true, force: true, maxRetries: 8, retryDelay: 100 })
   const failed = Object.entries(results).filter(([, v]) => !v.pass)
   console.log(`\n通过 ${Object.keys(results).length - failed.length}/${Object.keys(results).length}`)
   process.exit(failed.length ? 1 : 0)

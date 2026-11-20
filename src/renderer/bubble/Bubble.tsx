@@ -90,11 +90,15 @@ const clean = (text: string): string =>
 export default function Bubble(): React.ReactElement {
   const [state, setState] = useState<State>(initial)
   const [draft, setDraft] = useState('')
+  const [copyFeedback, setCopyFeedback] = useState('')
   const cardRef = useRef<HTMLDivElement | null>(null)
   const bodyRef = useRef<HTMLDivElement | null>(null)
   const inputRef = useRef<HTMLInputElement | null>(null)
   const measureRef = useRef<(() => void) | null>(null)
   const lastSize = useRef<{ w: number; h: number } | null>(null)
+  const copyTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+
+  useEffect(() => () => clearTimeout(copyTimer.current), [])
 
   const report = useCallback((): void => {
     const el = cardRef.current
@@ -150,7 +154,8 @@ export default function Bubble(): React.ReactElement {
   // 自动滚到底部
   useEffect(() => {
     const el = bodyRef.current
-    if (el) el.scrollTop = el.scrollHeight
+    const selection = window.getSelection()
+    if (el && !(selection && !selection.isCollapsed && el.contains(selection.anchorNode))) el.scrollTop = el.scrollHeight
   }, [state.assistant, state.user, state.notice, state.reasoning])
 
   // 确认卡出现时把它滚进视野（不然会被"自动滚到底"顶出去）
@@ -193,11 +198,18 @@ export default function Bubble(): React.ReactElement {
   }, [state.phase, state.note, state.notice])
 
   const hasContent = Boolean(state.user || state.assistant)
+  const isSpeaking = state.phase === 'speaking'
   const assistantText = clean(state.assistant)
 
   const onStop = (): void => window.bwu.bubble.stop()
   const onClose = (): void => window.bwu.bubble.close()
   const onPin = (): void => window.bwu.bubble.pin(!state.pinned)
+  const copyReply = async (): Promise<void> => {
+    const copied = await window.bwu.bubble.copyReply(state.assistant).catch(() => false)
+    setCopyFeedback(copied ? '已复制' : '复制失败')
+    clearTimeout(copyTimer.current)
+    copyTimer.current = setTimeout(() => setCopyFeedback(''), 1500)
+  }
 
   return (
     <div className="bubble-root" data-side={state.side} data-phase={state.phase}>
@@ -218,11 +230,13 @@ export default function Bubble(): React.ReactElement {
                 />
               </svg>
             </button>
-            <button className="icon-btn" title="关闭" onClick={onClose}>
-              <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden>
-                <path d="m4 4 8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-              </svg>
-            </button>
+            {!isSpeaking ? (
+              <button className="icon-btn" title="关闭" onClick={onClose}>
+                <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden>
+                  <path d="m4 4 8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+                </svg>
+              </button>
+            ) : null}
           </div>
         </header>
         <div className="card__body" ref={bodyRef}>
@@ -279,8 +293,15 @@ export default function Bubble(): React.ReactElement {
 
           {assistantText ? (
             <div className="row row--ai">
-              <span className="row__label">{state.name}</span>
-              <p className="row__text row__text--ai">
+              <div className="reply-heading">
+                <span className="row__label">{state.name}</span>
+                <button className="reply-copy" type="button" title="复制整条回答" onClick={() => void copyReply()}>
+                  <span aria-live="polite">{copyFeedback || '复制'}</span>
+                </button>
+              </div>
+              <p className="row__text row__text--ai" onPointerDown={(e) => {
+                if (e.button === 0) window.bwu.bubble.requestFocus()
+              }}>
                 {assistantText}
                 {state.streaming ? <span className="caret" /> : null}
               </p>
@@ -321,7 +342,6 @@ export default function Bubble(): React.ReactElement {
               onChange={(e) => setDraft(e.target.value)}
               onPointerDown={grabFocus}
               onFocus={() => window.bwu.bubble.requestFocus()}
-              onBlur={() => window.bwu.bubble.releaseFocus()}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.nativeEvent.isComposing) submit()
                 if (e.key === 'Escape') e.currentTarget.blur()
@@ -336,7 +356,7 @@ export default function Bubble(): React.ReactElement {
         <footer className="card__foot">
           {state.phase === 'listening' ? (
             <span className="hint-text">松开 {state.hotkey} 发送</span>
-          ) : state.phase === 'speaking' || state.phase === 'thinking' ? (
+          ) : isSpeaking || state.phase === 'thinking' ? (
             <>
               <span className="wave" aria-hidden>
                 <i />
@@ -347,9 +367,13 @@ export default function Bubble(): React.ReactElement {
                 <i />
                 <i />
               </span>
-              <button className="ghost-btn" onClick={onStop}>
-                停止
-              </button>
+              {isSpeaking ? (
+                <span className="hint-text">点击悬浮球停止播报</span>
+              ) : (
+                <button className="ghost-btn" onClick={onStop}>
+                  停止
+                </button>
+              )}
             </>
           ) : (
             <>
