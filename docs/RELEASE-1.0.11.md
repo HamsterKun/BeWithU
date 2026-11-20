@@ -12,7 +12,7 @@
 | 构建时间 | 2026-11-19 22:49–22:52（Asia/Hong_Kong） |
 | 构建机运行时 | Node.js **v24.21.0**、Electron **45.3.3**、electron-builder **26.18.0** |
 | 构建命令 | `node node_modules/electron-builder/cli.js --win --x64 --config.electronDist=node_modules/electron/dist --config.directories.output=D:\coding\bwu-staging-1.0.11` |
-| 说明 | 先构建到独立 staging 校验，通过后才放进 `release/`；旧 1.0.10 产物已移入 `release/archive-1.0.10/` |
+| 说明 | 先构建到独立 staging 校验，通过后才放进 `release/`；旧 1.0.10 产物当时移入 `release/archive-1.0.10/`（归档目录已于 2026-11-20 清理时删除，需要旧包时按 tag `v1.0.10` 重新打包） |
 
 ## 产物与 SHA-256
 

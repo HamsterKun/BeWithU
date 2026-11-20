@@ -1,7 +1,7 @@
 # BeWithU 1.0.13 发布清单
 
 > 本文件是 1.0.13 产物的校验记录。产物本身不进版本库（`release/` 被 `.gitignore` 忽略），
-> 安装前请用下面的 SHA-256 与产物核对，不要只看文件名。1.0.12 的清单在 `release/archive-1.0.12/`。
+> 安装前请用下面的 SHA-256 与产物核对，不要只看文件名。1.0.12 的校验值见 `docs/RELEASE-1.0.12.md`。
 
 ## 版本与来源
 
@@ -12,7 +12,7 @@
 | 构建时间 | 2026-11-20 01:56–01:58（Asia/Hong_Kong） |
 | 构建机运行时 | Node.js **v24.21.0**、Electron **45.3.3**、electron-builder **26.18.0** |
 | 构建命令 | `node node_modules/electron-builder/cli.js --win --x64 --config.electronDist=node_modules/electron/dist --config.directories.output=D:\coding\bwu-staging-1.0.13` |
-| 说明 | 先构建到独立 staging 校验，通过后才放进 `release/`；1.0.12 产物移入 `release/archive-1.0.12/` |
+| 说明 | 先构建到独立 staging 校验，通过后才放进 `release/`；1.0.12 产物当时移入 `release/archive-1.0.12/`（归档目录已于 2026-11-20 清理时删除，需要旧包时按 tag `v1.0.12` 重新打包） |
 
 ## 产物与 SHA-256
 

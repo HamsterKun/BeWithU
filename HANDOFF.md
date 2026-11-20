@@ -8,7 +8,8 @@
 > 3. **数据与日志页**（用量统计从关于搬出）+ 关于页点星卡 → §1.25
 > 4. **自动更新**（electron-updater）+ 版本定为 **1.1.0** → §1.26
 >
-> `release/` 里现在是 **1.1.0** 的安装器与便携包；1.0.13 及更早的产物已归档到 `release/archive-1.0.x/`。
+> `release/` 里现在是 **1.1.0** 的安装器与便携包；1.0.13 及更早的归档已在 2026-11-20 清理时全部删除
+> （需要旧包时按对应 tag 重新打包，校验值留在各版 `docs/RELEASE-1.0.1x.md`）。
 
 ---
 
@@ -19,7 +20,7 @@
 | 代码位置 | `C:\Users\jiangchengrui\Desktop\BeWithU`（原 `D:\coding\BeWithU`；D 盘已不存在，见 §11） |
 | 版本 | **1.1.0**（自动更新 + 上下文管理）。含 C2/A6 修复。安装包已出，**Release 未发布**，见 §1.26 |
 | HEAD | 1.0.13 打包版提交在 `006c229`；C2/A6、上下文管理、数据与日志、自动更新都在 1.1.0 的提交里 |
-| 产物 | `release/` = **1.1.0** 安装器 + 便携包 + `.blockmap` + `latest.yml`（校验见 `SHA256SUMS-1.1.0.txt`、`docs/RELEASE-1.1.0.md`）；旧版在 `release/archive-1.0.10…1.0.13/` |
+| 产物 | `release/` = **1.1.0** 安装器 + 便携包 + `.blockmap` + `latest.yml`（校验见 `SHA256SUMS-1.1.0.txt`、`docs/RELEASE-1.1.0.md`）。旧版本归档（1.0.10…1.0.13）**已全部删除**，需要时按对应 tag 重新打包 |
 | 工作区 | 1.1.0 提交完成后应为干净；`out/`、`release/`、`.shots/` 都被 gitignore |
 | 搬家 | **先看 §11**：哪些目录必带/可以删、一键压缩命令、新机器恢复与自检步骤 |
 
@@ -718,8 +719,9 @@ $d = "$env:USERPROFILE\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies"
   下可加载，应用日志出现 `input: 工作进程已启动`；安装器 129,023,638 bytes / `a3f27713…0063`，
   便携版 116,745,124 bytes / `1a0af2c7…a1bb`，`check-installer.ps1` 正/反例/缺摘要三种情况都验过。
   完整记录见 [docs/RELEASE-1.0.13.md](docs/RELEASE-1.0.13.md)。
-- **产物已就位**：`release/` 是 1.0.13；1.0.10 / 1.0.11 / 1.0.12 分别在 `release/archive-1.0.10/`、`archive-1.0.11/`、`archive-1.0.12/`；
-  `release/SHA256SUMS-1.0.13.txt`。
+- **产物已就位（历史记录）**：当时 `release/` 是 1.0.13，1.0.10 / 1.0.11 / 1.0.12 在 `archive-1.0.10/`…`archive-1.0.12/`。
+  这批归档已于 2026-11-20 清理时**全部删除**（`release/` 现在只有 1.1.0）；旧版本校验值仍保留在各版
+  `docs/RELEASE-1.0.1x.md` 里，需要旧包时用对应 tag 重新打包即可。
 - **ASR 官方归档整包（已闭环）**：`sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17.tar.bz2`
   163,002,883 bytes / SHA-256 `7d1efa21…d347e`，已在 `D:\coding\bwu-asr-dl\archive.tar.bz2` 下完并比对通过
   （续传脚本 `fetch-asr.ps1` 自带校验）。tar 清单 12 项、根目录与 manifest 的 `root` 一致、无符号链接/越界路径；
@@ -743,22 +745,29 @@ $d = "$env:USERPROFILE\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies"
 
 > 目标：把"能继续开发 + 能发版 + 能复现验证"的最小集合带走，不要把 4 GB 的缓存和旧安装包一起搬。
 
-### 11.1 体积构成（本机实测，`Get-ChildItem -Recurse | Measure-Object Length -Sum`）
+### 11.1 体积构成（2026-11-20 清理后实测，`du -sh`）
+
+清理前后：**9.5 GB → 1.5 GB**。删掉的是旧版本归档（1.0.10…1.0.13，各 ~626 MB）、
+`.git/lfs` 里的 933 MB 孤儿对象、以及 `.shots/` 下的测试临时 userData。
 
 | 路径 | 体积 | 带不带 | 说明 |
 |---|---:|---|---|
-| git 跟踪的源码/文档/脚本（183 个文件） | ~2 MB | **必带** | 就是全部可维护内容 |
-| `release/BeWithU-1.0.13-*.exe` + 清单/校验/latest.yml | ~247 MB | **必带** | 安装器 129 MB + 便携版 117 MB；发版/验收用 |
-| `release/win-unpacked/` | 392 MB | 选带 | 打包版冒烟（`BWU_TEST_EXE`）用；不带也能从安装器/重新打包得到 |
-| `release/archive-1.0.10|1.0.11|1.0.12/` | 各 ~626 MB | 不带 | 旧版本，需要时重新打包即可 |
-| `node_modules/` | 553 MB | **不带** | pnpm 符号链接指向别的机器的 store，换机必坏（§8.6） |
-| `.git/` | 1.17 GB | 选带 | 其中 `.git/lfs/` 932 MB 是**旧对象**：当前树没有任何 LFS 指针，构建不需要它 |
-| `.cache/` | 15 MB | 不带 | electron-builder 缓存，重下即可 |
-| `.pnpm-store/` | 32 MB | 不带 | 本机 pnpm store 的残留；新机器按 §11.3 重装 |
-| `out/` | 1.5 MB | 不带 | `electron-vite build` 可重建 |
-| `.shots/` | 43 MB | 不带 | 截图与测试临时 userData |
+| git 跟踪的源码/文档/脚本（210 个文件） | ~2 MB | **必带** | 就是全部可维护内容 |
+| `release/BeWithU-1.1.0-*.exe` + `.blockmap`/`latest.yml`/校验 | ~235 MB | **必带** | 安装器 129 MB + 便携版 117 MB；发版/验收用 |
+| `release/win-unpacked/` | 394 MB | 选带 | 打包版冒烟（`BWU_TEST_EXE`）用；不带也能从安装器/重新打包得到 |
+| `release/archive-1.0.1x/` | — | — | **已删除**。需要旧版时用对应 git tag 重新打包，校验值在各版 `docs/RELEASE-1.0.1x.md` |
+| `node_modules/` | 577 MB | **不带** | pnpm 符号链接指向别的机器的 store，换机必坏（§8.6） |
+| `.pnpm-store/` | 225 MB | 不带 | 本机 `--store-dir` 安装留下的 store；`node_modules` 里是硬链接，**删 store 不影响已装依赖**，只影响离线重装 |
+| `.git/` | 237 MB | 选带 | `.git/lfs` 已 `prune` 掉 933 MB 孤儿对象（当前树无 LFS 指针，构建不需要） |
+| `.cache/` | 17 MB | 不带 | electron-builder 缓存，重下即可 |
+| `.shots/` | 7.3 MB | 不带 | 截图留档；`run.mjs` 每次会重建自己的 `.tmp-*`，不要试图长期保留 |
+| `out/` | 1.7 MB | 不带 | `electron-vite build` 可重建 |
 
-结论：**带源码 + `release/1.0.13` 两个 exe 与清单 ≈ 236 MB**；再带 `win-unpacked` ≈ 389 MB；全带 4.3 GB。
+结论：**带源码 + `release/1.1.0` 两个 exe 与清单 ≈ 237 MB**；再带 `win-unpacked` ≈ 631 MB。
+
+> 遗留：`release/archive-1.0.10/`、`archive-1.0.11/` 各剩一个 9.7 MB 的 `resources/app.asar`
+> 被某个进程占着句柄（`rd /s /q`、改名、Recycle Bin 都被拒），删了两次都失败。
+> **重启后** `rm -rf release/archive-1.0.1*` 即可彻底清掉；占用的只是 19 MB，不影响任何流程。
 
 ### 11.2 一键打包（推荐：轻量包，约 640 MB）
 
@@ -783,7 +792,7 @@ zip 内已确认没有 `node_modules`、`.git`、`.cache`、`.pnpm-store`、`.sh
 且包含 1.0.13 安装器、便携版、`SHA256SUMS-1.0.13.txt` 与 `docs/RELEASE-1.0.13.md`。
 
 - 想再小一点（不要 `win-unpacked`，约 250 MB）：加一条 `--exclude='release/win-unpacked'`。
-- 想连 git 历史一起带：**不要**整个 `.git`（1.17 GB，且大头是没用的旧 LFS 对象），用 bundle：
+- 想连 git 历史一起带：**不要**整个 `.git`（prune 前 1.17 GB，其中 933 MB 是没用的旧 LFS 对象；现在 237 MB），用 bundle：
 
   ```powershell
   Set-Location 'D:\coding\BeWithU'
@@ -820,7 +829,7 @@ zip 内已确认没有 `node_modules`、`.git`、`.cache`、`.pnpm-store`、`.sh
    ```powershell
    $env:BWU_TEST_EXE = 'release\win-unpacked\BeWithU.exe'; & $node tools\smoke-test.mjs
    ```
-   安装器校验用 `release/SHA256SUMS-1.0.13.txt` 里的 SHA-256 配 `scripts/check-installer.ps1`。
+   安装器校验用 `release/SHA256SUMS-1.1.0.txt` 里的 SHA-256 配 `scripts/check-installer.ps1`（旧版的校验值见各版 `docs/RELEASE-1.0.1x.md`）。
 6. **本地语音模型不在仓库里**：`%APPDATA%\BeWithU\models\sensevoice-2024-07-17` 需要在新机器上重新下载
    （设置 → 语音 → 下载模型）。想离线装：带上 `D:\coding\bwu-asr-dl\archive.tar.bz2`（163 MB，官方归档，
    SHA-256 已核对），用 `tools/asr-download-test.mjs` 的流程验证后手工放进上述目录。
@@ -830,7 +839,7 @@ zip 内已确认没有 `node_modules`、`.git`、`.cache`、`.pnpm-store`、`.sh
 | 路径 | 体积 | 处理 |
 |---|---:|---|
 | `D:\coding\bwu-asr-dl\` | 155 MB | 选带：`archive.tar.bz2`（已校验的官方 ASR 归档）+ `fetch-asr.ps1`（续传/校验）+ `run-e2e.ps1`（E2E 驱动）+ 最近一次 E2E 日志 |
-| `D:\coding\bwu-staging-1.0.13\`（还有 1.0.11/1.0.12） | 各 ~626 MB | **删**：与 `release/win-unpacked` 重复，只是打包中间产物 |
+| `D:\coding\bwu-staging-1.0.13\`（还有 1.0.11/1.0.12） | 各 ~626 MB | **删**：与 `release/win-unpacked` 重复，只是打包中间产物。**D 盘已不存在，这些目录随搬家一并消失** |
 | `D:\coding\bwu-acl-recovery\` | 0.1 MB | 不带：本机工作区权限修复的回滚记录，换机器无意义 |
 
 ### 11.5 绝对不要打包的东西
