@@ -1643,3 +1643,21 @@ body {
 [data-theme='light'] .logbox__line.is-error {
   color: #b91c1c;
 }
+
+/* 日志工具栏里的数字框不能被 flex 压扁（否则单位"行"会被裁掉） */
+.log-toolbar .number {
+  flex: 0 0 auto;
+}
+
+.log-toolbar .input--num {
+  width: 64px;
+}
+
+/* 日志工具栏里的数字框不能被 flex 压扁（否则单位"行"会被裁掉） */
+.log-toolbar .number {
+  flex: 0 0 auto;
+}
+
+.log-toolbar .input--num {
+  width: 64px;
+}
