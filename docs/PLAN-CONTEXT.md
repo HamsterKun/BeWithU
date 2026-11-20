@@ -439,7 +439,7 @@ src/renderer/settings/panes/ContextPane.tsx  新  「上下文」设置页
 | B. 接线 | pipeline / runner 换成 `planContext`，删专用总结模型（约 150 行改动） |
 | C. UI | 新设置页 + 删旧区块（约 300 行） |
 | D. 测试 | 5 个单测 + 3 个 E2E |
-| E. 文档 | HANDOFF §1.24 + README 特性表 |
+| E. 文档 | HANDOFF（本地开发规范）+ README 特性表 |
 
 建议按 A→D 走完再动 UI，内核先用单测钉住。
 
