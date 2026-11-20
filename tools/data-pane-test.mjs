@@ -121,6 +121,20 @@ try {
   const meta = await ui.eval("document.querySelector('.log-meta .muted')?.textContent || ''")
   ok('logRendered', firstCount > 0, { lines: firstCount, meta })
 
+  // 日志默认贴底（否则用户每次进来都要自己往下拖）
+  const scrollState = await ui.eval(`(() => {
+    const el = document.querySelector('.logbox')
+    if (!el) return null
+    return { atBottom: el.scrollHeight - el.scrollTop - el.clientHeight < 4, scrollable: el.scrollHeight > el.clientHeight }
+  })()`)
+  ok('logScrolledToBottom', Boolean(scrollState && scrollState.atBottom), scrollState)
+
+  // 按钮文字不能被挤成两行
+  const actionBtns = await ui.eval(
+    "Array.from(document.querySelectorAll('.main__body .row-actions .btn')).map(b => b.textContent.trim())"
+  )
+  ok('logButtonsCompact', actionBtns.includes('复制') && actionBtns.includes('打开目录'), actionBtns)
+
   // 时间戳按本地时间渲染成 HH:mm:ss
   const clock = await ui.eval("document.querySelector('.logbox__time')?.textContent || ''")
   ok('logClockFormat', /^\d{2}:\d{2}:\d{2}$/.test(clock), clock)

@@ -18,7 +18,7 @@ const TABS: { id: Tab; label: string; title: string; icon: string }[] = [
   { id: 'context', label: '上下文', title: '上下文管理', icon: 'M2 3.2h12v2.2H2zm0 3.7h12v2.2H2zm0 3.7h8v2.2H2z' },
   { id: 'voice', label: '语音', title: '语音合成与识别', icon: 'M8 1.6a2.4 2.4 0 0 1 2.4 2.4v3.4a2.4 2.4 0 1 1-4.8 0V4A2.4 2.4 0 0 1 8 1.6zM3.4 7.2v.4a4.6 4.6 0 0 0 9.2 0v-.4h1.2v.4a5.8 5.8 0 0 1-5.2 5.75V15H7.4v-1.65A5.8 5.8 0 0 1 2.2 7.6v-.4z' },
   { id: 'ball', label: '悬浮球', title: '悬浮球与气泡', icon: 'M8 1.6a6.4 6.4 0 1 0 0 12.8A6.4 6.4 0 0 0 8 1.6zm0 1.6a4.8 4.8 0 1 1 0 9.6 4.8 4.8 0 0 1 0-9.6z' },
-  { id: 'prompt', label: '提示词', title: '系统提示词', icon: 'M3 3.2h10v1.4H3zm0 3.2h10v1.4H3zm0 3.2h6.4v1.4H3zM3 12.8h8.4v1.4H3z' },
+  { id: 'prompt', label: '人格提示词', title: '人格提示词', icon: 'M3 3.2h10v1.4H3zm0 3.2h10v1.4H3zm0 3.2h6.4v1.4H3zM3 12.8h8.4v1.4H3z' },
   { id: 'agent', label: 'Agent 能力', title: 'Agent 能力', icon: 'M8 2.2a1.3 1.3 0 0 1 1.3 1.3v1h1.5A2.2 2.2 0 0 1 13 6.7v1.6h1V9.7h-1v1.6a2.2 2.2 0 0 1-2.2 2.2H5.2A2.2 2.2 0 0 1 3 11.3V9.7H2V8.3h1V6.7a2.2 2.2 0 0 1 2.2-2.2h1.5v-1A1.3 1.3 0 0 1 8 2.2Zm-2 5.1v1.4h1.4V7.3Zm2.6 0v1.4H10V7.3Z' },
   { id: 'hotkey', label: '快捷键', title: '开麦键', icon: 'M1.6 4.4h12.8v7.2H1.6zM3.2 6h1.6v1.4H3.2zm2.6 0H7.4v1.4H5.8zm2.6 0h1.6v1.4H8.4zm2.6 0h1.6v1.4h-1.6zM4.4 8.6h7.2v1.4H4.4z' },
   { id: 'data', label: '数据与日志', title: '数据与日志', icon: 'M2 2.6h12v2.2H2zm0 4.3h12v2.2H2zm0 4.3h12v2.2H2z' },

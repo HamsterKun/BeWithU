@@ -411,7 +411,7 @@ export interface ContextInfo {
   budget: number
   level: ContextLevel
   window: number
-  windowSource: 'manual' | 'table' | 'fallback'
+  windowSource: 'manual' | 'provider' | 'table' | 'fallback'
   /** 累计压缩次数与最近一次的前后体积 */
   compressions: number
   lastBefore: number

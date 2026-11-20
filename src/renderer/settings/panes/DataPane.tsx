@@ -36,6 +36,9 @@ export default function DataPane({ s }: PaneProps): React.ReactElement {
   const [auto, setAuto] = useState(true)
   const [copyMsg, setCopyMsg] = useState('')
   const timer = useRef<number | null>(null)
+  /** 日志是否"跟着底部走"：用户手动往上翻就不抢滚动位置 */
+  const sticky = useRef(true)
+  const boxRef = useRef<HTMLDivElement>(null)
 
   const loadLog = useCallback(async (): Promise<void> => {
     try {
@@ -65,6 +68,12 @@ export default function DataPane({ s }: PaneProps): React.ReactElement {
       if (timer.current) window.clearTimeout(timer.current)
     }
   }, [loadLog])
+
+  // 新日志到就贴底（首次进入也一样），但用户往回翻过就别抢
+  useEffect(() => {
+    const el = boxRef.current
+    if (el && sticky.current) el.scrollTop = el.scrollHeight
+  }, [log])
 
   // 自动刷新：只在页面可见时轮询，避免设置页开着没人看还在读盘
   useEffect(() => {
@@ -208,7 +217,16 @@ export default function DataPane({ s }: PaneProps): React.ReactElement {
           <Toggle checked={auto} onChange={setAuto} label="自动刷新" />
         </div>
 
-        <div className="logbox" role="log">
+        <div
+          className="logbox"
+          role="log"
+          ref={boxRef}
+          onScroll={() => {
+            const el = boxRef.current
+            if (!el) return
+            sticky.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40
+          }}
+        >
           {(log?.lines ?? []).length === 0 ? (
             <div className="logbox__empty">
               {keyword || onlyProblems ? '没有匹配的日志，换个关键字试试' : '还没有日志'}
@@ -227,8 +245,8 @@ export default function DataPane({ s }: PaneProps): React.ReactElement {
         </div>
 
         <div className="row-actions">
-          <Btn onClick={() => void copyLog()}>复制当前内容</Btn>
-          <Btn onClick={() => void window.bwu.logsOpenDir()}>打开日志目录</Btn>
+          <Btn onClick={() => void copyLog()}>复制</Btn>
+          <Btn onClick={() => void window.bwu.logsOpenDir()}>打开目录</Btn>
           {log?.path ? <span className="muted small mono log-path">{log.path}</span> : null}
         </div>
         {copyMsg ? <span className="muted small">{copyMsg}</span> : null}
@@ -257,7 +275,7 @@ export default function DataPane({ s }: PaneProps): React.ReactElement {
 
         <div className="row-actions">
           <Btn onClick={() => void window.bwu.settings.openDataDir()}>打开目录</Btn>
-          <Btn variant="primary" onClick={() => void changeDir()} disabled={busy}>
+          <Btn onClick={() => void changeDir()} disabled={busy}>
             {busy ? '迁移中…' : '更改目录…'}
           </Btn>
           {dir?.custom ? (

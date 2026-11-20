@@ -20,6 +20,7 @@ import { conversation } from './services/pipeline'
 import { createTray } from './tray'
 import { initUpdate } from './services/update'
 import { applyAutoLaunch } from './services/auto-launch'
+import { refreshModelInfo } from './services/model-info'
 import { log } from './logger'
 import { consumeWgcPermission, getPendingWgcPermission, isWgcPermissionRequest } from './vision-grab'
 import { getBallWindow, rendererFrameMatches } from './windows'
@@ -103,6 +104,8 @@ async function boot(): Promise<void> {
   startHotkey(settings.voice.hotkey, (phase) => conversation.onHotkey(phase))
   // 开机自启：按设置对齐注册表（便携版会跳过）
   applyAutoLaunch(settings.ui.autoLaunch)
+  // 拉一次模型元信息：供应商若在 /v1/models 里给了上下文长度，就用它的（比内置表准）
+  setTimeout(() => void refreshModelInfo(settingsStore.get().llm), 3000)
   // 自动更新：延后检查，安装版走 electron-updater，便携版只提示去下载
   initUpdate()
   log('boot: 就绪', { version: app.getVersion(), hotkey: settings.voice.hotkey })

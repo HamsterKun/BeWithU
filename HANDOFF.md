@@ -437,6 +437,18 @@ E2E `update-test` **6/6**（本地 generic feed：横幅出现 → 点击 → �
   实测：打包版首次启动写入了 `HKCU\...\Run\com.bewithu.app`，把设置改成 false 再启动会被移除。
 - 开关位置：设置 → 关于 → 开机自启动（`AppInfo.portable` 决定是否可用）。
 
+**1.1.0 第二组修补（同日，仍在 1.1.0 内，未发布）**：
+- 「系统提示词」全面改名 **「人格提示词」**（侧栏 tab、页头、分区标题三处）。
+- 日志查看器：**默认贴底**（用户手动往上翻就不再抢滚动位置）、滚动条改成正常观感、
+  「复制当前内容 / 打开日志目录」缩短成「复制 / 打开目录」并给 `.btn` 加 `nowrap`（之前会被挤成两行）。
+- 「更改目录…」原本是 `variant="primary"`（青紫渐变），在数据目录那块显得突兀，已改回普通按钮。
+- 上下文窗口**优先用供应商上报值**：新增 `services/model-info.ts` + `shared/model-window.ts` 的
+  `pickProviderWindow()`，从 `/v1/models` 里认 `context_length / context_window / max_context_length /
+  max_input_tokens / context`（含 `meta`/`limits` 嵌套）。优先级 手动 > 供应商 > 内置表 > 128k 兜底。
+  换模型/换地址/换 Key 时强制刷新，启动后 3s 拉一次；**没填 Key 且非本地服务时直接跳过**（否则日志里刷 401）。
+  内置表里 deepseek 也从 64k 改成 128k（原来的值太旧，会把高档压得很小）。
+- 占用条在占用极低时保留 2% 的可见填充，否则整条看着像坏的。
+
 **发布步骤（没有令牌做不了）**：设置环境变量 `GH_TOKEN`（需 repo 权限），
 然后跑 `node node_modules\electron-builder\cli.js --win --x64 --publish always`；
 或者用 `gh release create v1.1.0` 手动把 `release/` 里的 exe、blockmap、latest.yml 传上去。

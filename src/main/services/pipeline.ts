@@ -21,6 +21,7 @@ import {
   summaryCharsFor
 } from './context'
 import { resolveModelWindow } from '../../shared/model-window'
+import { providerWindow } from './model-info'
 import { captureScreen, type ScreenCapture } from './vision'
 import { LocalAsrSession } from './local-asr'
 import { modelReady } from './local-asr'
@@ -523,7 +524,7 @@ class Conversation {
 
     let useImage = Boolean(shot)
     let messages = buildMessages(useImage)
-    const contextBudget = budgetFor(s.context.level, resolveModelWindow(s.llm.model, s.context.modelWindow).window)
+    const contextBudget = budgetFor(s.context.level, resolveModelWindow(s.llm.model, s.context.modelWindow, providerWindow(s.llm.model)).window)
     const estimated = estimatePrompt(messages)
 
     const controller = new AbortController()
@@ -849,7 +850,7 @@ class Conversation {
     if (split.cold <= 0) return { ok: false, message: '最近的对话还不够压，再聊几轮吧' }
 
     const cold = pending.slice(0, split.cold)
-    const budget = budgetFor(s.context.level, resolveModelWindow(s.llm.model, s.context.modelWindow).window)
+    const budget = budgetFor(s.context.level, resolveModelWindow(s.llm.model, s.context.modelWindow, providerWindow(s.llm.model)).window)
     const before = estimatePrompt(
       assembleMessages({
         systemPrompt: s.llm.systemPrompt,
@@ -921,7 +922,7 @@ class Conversation {
   private maybeCompact(): void {
     if (this.compacting) return
     const s = settingsStore.get()
-    const window = resolveModelWindow(s.llm.model, s.context.modelWindow).window
+    const window = resolveModelWindow(s.llm.model, s.context.modelWindow, providerWindow(s.llm.model)).window
     const budget = budgetFor(s.context.level, window)
     const used =
       this.lastUsage?.actual ??
@@ -941,7 +942,7 @@ class Conversation {
 
   contextInfo(): ContextInfo {
     const s = settingsStore.get()
-    const resolved = resolveModelWindow(s.llm.model, s.context.modelWindow)
+    const resolved = resolveModelWindow(s.llm.model, s.context.modelWindow, providerWindow(s.llm.model))
     const budget = budgetFor(s.context.level, resolved.window)
     contextStore.clampArchived(historyStore.count())
     const archived = contextStore.archivedUpTo()

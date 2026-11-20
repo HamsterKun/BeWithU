@@ -28,10 +28,19 @@ const TIME_OPTIONS: { value: TimeAwareness; label: string }[] = [
   { value: 'full', label: '每条消息' }
 ]
 
-const SOURCE_TEXT: Record<ContextInfo['windowSource'], string> = {
-  manual: '手动指定',
-  table: '按模型名识别',
-  fallback: '未识别，按 128k 估算'
+/** 窗口数字的来源，一句话说清这个数怎么来的 */
+function sourceHint(info: ContextInfo | null): string {
+  const window = info?.window ?? 0
+  switch (info?.windowSource ?? 'fallback') {
+    case 'manual':
+      return `${fmtTokens(window)} · 手动指定`
+    case 'provider':
+      return `${fmtTokens(window)} · 供应商提供`
+    case 'table':
+      return `${fmtTokens(window)} · 内置表匹配`
+    default:
+      return `未识别，按 ${fmtTokens(window)} 兜底`
+  }
 }
 
 export default function ContextPane({ s, patch }: PaneProps): React.ReactElement {
@@ -96,7 +105,7 @@ export default function ContextPane({ s, patch }: PaneProps): React.ReactElement
 
         <Field
           label="模型窗口"
-          hint={`当前按 ${fmtTokens(info?.window ?? 0)} 估算（${SOURCE_TEXT[info?.windowSource ?? 'fallback']}）；填 0 走自动`}
+          hint={`${sourceHint(info)}；填 0 用自动`}
         >
           <NumberInput
             value={s.context.modelWindow}
@@ -111,7 +120,8 @@ export default function ContextPane({ s, patch }: PaneProps): React.ReactElement
         <div className="field field--wide">
           <div className="ctx-meter">
             <div className={`ctx-meter__bar ${tone}`}>
-              <span style={{ width: `${percent}%` }} />
+              {/* 占用很低时也留一丝可见的填充，否则整条看着像坏的 */}
+              <span style={{ width: `${Math.max(percent, used > 0 ? 2 : 0)}%` }} />
             </div>
             <span className="muted small">
               当前占用 {fmtTokens(used)} / {fmtTokens(budget)}（{percent}%）

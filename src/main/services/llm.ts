@@ -1,6 +1,7 @@
 import type { LlmSettings } from '../../shared/types'
 import { log } from '../logger'
 import { recordTokens } from '../store/usage'
+import { pickProviderWindow } from '../../shared/model-window'
 import { HttpStatusError } from './http-error'
 import { sseData, sseLines } from './sse'
 
@@ -77,6 +78,31 @@ export function modelsEndpoint(baseUrl: string): string {
 }
 
 /** 拉取服务商支持的模型列表（OpenAI 兼容的 GET /models） */
+export interface ModelInfo {
+  id: string
+  /** 供应商声明的上下文长度；没给就是 0 */
+  window: number
+}
+
+/** 拉模型列表 + 能拿到的上下文长度（拿不到就留 0，交给内置表兜底） */
+export async function listModelInfo(llm: LlmSettings): Promise<ModelInfo[]> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 15000)
+  try {
+    const headers: Record<string, string> = {}
+    if (llm.apiKey.trim()) headers.Authorization = `Bearer ${llm.apiKey.trim()}`
+    const res = await fetch(modelsEndpoint(llm.baseUrl), { headers, signal: controller.signal })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const json = (await res.json()) as { data?: Array<Record<string, unknown>> }
+    return (json.data ?? [])
+      .map((d) => ({ id: String(d.id ?? ''), window: pickProviderWindow(d) }))
+      .filter((m) => m.id)
+      .sort((a, b) => a.id.localeCompare(b.id))
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 export async function listModels(llm: LlmSettings): Promise<string[]> {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), 15000)

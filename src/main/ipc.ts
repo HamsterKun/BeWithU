@@ -34,6 +34,7 @@ import { listModels } from './services/llm'
 import { clearUsage, usageSummary } from './store/usage'
 import { readLogTail } from './services/log-tail'
 import { isPortable } from './platform'
+import { refreshModelInfo } from './services/model-info'
 import { applyAutoLaunch } from './services/auto-launch'
 import { check as checkUpdate, currentStatus, download as downloadUpdate, install as installUpdate, openReleasePage } from './services/update'
 import { APP_REPO_URL } from '../shared/defaults'
@@ -264,6 +265,13 @@ export function registerIpc(getQuit: () => void): void {
       reloadHotkey(next.voice.hotkey)
     }
     if (before.ui.autoLaunch !== next.ui.autoLaunch) applyAutoLaunch(next.ui.autoLaunch)
+    if (
+      before.llm.model !== next.llm.model ||
+      before.llm.baseUrl !== next.llm.baseUrl ||
+      before.llm.apiKey !== next.llm.apiKey
+    ) {
+      void refreshModelInfo(next.llm, true)
+    }
     broadcastSettings(next)
     return next
   })

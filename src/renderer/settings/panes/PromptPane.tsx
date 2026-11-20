@@ -36,7 +36,7 @@ export default function PromptPane({ s, patch }: PaneProps): React.ReactElement 
         </Field>
       </Section>
 
-      <Section title="系统提示词" desc="决定 TA 的性格、说话方式和回复长度，改完立即生效">
+      <Section title="人格提示词" desc="决定 TA 的性格、说话方式和回复长度，改完立即生效">
         <div className="prompt-toolbar">
           {PROMPT_TEMPLATES.map((t) => (
             <button key={t.id} className="chip" onClick={() => patch({ llm: { systemPrompt: t.text } }, true)}>
