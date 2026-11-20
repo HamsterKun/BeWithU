@@ -10,6 +10,9 @@
     "build": "electron-vite build",
     "start": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "test": "node tools/run.mjs unit",
+    "test:e2e": "node tools/run.mjs e2e",
+    "test:all": "node tools/run.mjs all",
     "dist": "electron-vite build && electron-builder --win --x64",
     "dist:portable": "electron-vite build && electron-builder --win portable --x64"
   },

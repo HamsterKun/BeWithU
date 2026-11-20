@@ -234,10 +234,11 @@ AI 就会用新名字自称。名字也可以留空，留空时气泡上显示�
 
 | 分区 | 关键项 |
 | --- | --- |
-| 大模型 | Base URL、API Key、模型名、温度、记忆轮数、连通性测试；**对话记忆**（摘要查看、立即整理、专用总结模型）；**屏幕理解**（截屏开关与测试） |
+| 大模型 | Base URL、API Key、模型名、温度、思考开关与强度、连通性测试、模型列表；**屏幕理解**（截屏开关与测试） |
+| 上下文 | 长度三挡（低/中/高）、模型窗口（自动/手动）、时间感知、压缩保留轮数、占用条、立即压缩、清空上下文 |
 | 语音 | 合成：**启用开关**、API Key / AppID+Token、资源 ID、音色选择器、语速、音量、试听；识别：**本地 / 火山切换**、本地模型下载与测试、云端凭证、资源 ID、识别测试；麦克风设备 |
 | 悬浮球 | 内置皮肤、上传图片、直径、不透明度、回到右下角；气泡停留时长、常显气泡 |
-| 提示词 | **TA 的名字**（同时写进提示词）、系统提示词、4 套模板、恢复默认、清空历史 |
+| 人格提示词 | **TA 的名字**（同时写进提示词）、人格提示词、4 套模板、恢复默认 |
 | 快捷键 | 重新绑定（支持鼠标侧键）、按住/切换、最短按住时长、打断开关 |
 | Agent 能力 | 总开关、Shell 开关、最大步数、可操作目录、工具开关（21 个）、**自定义工具导入/信任/删除**、**Skill 导入/删除**、**联网搜索（Tavily / DeepSeek）**、运行记录 |
 | 侧栏底部 | **亮色 / 暗色一键切换**（跟随所有窗口）、打开数据目录 |
@@ -309,15 +310,19 @@ tools/
 .\scripts\package.cmd    # 构建 + 打包安装版与便携版到 release/
 ```
 
-回归测试和打包验收的完整命令清单在 [HANDOFF.md §5](HANDOFF.md)。最常用的两条：
+测试统一从 `tools/run.mjs` 走，不用再手抄文件名：
 
-```powershell
-node tools\smoke-test.mjs   # 隔离冒烟：全新 userData 启动一次，检查窗口/角色隔离/异常日志
-node --test tools\approval.test.mjs   # 单元测试（10 个文件，见 HANDOFF §5）
+```bash
+node tools/run.mjs unit   # 单元/安全（node:test，不需要 Electron）
+node tools/run.mjs e2e    # 端到端，逐个跑，前后自动清 Electron
+node tools/run.mjs all    # 全量
+node tools/run.mjs list   # 看清单，含不参与回归的辅助脚本
 ```
 
+加 `--only=context,update` 只跑名字里带这些片段的；加 `--timeout=600` 放宽单个 E2E 的超时。
+
 如果你自己装了 Node，也可以用 `package.json` 里的脚本：
-`npm run dev` / `npm run build` / `npm run typecheck` / `npm run dist`。
+`npm run dev` / `npm run build` / `npm run typecheck` / `npm run dist` / `npm test`。
 
 ### 不需要 Key 的界面演示
 

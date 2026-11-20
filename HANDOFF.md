@@ -547,56 +547,36 @@ mcp: { servers: McpServerConfig[] } // transport: 'stdio' | 'http'
 
 ---
 
-## 5. 测试（都需要清 `ELECTRON_RUN_AS_NODE`，且用自带 Node）
+## 5. 测试
 
-```powershell
-$d = "$env:USERPROFILE\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies"
-$node = "$d\node\bin\node.exe"
-Remove-Item Env:\ELECTRON_RUN_AS_NODE -ErrorAction SilentlyContinue
+**统一入口是 `tools/run.mjs`**，不用再手抄文件名，也不用自己杀 Electron：
 
-& $node node_modules\typescript\lib\tsc.js --noEmit -p tsconfig.node.json
-& $node node_modules\typescript\lib\tsc.js --noEmit -p tsconfig.web.json
-& $node node_modules\electron-vite\bin\electron-vite.js build
+```bash
+node tools/run.mjs unit    # 单元/安全（node:test，不启动 Electron）
+node tools/run.mjs e2e     # 端到端：逐个跑，前后自动 taskkill
+node tools/run.mjs all     # 全量
+node tools/run.mjs list    # 清单：22 个单元文件 / 24 个 E2E 套件 / 手工脚本
 
-# —— 单元 / 安全（node:test，不需要 Electron；21 个文件 89 条）——
-& $node --test tools\agent-tool-budget.test.mjs tools\approval.test.mjs tools\asr-generation.test.mjs `
-  tools\asr-model-manifest.test.mjs tools\data-dir-migration.test.mjs tools\file-boundary.test.mjs `
-  tools\file-io.test.mjs tools\mcp-secrets.test.mjs tools\retry-policy.test.mjs tools\sse-parse.test.mjs `
-  tools\vision-grab.test.mjs tools\voice-mode.test.mjs tools\player-test.mjs tools\audit.test.mjs `
-  tools\secure-json.test.mjs tools\archive-limits.test.mjs `
-  tools\context-budget.test.mjs tools\context-plan.test.mjs tools\context-migrate.test.mjs `
-  tools\log-tail.test.mjs tools\version.test.mjs
-# 需要本机有已校验归档（原在 D:\coding\bwu-asr-dl\archive.tar.bz2，**该盘已不存在**；
-# 换机后先用 BWU_ASR_ARCHIVE 指到新位置，或按 §10 重新下载）：
-& $node --test tools\asr-download-test.mjs   # 下载→校验→解包→发布 3/3（归档不在时 SKIP）
-
-# —— E2E（每个都要先 Stop-Process electron）——
-& $node tools\agent-run-test.mjs      # Agent 主循环         10/10
-& $node tools\agent-ext-test.mjs      # 自定义工具 + Skill   10/10
-& $node tools\agent-llm-test.mjs      # 工具名合法性/错误可见 3/3
-& $node tools\agent-settings-test.mjs # 设置页               8/8
-& $node tools\agent-ui-test.mjs       # 气泡/徽标/布局       19/19
-& $node tools\prompts-test.mjs        # 提示词页 + 实际生效   4/4
-& $node tools\thinking-test.mjs       # 思考参数/展示/降级    6/6
-& $node tools\sse-tail-test.mjs       # SSE 尾帧（无尾换行）   3/3
-& $node tools\search-test.mjs         # 联网搜索两条通路      4/4
-& $node tools\shell-encoding-test.mjs # Shell 中文输出        3/3
-& $node tools\mcp-zip-test.mjs        # zip 导入 + MCP        6/6
-& $node tools\menu-test.mjs           # 右键菜单              6/6
-& $node tools\app-test.mjs            # 界面回归              16/16
-& $node tools\recorder-cancel-test.mjs # 录音启动取消/失败清理  8/8
-& $node tools\hotkey-fallback-test.mjs # 降级=切换模式           4/4
-& $node tools\privacy-at-rest-test.mjs # 历史/审计落盘口径       5/5
-& $node tools\local-asr-test.mjs      # 本机 ASR 真实识别（需要已装模型）
-& $node tools\agent-input-test.mjs    # 键鼠注入（依赖真实前台，可能不稳）  11/11
-& $node tools\context-ui-test.mjs      # 上下文设置页：三挡/时间感知/保留轮数  10/10
-& $node tools\context-compact-test.mjs # 压缩全链路（本地假 SSE 服务端）      6/6
-& $node tools\data-pane-test.mjs      # 数据与日志页 + 关于页项目卡      10/10
-& $node tools\update-test.mjs         # 自动更新（本地 generic feed）      6/6
-& $node tools\update-portable-test.mjs # 便携版只提示下载                  5/5
+node tools/run.mjs e2e --only=context,update   # 按名字过滤，改完哪块跑哪块
+node tools/run.mjs e2e --timeout=600           # 放宽单个套件的超时（默认 300s）
 ```
 
-- 每个测试之间先 `Stop-Process electron`，否则单实例锁会让新实例直接退出。
+`e2e` 会从每个套件的输出里读「通过 N/M」，跟内置的期望条数比对 —— **少跑几条也算失败**，
+不会再出现「看着全绿其实有断言被跳过」。
+
+前置的类型检查与构建不在 runner 里（它们不是测试）：
+
+```bash
+node node_modules/typescript/lib/tsc.js --noEmit -p tsconfig.node.json
+node node_modules/typescript/lib/tsc.js --noEmit -p tsconfig.web.json
+node node_modules/electron-vite/bin/electron-vite.js build
+```
+
+> 这台机器没有系统级 Node，用 `$env:USERPROFILE\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies\node\bin\node.exe`；
+> `run.mjs` 内部已经清掉 `ELECTRON_RUN_AS_NODE`，直接调单个脚本时才需要自己清。
+> ASR 归档那条单独跑：`node --test tools/asr-download-test.mjs`（没有归档会 SKIP）。
+
+- `run.mjs e2e` 会自动在套件之间杀 Electron；**手动单独跑某个脚本时**要先 `Stop-Process electron`，否则单实例锁会让新实例直接退出。
 - mock LLM：`BWU_AGENT_MOCK` 指向 JSON，场景按用户文本包含的关键字匹配；**JSON 必须是 UTF-8 无 BOM**，
   场景 key 用英文（中文会被 `Set-Content -Encoding ascii` 之类的写法毁掉）。
 - **mock 里的工具名必须用下划线写法**（`file_write`、`shell_ps`），模型收到的就是 wire 名；
