@@ -29,6 +29,7 @@ const UNITS = [
   'asr-generation.test.mjs',
   'asr-model-manifest.test.mjs',
   'audit.test.mjs',
+  'auto-launch-command.test.mjs',
   'context-budget.test.mjs',
   'context-migrate.test.mjs',
   'context-plan.test.mjs',

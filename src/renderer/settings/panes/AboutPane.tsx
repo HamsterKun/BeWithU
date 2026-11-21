@@ -83,7 +83,7 @@ export default function AboutPane({ s, patch }: PaneProps): React.ReactElement {
             <span className="muted small">不可用</span>
           </Field>
         ) : (
-          <Field label="开机自启动" hint="登录 Windows 后自动启动">
+          <Field label="开机自启动" hint="登录 Windows 后请求管理员授权，确认后启动">
             <Toggle
               checked={s.ui.autoLaunch}
               onChange={(v) => patch({ ui: { autoLaunch: v } }, true)}

@@ -304,6 +304,7 @@ export function registerIpc(getQuit: () => void): void {
     const next = settingsStore.reset()
     for (const server of oldServers) unregisterMcpServer(server.id)
     reloadHotkey(next.voice.hotkey)
+    applyAutoLaunch(next.ui.autoLaunch)
     broadcastSettings(next)
     return next
   })

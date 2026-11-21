@@ -28,6 +28,7 @@ npmRebuild: false
 
 win:
   icon: build/icon.ico
+  requestedExecutionLevel: requireAdministrator
   target:
     - target: nsis
       arch: [x64]
@@ -49,6 +50,7 @@ nsis:
 
 portable:
   artifactName: ${productName}-${version}-portable.${ext}
+  requestExecutionLevel: admin
 
 # 自动更新只认「已发布的 Release」里的 latest.yml，不认仓库代码。
 # 打包时带 GH_TOKEN，electron-builder 会把 latest.yml + 安装包 + blockmap 一起传上去。
