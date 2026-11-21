@@ -48,6 +48,7 @@ function setStatus(next: UpdateStatus): void {
 function friendlyError(e: unknown): string {
   const msg = e instanceof Error ? e.message : String(e)
   log('update: 失败', msg)
+  if (e instanceof Error && e.name === 'TimeoutError') return '检查更新超时，稍后再试'
   if (/net::|ENOTFOUND|ETIMEDOUT|ECONNRESET|socket hang up/i.test(msg)) return '网络不通，稍后再试'
   if (/404|Cannot find latest\.yml|not found/i.test(msg)) return '没有找到更新清单，可能是这个版本还没发布'
   if (/sha512|checksum/i.test(msg)) return '安装包校验失败，已放弃这次更新'
@@ -69,7 +70,6 @@ function configureUpdater(): void {
     autoUpdater.updateConfigPath = process.env.BWU_UPDATE_CONFIG
   }
 
-  autoUpdater.on('checking-for-update', () => setStatus({ kind: 'checking' }))
   autoUpdater.on('update-available', (info) => {
     log('update: 有新版本', info.version)
     setStatus({ kind: 'available', version: info.version })
@@ -91,39 +91,39 @@ function configureUpdater(): void {
     log('update: 下载完成，等待重启', info.version)
     setStatus({ kind: 'ready', version: info.version })
   })
-  autoUpdater.on('error', (e) => setStatus({ kind: 'error', message: friendlyError(e) }))
+  autoUpdater.on('error', (e) => {
+    // 检查和下载会同时发出 error 并拒绝 Promise，由调用方处理。这里处理退出时安装等事件。
+    if (!inflight && status.kind !== 'downloading') setStatus({ kind: 'error', message: friendlyError(e) })
+  })
 }
 
-/**
- * 便携版没有 app-update.yml，用 GitHub Releases API 直接比版本。
- * 只读 tag_name，不下载任何东西。
- */
-async function checkPortable(silent: boolean): Promise<UpdateStatus> {
-  setStatus({ kind: 'checking' })
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), 8000)
-  try {
-    const res = await fetch(API_URL, {
-      signal: controller.signal,
-      headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'BeWithU' }
-    })
-    if (!res.ok) throw new Error(`HTTP ${res.status}`)
-    const json = (await res.json()) as { tag_name?: string }
-    const latest = String(json.tag_name ?? '').replace(/^[vV]/, '')
-    if (latest && isNewer(latest, app.getVersion())) {
-      setStatus({ kind: 'available', version: latest, portable: true })
-    } else {
-      setStatus({ kind: 'idle' })
-    }
-  } catch (e) {
-    const aborted = controller.signal.aborted
-    const message = aborted ? '检查更新超时，稍后再试' : friendlyError(e)
-    // 后台自动检查失败不该打扰用户（离线、API 被墙都很常见），只有手动检查才报错
-    setStatus(silent ? { kind: 'idle' } : { kind: 'error', message })
-  } finally {
-    clearTimeout(timer)
+/** 便携版和缺少更新清单的安装版用 Release 标签判断版本，并引导到官方页面。 */
+async function checkLatestRelease(): Promise<void> {
+  const res = await fetch(API_URL, {
+    signal: AbortSignal.timeout(8000),
+    headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'BeWithU' }
+  })
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  const json = (await res.json()) as { tag_name?: string }
+  const latest = /^v?(\d+\.\d+\.\d+)$/i.exec(json.tag_name ?? '')?.[1]
+  if (!latest) throw new Error('GitHub Release 的版本号无效')
+  if (isNewer(latest, app.getVersion())) {
+    setStatus({ kind: 'available', version: latest, manual: true })
+  } else {
+    setStatus({ kind: 'idle' })
   }
-  return currentStatus()
+}
+
+async function checkInstalled(): Promise<void> {
+  try {
+    await autoUpdater.checkForUpdates()
+  } catch (error) {
+    if (!(error instanceof Error) || !('code' in error) || error.code !== 'ERR_UPDATER_CHANNEL_FILE_NOT_FOUND') {
+      throw error
+    }
+    log('update: Release 缺少更新清单，改查版本标签')
+    await checkLatestRelease()
+  }
 }
 
 /**
@@ -136,18 +136,17 @@ export function check(opts: { silent?: boolean } = {}): Promise<UpdateStatus> {
   if (status.kind === 'downloading' || status.kind === 'ready') return Promise.resolve(currentStatus())
   if (inflight) return inflight
   const silent = opts.silent === true
-  inflight = (async () => {
+  inflight = Promise.resolve().then(async () => {
+    setStatus({ kind: 'checking' })
     try {
-      if (isPortable()) return await checkPortable(silent)
-      await autoUpdater.checkForUpdates()
+      if (isPortable()) await checkLatestRelease()
+      else await checkInstalled()
     } catch (e) {
       const message = friendlyError(e)
       setStatus(silent ? { kind: 'idle' } : { kind: 'error', message })
-    } finally {
-      inflight = null
     }
     return currentStatus()
-  })()
+  }).finally(() => { inflight = null })
   return inflight
 }
 
@@ -156,7 +155,7 @@ export async function download(): Promise<UpdateStatus> {
   if (isPortable() || !updateEnabled()) return currentStatus()
   if (status.kind === 'downloading' || status.kind === 'ready') return currentStatus()
   if (inflight) await inflight
-  if (status.kind !== 'available') return currentStatus()
+  if (status.kind !== 'available' || status.manual) return currentStatus()
   try {
     setStatus({ kind: 'downloading', version: status.version, percent: 0 })
     await autoUpdater.downloadUpdate()

@@ -374,6 +374,8 @@ export interface UpdateStatus {
   message?: string
   /** true = 便携版，点了只能跳下载页 */
   portable?: boolean
+  /** 此次更新需在 Release 页面手动下载 */
+  manual?: boolean
 }
 
 /** 日志行（级别是按关键字推断的，日志格式本身不带级别字段） */

@@ -78,7 +78,7 @@ const E2E = [
   { file: 'context-ui-test.mjs', expect: 10 },
   { file: 'context-compact-test.mjs', expect: 6 },
   { file: 'data-pane-test.mjs', expect: 14 },
-  { file: 'update-test.mjs', expect: 7 },
+  { file: 'update-test.mjs', expect: 12 },
   { file: 'update-portable-test.mjs', expect: 5 },
   { file: 'local-asr-test.mjs' } // 需要已装本地模型，断言数不固定
 ]

@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url'
 import { openSettingsWindow } from './lib/settings-window.mjs'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
+const currentVersion = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')).version
 const PORT = Number(process.env.CDP_PORT || 9282)
 const FEED_PORT = Number(process.env.FEED_PORT || 18788)
 const BASE = `http://127.0.0.1:${PORT}`
@@ -100,11 +101,18 @@ writeFileSync(
 )
 
 const hits = []
+let hasManifest = false
+let latestTag = `v${currentVersion}`
 const server = createServer((req, res) => {
   hits.push(req.url)
   // electron-updater 会给清单加 ?noCache=xxx，按路径比较
   const path = String(req.url || '').split('?')[0]
-  if (path === '/latest.yml') {
+  if (path === '/releases/latest') {
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({ tag_name: latestTag }))
+    return
+  }
+  if (path === '/latest.yml' && hasManifest) {
     res.writeHead(200, { 'Content-Type': 'text/yaml' })
     res.end(readFileSync(join(feedDir, 'latest.yml')))
     return
@@ -153,6 +161,7 @@ try {
       ELECTRON_RUN_AS_NODE: undefined,
       BWU_AGENT_TEST: '1',
       BWU_UPDATE_CONFIG: configPath,
+      BWU_UPDATE_API: `http://127.0.0.1:${FEED_PORT}/releases/latest`,
       BWU_UPDATE_DELAY: '1200'
     }
   })
@@ -173,6 +182,31 @@ try {
 
   admin = await openSettingsWindow({ Conn, jget, sleep, ball, tab: 'about' })
   const ui = admin.conn
+
+  const sameVersion = await ui.eval(`(async () => {
+    const kinds = []
+    const off = window.bwu.update.onChanged((status) => kinds.push(status.kind))
+    const status = await window.bwu.update.check()
+    off()
+    return { status, kinds }
+  })()`)
+  ok('missingManifestForCurrentVersionReturnsIdle', sameVersion.status.kind === 'idle' &&
+    !sameVersion.kinds.includes('error') && hits.includes('/releases/latest'), sameVersion)
+
+  latestTag = 'v9.9.9'
+  const fallback = await ui.eval('window.bwu.update.check()')
+  ok('missingManifestForNewVersionOffersManualDownload', fallback.kind === 'available' &&
+    fallback.version === '9.9.9' && fallback.manual === true && fallback.portable === false, fallback)
+  const fallbackBanner = await ui.eval("document.querySelector('.upd-banner')?.innerText || ''")
+  ok('fallbackBannerLinksToRelease', fallbackBanner.includes('前往发布页下载'), fallbackBanner)
+  const fallbackDownload = await ui.eval('window.bwu.update.download()')
+  ok('fallbackCannotStartAutomaticDownload', fallbackDownload.manual === true &&
+    !hits.includes(`/${assetName}`), fallbackDownload)
+
+  // 上传 manifest 后应恢复自动更新，即使之前在同一个版本上走过手动回退。
+  hasManifest = true
+  const automatic = await ui.eval('window.bwu.update.check()')
+  ok('uploadingManifestResumesAutomaticUpdates', automatic.kind === 'available' && !automatic.manual, automatic)
 
   // 横幅出现（本地 feed 是 9.9.9，比当前版本高）
   let banner = null

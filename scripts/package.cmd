@@ -35,6 +35,10 @@ if errorlevel 1 goto :fail
 echo.
 echo [ok] artifacts in release\
 dir /b release\*.exe
+echo.
+echo GitHub Release update assets from this build:
+dir /b release\*.exe.blockmap release\latest.yml
+echo Upload these with the matching installer EXE.
 pause
 exit /b 0
 

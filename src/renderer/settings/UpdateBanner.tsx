@@ -27,7 +27,7 @@ export default function UpdateBanner(): React.ReactElement | null {
   const busy = st.kind === 'downloading'
   const click = (): void => {
     if (st.kind === 'available') {
-      if (st.portable) void window.bwu.update.openPage()
+      if (st.portable || st.manual) void window.bwu.update.openPage()
       else void window.bwu.update.download().then(setSt)
       return
     }
@@ -37,7 +37,9 @@ export default function UpdateBanner(): React.ReactElement | null {
 
   const label = ((): string => {
     if (st.kind === 'available') {
-      return st.portable ? `新版本 ${st.version} · 便携版点此下载` : `新版本 ${st.version} · 点击更新`
+      if (st.portable) return `新版本 ${st.version} · 便携版点此下载`
+      if (st.manual) return `新版本 ${st.version} · 前往发布页下载`
+      return `新版本 ${st.version} · 点击更新`
     }
     if (st.kind === 'downloading') return `正在下载 ${st.percent ?? 0}%`
     if (st.kind === 'ready') return '立即重启完成更新'
