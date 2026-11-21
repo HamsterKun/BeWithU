@@ -82,4 +82,6 @@ pnpm dev
 
 [MIT 许可证](LICENSE)
 
+<div align="center">
 Coding with Deepseek V4.1 Flash & GPT 6.2 Sol & Claude Opus 5.5 ❤️
+</div>
