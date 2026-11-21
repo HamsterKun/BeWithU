@@ -10,7 +10,7 @@
 
 </div>
 
-![BeWithU 产品展示，桌面悬浮球和语音对话气泡](docs/readme/desktop-companion.png)
+![BeWithU 产品展示，桌面悬浮球和语音对话气泡](docs/readme/desktop-companion-4x3.png)
 
 BeWithU 平时是桌面上的一颗悬浮球。游戏打到一半、文档写到一半，都能留在原来的窗口直接开口。小伴在气泡里回你，开启语音播报后也能念给你听。
 
@@ -20,7 +20,7 @@ BeWithU 平时是桌面上的一颗悬浮球。游戏打到一半、文档写到
 
 开启动手模式（设置里的「Agent 能力」）后，小伴可以读取已授权目录里的文件、整理内容并写成新文件，也能打开应用、点击界面和设置桌面提醒。在默认权限下，写文件等高风险操作会在气泡里等你确认。你可以点「允许」，也可以直接说「同意」。
 
-![动手模式场景展示，文件写入前的确认卡和操作完成后的回复](docs/readme/desktop-actions.png)
+![动手模式场景展示，文件写入前的确认卡和操作完成后的回复](docs/readme/desktop-actions-4x3.png)
 
 ## 游戏搭子
 
@@ -28,7 +28,7 @@ BeWithU 平时是桌面上的一颗悬浮球。游戏打到一半、文档写到
 
 在 Minecraft 里碰到没见过的矿石，按住鼠标侧键就能问。开启屏幕理解后，小伴会结合你眼前的游戏画面给提示。打开语音播报，就能边操作边听。
 
-![Minecraft 实机画面上，小伴认出钻石矿石，并提示用铁镐或更高级的镐来挖](docs/readme/gaming-companion.png)
+[![Minecraft 实机画面上，小伴认出钻石矿石，并提示用铁镐或更高级的镐来挖](docs/readme/gaming-companion-4x3.png "Xbox México · CC BY 3.0 · 1timeuse75 去除字幕，BeWithU 裁切并叠加界面")](https://commons.wikimedia.org/wiki/File:Screenshot_of_a_player_mining_for_diamonds_in_Minecraft.png)
 
 ## 指着屏幕就能问
 
@@ -36,7 +36,7 @@ BeWithU 平时是桌面上的一颗悬浮球。游戏打到一半、文档写到
 
 开启屏幕理解后，小伴会把鼠标所在屏幕的截图和问题一起交给你选用的视觉模型。看不懂某个选项，或卡在软件操作的下一步，直接用「这个」「这里」来问就行。
 
-![屏幕理解场景展示，小伴结合视频导出界面回答格式选择问题](docs/readme/screen-understanding.png)
+![屏幕理解场景展示，小伴结合视频导出界面回答格式选择问题](docs/readme/screen-understanding-4x3.png)
 
 ## 让小伴更像你的搭子
 
