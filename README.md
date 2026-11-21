@@ -6,7 +6,7 @@
 
 <p>按住鼠标侧键，说句话。小伴能看懂你正在看的画面，也能帮你在电脑上把事做完。</p>
 
-<p><a href="https://github.com/HamsterKun/BeWithU/releases/latest"><strong>下载 Windows 版</strong></a> · <a href="#游戏搭子">游戏搭子</a> · <a href="#快速上手">快速上手</a> · <a href="https://github.com/HamsterKun/BeWithU/issues">问题反馈</a></p>
+<p><a href="https://github.com/HamsterKun/BeWithU/releases/latest"><strong>下载 Windows 版</strong></a> · <a href="#快速上手">快速上手</a> · <a href="https://github.com/HamsterKun/BeWithU/issues">问题反馈</a></p>
 
 </div>
 
