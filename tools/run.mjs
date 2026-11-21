@@ -85,16 +85,11 @@ const E2E = [
 
 /** 手工辅助脚本：截图、探针、生成素材，不参与回归 */
 const MANUAL = [
-  'agent-shot.mjs',
   'asr-probe.mjs',
   'tts-probe.mjs',
   'cdp.mjs',
   'gen-voices.mjs',
   'gen-skins.py',
-  'theme-tokens.py',
-  'theme-tokens-2.py',
-  'v103-shot.mjs',
-  'v105-shot.mjs',
   'input-harness.ps1',
   'input-helper.ps1'
 ]
