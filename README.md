@@ -82,4 +82,4 @@ pnpm dev
 
 [MIT 许可证](LICENSE)
 
-Minecraft 游戏画面由 Xbox México 录制，1timeuse75 去除字幕。展示图裁切原图并叠加了 BeWithU 界面。[Minecraft 挖钻石原图](https://commons.wikimedia.org/wiki/File:Screenshot_of_a_player_mining_for_diamonds_in_Minecraft.png) · [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/)
+Coding with Deepseek V4.1 Flash & GPT 6.2 Sol & Claude Opus 5.5 ❤️
