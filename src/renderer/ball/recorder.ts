@@ -36,13 +36,13 @@ export class Recorder {
   }
 
   /** 释放这一代拿到的资源（可能只拿到一部分） */
-  private release(
+  private async release(
     stream: MediaStream | null,
     ctx: AudioContext | null,
     node: AudioWorkletNode | null,
     source: MediaStreamAudioSourceNode | null,
     analyser: AnalyserNode | null
-  ): void {
+  ): Promise<void> {
     try {
       node?.disconnect()
     } catch {
@@ -64,7 +64,11 @@ export class Recorder {
       /* ignore */
     }
     // 关不掉的只是少量对象，但绝不能因为关失败把错误盖住
-    void ctx?.close().catch(() => {})
+    try {
+      await ctx?.close()
+    } catch {
+      /* 音轨已经释放，关闭失败不能遮盖原始错误 */
+    }
   }
 
   async start(deviceId: string, onPcm: (buf: ArrayBuffer) => void): Promise<void> {
@@ -99,7 +103,9 @@ export class Recorder {
         numberOfOutputs: 0,
         channelCount: 1
       })
-      node.port.onmessage = (e: MessageEvent<ArrayBuffer>) => onPcm(e.data)
+      node.port.onmessage = (e: MessageEvent<ArrayBuffer>) => {
+        if (gen === this.generation) onPcm(e.data)
+      }
       source.connect(node)
 
       analyser = ctx.createAnalyser()
@@ -118,7 +124,8 @@ export class Recorder {
       this.data = new Uint8Array(new ArrayBuffer(analyser.fftSize))
       this.active = true
     } catch (e) {
-      this.release(stream, ctx, node, source, analyser)
+      void this.release(stream, ctx, node, source, analyser)
+      ensureLive()
       throw e
     }
   }
@@ -138,20 +145,18 @@ export class Recorder {
     // 让还在 await 里的 start() 失效
     this.generation++
     this.active = false
-    try {
-      this.node?.port.postMessage('flush')
-      this.node?.disconnect()
-      this.source?.disconnect()
-      this.analyser?.disconnect()
-      this.stream?.getTracks().forEach((t) => t.stop())
-      await this.ctx?.close()
-    } catch {
-      /* ignore */
-    }
+    const { node, source, analyser, stream, ctx } = this
+    // 先摘下旧资源，关闭过程中启动的新一轮不会被异步清理覆盖。
     this.node = null
     this.source = null
     this.analyser = null
     this.stream = null
     this.ctx = null
+    try {
+      node?.port.postMessage('flush')
+    } catch {
+      /* 端口已关闭时仍要释放其余资源 */
+    }
+    await this.release(stream, ctx, node, source, analyser)
   }
 }

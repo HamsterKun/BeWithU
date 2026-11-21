@@ -165,8 +165,8 @@ export interface AgentProgress {
   active: boolean
   step: number
   total: number
-  /** thinking=模型在思考，working=正在调用工具 */
-  mode?: 'thinking' | 'working'
+  /** thinking=模型思考，working=执行工具，waiting=延时工具计时 */
+  mode?: 'thinking' | 'working' | 'waiting'
   text?: string
 }
 

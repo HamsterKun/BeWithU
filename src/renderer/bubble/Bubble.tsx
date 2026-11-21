@@ -356,7 +356,7 @@ export default function Bubble(): React.ReactElement {
         <footer className="card__foot">
           {state.phase === 'listening' ? (
             <span className="hint-text">松开 {state.hotkey} 发送</span>
-          ) : isSpeaking || state.phase === 'thinking' ? (
+          ) : isSpeaking || state.phase === 'thinking' || state.phase === 'acting' ? (
             <>
               <span className="wave" aria-hidden>
                 <i />

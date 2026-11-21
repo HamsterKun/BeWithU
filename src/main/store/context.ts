@@ -21,7 +21,7 @@ export interface ContextStats {
 interface ContextState {
   summary: string
   updatedAt: number
-  /** 已经并进摘要的消息条数（对应 history 的前 N 条） */
+  /** 首条尚未归档消息的绝对位置，历史滚动时保持不变。 */
   archivedUpTo: number
   stats: ContextStats
 }
@@ -113,10 +113,10 @@ class ContextStore {
     this.save()
   }
 
-  /** 历史被裁剪/清空时，把游标收回合法范围 */
-  clampArchived(historyLength: number): void {
+  /** 历史被清空或恢复旧备份时，防止游标越过当前历史末尾。 */
+  clampArchived(historyEnd: number): void {
     this.load()
-    const max = Math.max(0, Math.floor(historyLength) || 0)
+    const max = Math.max(0, Math.floor(historyEnd) || 0)
     if (this.state.archivedUpTo > max) {
       this.state.archivedUpTo = max
       this.save()

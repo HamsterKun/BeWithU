@@ -102,6 +102,11 @@ mkdirSync(ud, { recursive: true })
 mkdirSync(work, { recursive: true })
 
 const target = join(work, 'note.txt')
+const delayedTarget = join(work, 'delayed-note.txt')
+const delayedWrite = {
+  name: 'delay',
+  args: { seconds: 0.12, then: { name: 'file_write', arguments: { path: delayedTarget, content: '延时后写入' } } }
+}
 const mockFile = join(tmp, 'mock.json')
 writeFileSync(
   mockFile,
@@ -114,6 +119,13 @@ writeFileSync(
         },
         { text: '已完成：已经把内容写进 note.txt。' }
       ],
+      denyBatch: [
+        { toolCalls: [
+          { name: 'file_write', args: { path: target, content: '不应写入' } },
+          { name: 'file_read', args: { path: target } }
+        ] },
+        { text: '拒绝后不应继续请求模型。' }
+      ],
       几点: [
         { text: '需要执行命令。', toolCalls: [{ name: 'shell_ps', args: { script: 'Get-Date', purpose: '测试时间' } }] },
         { text: 'Shell 没有开启，我已经提醒你去设置里打开。' }
@@ -125,6 +137,28 @@ writeFileSync(
       未知: [
         { text: '执行未开放工具。', toolCalls: [{ name: 'not_in_this_turn', args: {} }] },
         { text: '未知工具已拒绝。' }
+      ],
+      delaySequence: [
+        { toolCalls: [
+          delayedWrite,
+          { name: 'file_read', args: { path: delayedTarget } },
+          { name: 'file_read', args: { path: delayedTarget } }
+        ] },
+        { text: '延时流程完成。' }
+      ],
+      delayApproval: [
+        { toolCalls: [delayedWrite, { name: 'file_read', args: { path: delayedTarget } }] },
+        { text: '延时后续工具需确认。' }
+      ],
+      disabledFollowUp: [
+        { toolCalls: [
+          { name: 'delay', args: { seconds: 0.1, then: { name: 'file_write', arguments: { path: delayedTarget, content: '不应写入' } } } }
+        ] },
+        { text: '延时流程结束。' }
+      ],
+      delayAlone: [
+        { toolCalls: [{ name: 'delay', args: { seconds: 0.12 } }] },
+        { text: '等待完成。' }
       ]
     }
   })
@@ -185,10 +219,11 @@ try {
   const call = (id, args) => ball.eval(`window.bwu.agentTest.call(${JSON.stringify(id)}, ${JSON.stringify(args ?? {})})`)
 
   // 1) 拒绝高风险：文件不该被写
-  const denied = await ball.eval("window.bwu.agentTest.run('帮我写个文件', false)")
+  const denied = await ball.eval("window.bwu.agentTest.run('denyBatch', false)")
   ok(
-    'denyBlocksWrite',
-    denied?.steps >= 1 && !existsSync(target) && String(denied?.tools?.[0]?.summary || '').includes('拒绝'),
+    'denyStopsBatchAndModel',
+    denied?.stopped && denied.steps === 1 && denied.tools.length === 1 && !existsSync(target) &&
+      denied.tools[0].summary.includes('拒绝') && denied.text === '操作未获确认，已停止这次任务。',
     denied
   )
 
@@ -225,12 +260,35 @@ try {
   const unknown = await ball.eval("window.bwu.agentTest.run('执行未知工具', true)")
   ok('unknownToolRejected', unknown?.steps === 1 && unknown?.tools?.length === 0, unknown)
 
+  const started = performance.now()
+  const waited = await ball.eval("window.bwu.agentTest.run('delayAlone', true)")
+  ok('delayBlocksUntilTimer', performance.now() - started >= 120 && waited?.steps === 1 &&
+    waited?.tools?.[0]?.toolId === 'delay' && waited?.tools?.[0]?.ok === true, waited)
+
+  const delayDenied = await ball.eval("window.bwu.agentTest.run('delayApproval', false)")
+  ok('delayedToolDenialStopsBatch', delayDenied?.stopped && delayDenied.steps === 2 &&
+    delayDenied.tools.length === 2 && delayDenied.tools[0].ok === true &&
+    delayDenied.tools[1].summary.includes('拒绝') && !existsSync(delayedTarget), delayDenied)
+
+  const delayAllowed = await ball.eval("window.bwu.agentTest.run('delaySequence', true)")
+  ok('delayedToolExecutesAndConsumesBudget', delayAllowed?.steps === 3 &&
+    delayAllowed?.tools?.map((tool) => tool.toolId).join(',') === 'delay,file.write,file.read' &&
+    delayAllowed.tools.every((tool) => tool.ok) && readFileSync(delayedTarget, 'utf8') === '延时后写入', delayAllowed?.tools)
+
+  await settings.eval("window.bwu.settings.update({ agent: { disabledTools: ['file.write'] } })")
+  const disabledFollowUp = await ball.eval("window.bwu.agentTest.run('disabledFollowUp', true)")
+  ok('delayCannotCallDisabledTool', disabledFollowUp?.tools?.length === 1 &&
+    disabledFollowUp.tools[0].ok === false && readFileSync(delayedTarget, 'utf8') === '延时后写入', disabledFollowUp?.tools)
+
+  const invalidDelay = await call('delay', { seconds: 0 })
+  ok('invalidDelayRejected', invalidDelay?.ok === false, invalidDelay)
+
   // 4) 工具清单完整
   const tools = await ball.eval('window.bwu.agentTest.list()')
   const ids = (tools || []).map((t) => t.id)
   ok(
     'toolsetComplete',
-    ['shell.ps', 'file.read', 'file.write', 'file.list', 'app.launch', 'notify', 'remind', 'web.open', 'input.type'].every((i) =>
+    ['shell.ps', 'file.read', 'file.write', 'file.list', 'app.launch', 'notify', 'remind', 'web.open', 'input.type', 'delay'].every((i) =>
       ids.includes(i)
     ),
     ids.length

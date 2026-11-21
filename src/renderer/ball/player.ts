@@ -7,8 +7,8 @@ interface Chunk {
 
 /** 收尾守护：无声音在播且这么久没有新音频，就认定序号断了 */
 const DRAIN_IDLE_MS = 2500
-/** 收尾守护的最长兜底时间（设备异常导致 onended 不回调时） */
-const DRAIN_MAX_MS = 60000
+/** 音频时钟停滞超过此时间，视为设备异常。 */
+const DRAIN_STALLED_MS = 60000
 
 const debug = { state: 'idle', scheduled: 0, dropped: 0, expected: 0, error: '' }
 ;(window as unknown as Record<string, unknown>).__bwuAudio = debug
@@ -32,7 +32,6 @@ export class Player {
   private drainGuard: number | null = null
   /** 最近一次有音频进展（收到分片 / 排期）的时间 */
   private lastActivity = 0
-  private streamEndedAt = 0
   onDrained: (() => void) | null = null
   onFirstSound: (() => void) | null = null
 
@@ -149,10 +148,9 @@ export class Player {
 
   endStream(): void {
     this.endOfStream = true
-    this.streamEndedAt = Date.now()
-    this.lastActivity = this.streamEndedAt
+    this.lastActivity = Date.now()
     this.checkDrained()
-    this.armDrainGuard()
+    if (!this.reported) this.armDrainGuard()
   }
 
   /**
@@ -162,11 +160,9 @@ export class Player {
    */
   private armDrainGuard(): void {
     this.clearDrainGuard()
+    let audioTime = this.ctx?.currentTime ?? 0
+    let clockAdvancedAt = Date.now()
     this.drainGuard = window.setInterval(() => {
-      if (this.reported) {
-        this.clearDrainGuard()
-        return
-      }
       const now = Date.now()
       // 已经没有声音在播，而且一段时间没有任何新音频 —— 认定序号断了
       if (this.active.size === 0 && now - this.lastActivity >= DRAIN_IDLE_MS) {
@@ -174,9 +170,16 @@ export class Player {
         this.finishDrain()
         return
       }
-      // 极端兜底：设备异常导致 onended 不回调时，也不要永远挂着
-      if (now - this.streamEndedAt >= DRAIN_MAX_MS) {
+      const currentTime = this.ctx?.currentTime ?? 0
+      if (currentTime > audioTime) {
+        audioTime = currentTime
+        clockAdvancedAt = now
+      }
+      // 正常播放时音频时钟持续向前，等待到最后一个缓冲区播完。
+      if (this.active.size > 0 && (currentTime >= this.nextTime + DRAIN_IDLE_MS / 1000 ||
+          now - Math.max(clockAdvancedAt, this.lastActivity) >= DRAIN_STALLED_MS)) {
         debug.dropped += 1
+        this.stopSources()
         this.finishDrain()
       }
     }, 500)
@@ -204,8 +207,7 @@ export class Player {
     this.finishDrain()
   }
 
-  stop(): void {
-    this.clearDrainGuard()
+  private stopSources(): void {
     for (const src of this.active) {
       try {
         src.onended = null
@@ -215,6 +217,11 @@ export class Player {
       }
     }
     this.active.clear()
+  }
+
+  stop(): void {
+    this.clearDrainGuard()
+    this.stopSources()
     this.pending.clear()
     this.expected = 0
     this.maxSeq = -1

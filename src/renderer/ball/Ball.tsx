@@ -7,6 +7,7 @@ import { Recorder, RecorderCancelled } from './recorder'
 
 const player = new Player()
 const recorder = new Recorder()
+const badgeLabels = { thinking: '💬 思考中…', working: '💻 工作中…', waiting: '💤等待中' }
 
 export default function Ball(): React.ReactElement {
   const [settings, setSettings] = useState<PublicSettings | null>(null)
@@ -48,9 +49,9 @@ export default function Ball(): React.ReactElement {
       void recorder
         .start(settingsRef.current?.ui.micDeviceId ?? '', (buf) => window.bwu.ball.sendPcm(buf))
         .catch((e: unknown) => {
-          setRecording(false)
           // 启动途中被"松开/切换"取消属于正常流程，不该提示麦克风坏了
           if (e instanceof RecorderCancelled) return
+          setRecording(false)
           const msg = e instanceof Error ? e.message : String(e)
           window.bwu.ball.reportError(msg)
         })
@@ -178,14 +179,7 @@ export default function Ball(): React.ReactElement {
     window.bwu.ball.dragEnd()
   }, [])
 
-  // 徽标两态：模型思考（绿）/ 正在调工具（金）；闲聊的思考也走绿色
-  const badgeMode: 'thinking' | 'working' | null = agent
-    ? agent.mode === 'working'
-      ? 'working'
-      : 'thinking'
-    : phase === 'thinking'
-      ? 'thinking'
-      : null
+  const badgeMode = agent?.mode ?? (agent || phase === 'thinking' ? 'thinking' : null)
 
   return (
     <div
@@ -196,12 +190,9 @@ export default function Ball(): React.ReactElement {
     >
       <div className="ring" />
       {badgeMode ? (
-        <div className={badgeMode === 'thinking' ? 'work-badge is-think' : 'work-badge'}>
+        <div className={`work-badge${badgeMode === 'thinking' ? ' is-think' : badgeMode === 'waiting' ? ' is-wait' : ''}`}>
           <span className="work-badge__dot" />
-          <span className="work-badge__text">
-            {badgeMode === 'working' ? '💻 工作中…' : '💬 思考中…'}
-          </span>
-
+          <span className="work-badge__text">{badgeLabels[badgeMode]}</span>
         </div>
       ) : null}
       <div

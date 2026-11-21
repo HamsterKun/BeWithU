@@ -115,6 +115,8 @@ try {
       gumFail: null,
       moduleDelay: 0,
       moduleFail: null,
+      holdNextClose: false,
+      resumeClose: null,
       reset(delay = 0, fail = null, gumFail = null) {
         this.moduleDelay = delay
         this.moduleFail = fail
@@ -152,7 +154,14 @@ try {
       createAnalyser() { return new FakeAnalyser() }
       async resume() { this.state = 'running' }
       async close() {
-        if (!this.closed) { this.closed = true; window.__rec.closed++; window.__rec.live-- }
+        if (this.closed) return
+        this.closed = true
+        if (window.__recCtl.holdNextClose) {
+          window.__recCtl.holdNextClose = false
+          await new Promise((resolve) => { window.__recCtl.resumeClose = resolve })
+        }
+        window.__rec.closed++
+        window.__rec.live--
       }
     }
     class FakeNode {
@@ -243,6 +252,23 @@ try {
   await sleep(600)
   after = await snap()
   ok('stopReleasesEverything', after.live === 0 && after.stopped - before.stopped === 1, after)
+
+  before = await snap()
+  await rec('start')
+  await sleep(100)
+  await ball.eval('window.__recCtl.holdNextClose = true')
+  await rec('stop')
+  const closeHeld = await ball.eval('Boolean(window.__recCtl.resumeClose)')
+  await rec('start')
+  await sleep(100)
+  const overlapping = await snap()
+  await ball.eval('window.__recCtl.resumeClose?.()')
+  await rec('stop')
+  await sleep(100)
+  after = await snap()
+  ok('previousStopDoesNotClearNewRecording', closeHeld && overlapping.live === 2 &&
+    after.live === 0 && after.closed - before.closed === 2 && after.stopped - before.stopped === 2,
+    { closeHeld, overlapping, before, after })
 } catch (e) {
   ok('fatal', false, String(e && e.message ? e.message : e))
 } finally {

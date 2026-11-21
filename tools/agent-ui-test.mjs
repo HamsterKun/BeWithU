@@ -2,7 +2,7 @@
  *
  * 覆盖：
  *  - 提交任务后气泡自动收起；确认时临时出现；确认后再次收起；任务结束弹回
- *  - 球徽标两态：思考中（绿）⇄ 工作中（金）
+ *  - 球徽标：思考中（绿）、工作中（金）、等待中（紫）
  *  - 确认卡 / 步骤行 / 落盘 / 结束回 idle
  */
 import { execFileSync, spawn } from 'node:child_process'
@@ -80,6 +80,8 @@ const work = join(tmp, 'work')
 mkdirSync(ud, { recursive: true })
 mkdirSync(work, { recursive: true })
 const target = join(work, 'ui-note.txt')
+const cancelledTarget = join(work, 'cancelled-note.txt')
+const interruptedTarget = join(work, 'interrupted-note.txt')
 const mockFile = join(tmp, 'mock.json')
 const LOG = join(ud, 'logs', 'app.log')
 
@@ -93,7 +95,20 @@ writeFileSync(
           toolCalls: [{ name: 'file_write', args: { path: target, content: 'UI 测试写入的内容' } }]
         },
         { text: '已完成：note 写好了。' }
-      ]
+      ],
+      cancelDelay: [
+        { toolCalls: [
+          { name: 'delay', args: { seconds: 2, then: { name: 'file_write', arguments: { path: cancelledTarget, content: '不应写入' } } } }
+        ] },
+        { text: '延时任务已结束。' }
+      ],
+      interruptDelay: [
+        { toolCalls: [
+          { name: 'delay', args: { seconds: 2, then: { name: 'file_write', arguments: { path: interruptedTarget, content: '不应写入' } } } }
+        ] },
+        { text: '被打断的任务不应继续回复。' }
+      ],
+      brokenTts: [{ text: '合成失败测试的文字回复。' }]
     }
   })
 )
@@ -126,7 +141,7 @@ try {
   // 管理调用只能在设置窗发起：点球出气泡 → 气泡打开设置页 → 设置窗写入
   const admin = await openSettingsWindow({ Conn, jget, sleep, ball })
   await admin.update({
-    llm: { apiKey: 'sk-mock' },
+    llm: { baseUrl: 'http://127.0.0.1:1/v1', apiKey: 'sk-mock' },
     ui: { muted: true },
     tts: { enabled: false },
     agent: { enabled: true, files: { dirs: [work] } }
@@ -328,6 +343,57 @@ try {
   const modes = [...logText.matchAll(/agent: progress (thinking|working)/g)].map((m) => m[1])
   const seq = modes.join('>')
   ok('progressAlternates', /thinking>working>thinking/.test(seq), modes.slice(0, 8).join('>'))
+
+  await bubble.eval("window.bwu.bubble.submit('cancelDelay')")
+  let waitingLabel = ''
+  for (let i = 0; i < 35 && !waitingLabel; i++) {
+    waitingLabel = await ball.eval("document.querySelector('.work-badge.is-wait .work-badge__text')?.textContent || ''")
+    if (!waitingLabel) await sleep(30)
+  }
+  ok('delayShowsWaitingBadge', waitingLabel === '💤等待中' && !existsSync(cancelledTarget), waitingLabel)
+  const stoppedWait = await bubble.eval(`(() => {
+    const stop = [...document.querySelectorAll('.ghost-btn')].find(button => button.textContent === '停止')
+    stop?.click()
+    return Boolean(stop)
+  })()`)
+  // 等待原计时点过去，再确认取消没有留下后续工具调用。
+  await sleep(2200)
+  const afterStop = await ball.eval(`({ phase: document.querySelector('.stage')?.dataset.phase,
+    badge: Boolean(document.querySelector('.work-badge')) })`)
+  const followUpStarted = /agent: progress working 2\//.test(readFileSync(LOG, 'utf8').slice(logText.length))
+  ok('stopCancelsDelayAndClearsBadge', stoppedWait && afterStop.phase === 'idle' && !afterStop.badge &&
+    !followUpStarted && !existsSync(cancelledTarget), { stoppedWait, afterStop, followUpStarted })
+
+  const interruptLogStart = readFileSync(LOG, 'utf8').length
+  await bubble.eval("window.bwu.bubble.submit('interruptDelay')")
+  let wasWaiting = false
+  for (let i = 0; i < 35 && !wasWaiting; i++) {
+    wasWaiting = await ball.eval("Boolean(document.querySelector('.work-badge.is-wait'))")
+    if (!wasWaiting) await sleep(30)
+  }
+  await ball.eval("window.bwu.agentTest.hotkey('down')")
+  await ball.eval("window.bwu.agentTest.hotkey('up')")
+  await sleep(2200)
+  const stillWaiting = await ball.eval("Boolean(document.querySelector('.work-badge.is-wait'))")
+  const interruptedFollowUp = /agent: progress working 2\//.test(readFileSync(LOG, 'utf8').slice(interruptLogStart))
+  ok('voiceHotkeyCancelsDelayAndFollowUp', wasWaiting && !stillWaiting && !interruptedFollowUp &&
+    !existsSync(interruptedTarget), { wasWaiting, stillWaiting, interruptedFollowUp })
+
+  // Breeze 缺少密钥时会在本地立即失败，不访问真实 TTS 服务。
+  await admin.update({ tts: { enabled: true, provider: 'breeze' }, ui: { muted: false } })
+  const ttsLogStart = readFileSync(LOG, 'utf8').length
+  await bubble.eval("window.bwu.bubble.submit('brokenTts')")
+  let ttsState
+  for (let i = 0; i < 30; i++) {
+    ttsState = await ball.eval(`({ phase: document.querySelector('.stage')?.dataset.phase,
+      badge: Boolean(document.querySelector('.work-badge')) })`)
+    if (ttsState.phase === 'idle' && !ttsState.badge) break
+    await sleep(70)
+  }
+  const ttsFailed = /tts: 合成失败/.test(readFileSync(LOG, 'utf8').slice(ttsLogStart))
+  const ttsAnswer = await bubble.eval("document.querySelector('.row__text--ai')?.textContent || ''")
+  ok('ttsFailureFinishesAgentTurn', ttsFailed && ttsState.phase === 'idle' && !ttsState.badge &&
+    ttsAnswer.includes('合成失败测试的文字回复'), { ttsFailed, ttsState, ttsAnswer })
 } catch (e) {
   ok('fatal', false, String(e && e.message ? e.message : e))
 } finally {

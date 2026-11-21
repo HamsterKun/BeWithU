@@ -132,6 +132,8 @@ async function checkPortable(silent: boolean): Promise<UpdateStatus> {
  */
 export function check(opts: { silent?: boolean } = {}): Promise<UpdateStatus> {
   if (!updateEnabled()) return Promise.resolve(currentStatus())
+  // 重查会改写 updater 内部用于安装的包信息，下载中和待重启时保留当前更新。
+  if (status.kind === 'downloading' || status.kind === 'ready') return Promise.resolve(currentStatus())
   if (inflight) return inflight
   const silent = opts.silent === true
   inflight = (async () => {
@@ -153,6 +155,8 @@ export function check(opts: { silent?: boolean } = {}): Promise<UpdateStatus> {
 export async function download(): Promise<UpdateStatus> {
   if (isPortable() || !updateEnabled()) return currentStatus()
   if (status.kind === 'downloading' || status.kind === 'ready') return currentStatus()
+  if (inflight) await inflight
+  if (status.kind !== 'available') return currentStatus()
   try {
     setStatus({ kind: 'downloading', version: status.version, percent: 0 })
     await autoUpdater.downloadUpdate()

@@ -3,7 +3,7 @@ setlocal DisableDelayedExpansion
 if "%~1"=="" goto :usage
 if not "%~2"=="" goto :usage
 
-"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -File "%~dp0check-installer.ps1" -Path "%~f1" -Launch
+"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy RemoteSigned -File "%~dp0check-installer.ps1" -Path "%~f1" -Launch
 exit /b %ERRORLEVEL%
 
 :usage

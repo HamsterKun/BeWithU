@@ -26,33 +26,32 @@ if ($item -isnot [IO.FileInfo] -or $item.Extension -ne '.exe') {
 
 # Keep the executable open for reading until after launch, denying concurrent writes and deletion.
 $stream = [IO.File]::Open($item.FullName, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
+$sha256 = $null
 try {
+    $sha256 = [Security.Cryptography.SHA256]::Create()
     if ($ExpectedSha256) {
-        $actual = (Get-FileHash -InputStream $stream -Algorithm SHA256).Hash
+        $actual = [BitConverter]::ToString($sha256.ComputeHash($stream)).Replace('-', '')
         if ($actual -ne $ExpectedSha256) { throw 'Installer SHA-256 mismatch.' }
     }
     if ($PublisherCertSha256) {
-        $signature = Get-AuthenticodeSignature -LiteralPath $item.FullName
+        Import-Module -Name "$PSHOME\Modules\Microsoft.PowerShell.Security\Microsoft.PowerShell.Security.psd1"
+        $signature = Microsoft.PowerShell.Security\Get-AuthenticodeSignature -LiteralPath $item.FullName
         if ($signature.Status -ne 'Valid' -or -not $signature.SignerCertificate) {
             throw "Installer Authenticode signature is not valid: $($signature.Status)."
         }
-        $sha256 = [Security.Cryptography.SHA256]::Create()
-        try {
-            $actualPin = [BitConverter]::ToString($sha256.ComputeHash($signature.SignerCertificate.RawData)).Replace('-', '')
-        } finally {
-            $sha256.Dispose()
-        }
+        $actualPin = [BitConverter]::ToString($sha256.ComputeHash($signature.SignerCertificate.RawData)).Replace('-', '')
         if ($actualPin -ne $PublisherCertSha256) { throw 'Installer publisher certificate SHA-256 mismatch.' }
     }
 
     Write-Output "Installer verified: $($item.FullName)"
     if ($Launch) {
         # Use the normal Windows shell so OS installation prompts and protections remain in force.
-        $start = New-Object System.Diagnostics.ProcessStartInfo
+        $start = [Diagnostics.ProcessStartInfo]::new()
         $start.FileName = $item.FullName
         $start.UseShellExecute = $true
         [void][Diagnostics.Process]::Start($start)
     }
 } finally {
+    if ($sha256) { $sha256.Dispose() }
     $stream.Dispose()
 }

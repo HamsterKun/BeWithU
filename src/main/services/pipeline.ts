@@ -236,7 +236,7 @@ class Conversation {
     // 球可能被「隐藏悬浮球 / 隐藏全部窗口」收起来了，用侧键唤醒时一起叫回来
     if (!isBallVisible()) showBallWindow()
 
-    if (this.phase === 'speaking' || this.phase === 'thinking') {
+    if (this.phase === 'speaking' || this.phase === 'thinking' || this.phase === 'acting') {
       if (s.voice.bargeIn && !pendingApproval()) this.interrupt()
     }
 
@@ -485,7 +485,7 @@ class Conversation {
 
     // 先取快照再加本轮输入，否则本轮会被当成历史重复发一遍
     const now = Date.now()
-    contextStore.clampArchived(historyStore.count())
+    contextStore.clampArchived(historyStore.endIndex())
     const historySnapshot = historyStore.since(contextStore.archivedUpTo())
     historyStore.add('user', userText)
 
@@ -540,6 +540,7 @@ class Conversation {
       this.speech = new SpeechQueue(
         s.tts,
         (seq, pcm) => {
+          if (turn !== this.turnId) return
           if (pcm) audioStarted = true
           this.pushAudio(seq, pcm)
         },
@@ -647,7 +648,8 @@ class Conversation {
   private async respondWithAgent(userText: string, turn: number, s: Settings): Promise<void> {
     // 和闲聊一样：先等压缩落定，再取历史快照，最后才把本轮写入记录
     await this.settleContext()
-    contextStore.clampArchived(historyStore.count())
+    if (turn !== this.turnId) return
+    contextStore.clampArchived(historyStore.endIndex())
     const historySnapshot = historyStore.since(contextStore.archivedUpTo())
     // 旧代码只在 Agent 结束时记 assistant，用户的问句从来没进过历史 —— 顺手补上
     historyStore.add('user', userText)
@@ -658,6 +660,8 @@ class Conversation {
     sendAgentProgress({ active: true, step: 0, total: s.agent.maxSteps, mode: 'thinking' })
     const controller = new AbortController()
     this.abortLlm = controller
+    const clearProgress = (): void => sendAgentProgress({ active: false, step: 0, total: s.agent.maxSteps })
+    controller.signal.addEventListener('abort', clearProgress, { once: true })
     const splitter = new SentenceSplitter()
     const canSpeak = s.tts.enabled && !s.ui.muted
     let audioStarted = false
@@ -667,11 +671,17 @@ class Conversation {
       this.speech = new SpeechQueue(
         s.tts,
         (seq, pcm) => {
+          if (turn !== this.turnId) return
           if (pcm) audioStarted = true
           this.pushAudio(seq, pcm)
         },
         () => {
-          if (turn === this.turnId) getBallWindow()?.webContents.send(IPC.audioEnd)
+          if (turn !== this.turnId) return
+          getBallWindow()?.webContents.send(IPC.audioEnd)
+          if (!audioStarted && this.phase === 'acting') {
+            this.setPhase('idle')
+            this.scheduleHide()
+          }
         },
         // Breeze 的并发上限是 1，两条一起合成就 429，第二句会直接丢
         s.tts.provider === 'breeze' ? 1 : 2
@@ -681,18 +691,18 @@ class Conversation {
       this.speech = null
     }
 
-    // 屏幕理解：Agent 模式同样附截图
-    let agentShot: ScreenCapture | null = null
-    if (s.llm.vision.enabled) {
-      const cap = await captureScreen()
-      if (turn !== this.turnId) return
-      if (cap.ok) {
-        agentShot = cap.shot
-        log('vision: Agent 已截屏', `${cap.shot.width}x${cap.shot.height}`)
-      }
-    }
-
     try {
+      // 屏幕理解：Agent 模式同样附截图
+      let agentShot: ScreenCapture | null = null
+      if (s.llm.vision.enabled) {
+        const cap = await captureScreen()
+        if (turn !== this.turnId) return
+        if (cap.ok) {
+          agentShot = cap.shot
+          log('vision: Agent 已截屏', `${cap.shot.width}x${cap.shot.height}`)
+        }
+      }
+
       const res = await runAgentTask(userText, {
         signal: controller.signal,
         history: historySnapshot,
@@ -714,7 +724,7 @@ class Conversation {
           },
           onStep: (info) => {
             if (turn !== this.turnId) return
-            if (!hiddenForTask && !isBubblePinned()) {
+            if (info.mode !== 'waiting' && !hiddenForTask && !isBubblePinned()) {
               hiddenForTask = true
               hideBubble()
             }
@@ -722,7 +732,7 @@ class Conversation {
               active: true,
               step: info.index,
               total: info.total,
-              mode: 'working',
+              mode: info.mode,
               text: info.summary
             })
             sendBubble({
@@ -761,7 +771,6 @@ class Conversation {
         }
       })
       if (turn !== this.turnId) return
-      sendAgentProgress({ active: false, step: res.steps, total: s.agent.maxSteps })
       showBubble()
       // 兜底：万一 runner 没通过 onText 回传（例如直接返回了错误文本），也要显示出来
       if (!answer.trim() && res.text.trim()) {
@@ -770,21 +779,28 @@ class Conversation {
       }
       if (this.speech) {
         for (const sentence of splitter.flush()) this.speech.add(sentence)
-        this.speech.finish()
       }
       sendBubble({ type: 'assistant-end' })
       if (res.text.trim()) historyStore.add('assistant', res.text.trim())
       if (res.stopped) this.notify('info', '已停止这次操作')
     } catch (e) {
+      if (turn !== this.turnId) return
       const msg = e instanceof Error ? e.message : String(e)
       log('agent: 运行失败', msg)
       showBubble()
       this.notify('error', msg, 'open-settings')
       sendBubble({ type: 'assistant-end' })
+    } finally {
+      controller.signal.removeEventListener('abort', clearProgress)
+      if (turn === this.turnId && !controller.signal.aborted) {
+        this.speech?.finish()
+        clearProgress()
+      }
     }
 
     if (turn !== this.turnId) return
-    if (!this.speech || !answer) {
+    if (answer.trim()) this.maybeCompact()
+    if (!this.speech || !answer.trim()) {
       this.setPhase('idle')
       this.scheduleHide()
       return
@@ -793,12 +809,12 @@ class Conversation {
     const speech = this.speech
     setTimeout(() => {
       if (turn !== this.turnId || audioStarted) return
-      if (this.phase !== 'thinking') return
+      if (this.phase !== 'acting') return
       speech.abort()
+      getBallWindow()?.webContents.send(IPC.audioStop)
       this.setPhase('idle')
       this.scheduleHide()
     }, 5000)
-    this.maybeCompact()
   }
   private pushAudio(seq: number, pcm: Buffer | null): void {
     const win = getBallWindow()
@@ -843,9 +859,9 @@ class Conversation {
     if (this.compacting) return { ok: false, message: '正在压缩中，稍等一下' }
     const s = settingsStore.get()
     const gen = this.ctxGen
-    const archived = contextStore.archivedUpTo()
-    contextStore.clampArchived(historyStore.count())
-    const pending = historyStore.since(contextStore.archivedUpTo())
+    contextStore.clampArchived(historyStore.endIndex())
+    const archived = Math.max(historyStore.startIndex(), contextStore.archivedUpTo())
+    const pending = historyStore.since(archived)
     const split = splitForCompaction(pending, s.context.keepRecentTurns)
     if (split.cold <= 0) return { ok: false, message: '最近的对话还不够压，再聊几轮吧' }
 
@@ -944,9 +960,11 @@ class Conversation {
     const s = settingsStore.get()
     const resolved = resolveModelWindow(s.llm.model, s.context.modelWindow, providerWindow(s.llm.model))
     const budget = budgetFor(s.context.level, resolved.window)
-    contextStore.clampArchived(historyStore.count())
-    const archived = contextStore.archivedUpTo()
-    const pending = historyStore.count() - archived
+    const first = historyStore.startIndex()
+    const end = historyStore.endIndex()
+    contextStore.clampArchived(end)
+    const archived = Math.max(first, contextStore.archivedUpTo())
+    const pending = end - archived
     const used =
       this.lastUsage?.actual ??
       estimatePrompt(
@@ -964,7 +982,7 @@ class Conversation {
     return {
       summaryChars: contextStore.getSummary().length,
       updatedAt: contextStore.updatedAt(),
-      archived,
+      archived: archived - first,
       pending: Math.max(0, pending),
       used,
       budget,

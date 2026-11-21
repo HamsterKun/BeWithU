@@ -7,6 +7,7 @@ import { registerSystemTools } from './tools/system'
 import { registerScreenTools } from './tools/screen'
 import { registerSkillTools } from './tools/skills'
 import { registerWebTools } from './tools/web'
+import { registerDelayTool } from './tools/delay'
 import { registerCustomTools } from './custom-tools'
 import { disconnectMcp, mcpCallTool, mcpConfigKey, mcpListTools } from './mcp'
 import { settingsStore } from '../store/settings'
@@ -28,6 +29,7 @@ export function registerBuiltinTools(): void {
   registerShellTools()
   registerSkillTools()
   registerWebTools()
+  registerDelayTool()
   // 已信任的第三方工具
   registerCustomTools()
   // 预热键鼠工作进程（utilityProcess），让第一次注入不用等冷启动

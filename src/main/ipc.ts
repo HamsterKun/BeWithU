@@ -45,9 +45,8 @@ import {
   defaultDataDir,
   dirSizeMB,
   isCustomDataDir,
-  migrateDataDir,
-  moveBackToDefault,
-  pickDataDir
+  pickDataDir,
+  switchDataDirAndRestart
 } from './data-dir'
 import { resolveGrab } from './vision-grab'
 import type { GrabResult } from '../shared/ipc'
@@ -168,7 +167,7 @@ function endBallDrag(persist = true): void {
     dragTimer = null
   }
   const b = getBallBounds()
-  if (b && persist) settingsStore.update({ ball: { x: b.x, y: b.y } })
+  if (b && persist) settingsStore.update({ ball: { x: b.x, y: b.y, positioned: true } })
 }
 
 function closeConversationBubble(): void {
@@ -217,7 +216,7 @@ function resetBallPosition(): void {
   const { x, y } = defaultBallPosition()
   setBallPosition(x, y)
   const b = getBallBounds()
-  if (b) settingsStore.update({ ball: { x: b.x, y: b.y } })
+  if (b) settingsStore.update({ ball: { x: b.x, y: b.y, positioned: true } })
 }
 
 /** 当前正在进行的试听：新的试听会打断它（停播 + 取消合成请求） */
@@ -279,7 +278,8 @@ export function registerIpc(getQuit: () => void): void {
   handle(IPC.settingsUpdate, (_e, patch: SettingsPatch) => {
     const before = settingsStore.get()
     const next = settingsStore.update(patch)
-    const configured = settingsStore.get().mcp.servers
+    const saved = settingsStore.get()
+    const configured = saved.mcp.servers
     for (const server of before.mcp.servers) {
       const current = configured.find((s) => s.id === server.id && s.enabled)
       if (!current || mcpConfigKey(current) !== mcpConfigKey(server)) unregisterMcpServer(server.id)
@@ -289,11 +289,11 @@ export function registerIpc(getQuit: () => void): void {
     }
     if (before.ui.autoLaunch !== next.ui.autoLaunch) applyAutoLaunch(next.ui.autoLaunch)
     if (
-      before.llm.model !== next.llm.model ||
-      before.llm.baseUrl !== next.llm.baseUrl ||
-      before.llm.apiKey !== next.llm.apiKey
+      before.llm.model !== saved.llm.model ||
+      before.llm.baseUrl !== saved.llm.baseUrl ||
+      before.llm.apiKey !== saved.llm.apiKey
     ) {
-      void refreshModelInfo(next.llm, true)
+      void refreshModelInfo(saved.llm, true)
     }
     broadcastSettings(next)
     return next
@@ -302,6 +302,7 @@ export function registerIpc(getQuit: () => void): void {
   handle(IPC.settingsReset, () => {
     const oldServers = settingsStore.get().mcp.servers
     const next = settingsStore.reset()
+    void refreshModelInfo(settingsStore.get().llm, true)
     for (const server of oldServers) unregisterMcpServer(server.id)
     reloadHotkey(next.voice.hotkey)
     applyAutoLaunch(next.ui.autoLaunch)
@@ -431,11 +432,7 @@ export function registerIpc(getQuit: () => void): void {
     const target = await pickDataDir(win)
     if (!target) return { ok: false, canceled: true }
     try {
-      await migrateDataDir(target)
-      setTimeout(() => {
-        app.relaunch()
-        app.exit(0)
-      }, 800)
+      switchDataDirAndRestart(target)
       return {
         ok: true,
         dir: target,
@@ -446,13 +443,9 @@ export function registerIpc(getQuit: () => void): void {
     }
   })
 
-  handle(IPC.dataDirReset, async () => {
+  handle(IPC.dataDirReset, () => {
     try {
-      await moveBackToDefault()
-      setTimeout(() => {
-        app.relaunch()
-        app.exit(0)
-      }, 800)
+      switchDataDirAndRestart()
       return { ok: true, message: '已搬回默认目录，即将重启' }
     } catch (e) {
       return { ok: false, message: e instanceof Error ? e.message : String(e) }

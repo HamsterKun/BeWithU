@@ -1,7 +1,7 @@
 import { app, utilityProcess } from 'electron'
 import { join } from 'node:path'
 import { createHash } from 'node:crypto'
-import { closeSync, existsSync, openSync, readSync, statSync } from 'node:fs'
+import { createReadStream, statSync } from 'node:fs'
 import { log } from '../logger'
 import { ASR_MODEL_FILES } from './asr-model-manifest'
 
@@ -12,28 +12,52 @@ export function modelDir(): string {
   return join(app.getPath('userData'), 'models', 'sensevoice-2024-07-17')
 }
 
-function hashFile(path: string): string {
-  const fd = openSync(path, 'r')
+let verification: { fingerprint: string; result: Promise<boolean>; invalid?: boolean } | undefined
+
+function modelFingerprint(dir: string): string | undefined {
   try {
-    const hash = createHash('sha256')
-    const buffer = Buffer.allocUnsafe(1024 * 1024)
-    let bytes: number
-    while ((bytes = readSync(fd, buffer, 0, buffer.length, null)) > 0) hash.update(buffer.subarray(0, bytes))
-    return hash.digest('hex')
-  } finally {
-    closeSync(fd)
+    const files = MODEL_FILES.map((file) => {
+      const stat = statSync(join(dir, file.name), { bigint: true })
+      if (!stat.isFile() || stat.size !== BigInt(file.size)) return null
+      return `${stat.dev}:${stat.ino}:${stat.mtimeNs}:${stat.ctimeNs}`
+    })
+    if (files.every(Boolean)) return `${dir}\n${files.join('\n')}`
+  } catch {
+    // 文件缺失或不可读。
   }
 }
 
+/** 热键路径只看元数据，录音可先开始；首次加载前仍要校验 SHA-256。 */
 export function modelReady(): boolean {
-  try {
-    return MODEL_FILES.every((file) => {
-      const path = join(modelDir(), file.name)
-      if (!existsSync(path) || !statSync(path).isFile() || statSync(path).size !== file.size) return false
-      return hashFile(path) === file.sha256
-    })
-  } catch {
-    return false
+  const fingerprint = modelFingerprint(modelDir())
+  return fingerprint !== undefined && !(verification?.fingerprint === fingerprint && verification.invalid)
+}
+
+export function verifyModel(): Promise<boolean> {
+  const dir = modelDir()
+  const fingerprint = modelFingerprint(dir)
+  if (!fingerprint) return Promise.resolve(false)
+  if (verification?.fingerprint === fingerprint) return verification.result
+  const current = { fingerprint, invalid: false, result: Promise.resolve().then(verify) }
+  verification = current
+  return current.result
+
+  async function verify(): Promise<boolean> {
+    try {
+      for (const file of MODEL_FILES) {
+        const hash = createHash('sha256')
+        for await (const chunk of createReadStream(join(dir, file.name))) hash.update(chunk)
+        if (hash.digest('hex') !== file.sha256) {
+          current.invalid = true
+          return false
+        }
+      }
+      return modelFingerprint(dir) === fingerprint
+    } catch {
+      // 读取错误允许下次重试，例如杀毒软件短暂占用。
+      if (verification === current) verification = undefined
+      return false
+    }
   }
 }
 
@@ -139,7 +163,7 @@ function startWorker(): Promise<void> {
 
 /** 识别一段 16k 单声道 float 采样 */
 export async function recognize(samples: Float32Array): Promise<string> {
-  if (!modelReady()) throw new Error('还没有下载语音识别模型')
+  if (!await verifyModel()) throw new Error('本地语音识别模型缺失或校验失败，请重新下载')
   await startWorker()
   const id = ++seq
   return new Promise<string>((resolve, reject) => {
@@ -166,7 +190,7 @@ export function disposeLocalAsr(): void {
 
 /** 预热：把模型加载进 worker（设置页"测试加载"用） */
 export async function warmupLocalAsr(): Promise<number> {
-  if (!modelReady()) throw new Error('还没有下载语音识别模型')
+  if (!await verifyModel()) throw new Error('本地语音识别模型缺失或校验失败，请重新下载')
   const t = Date.now()
   await startWorker()
   scheduleIdle()

@@ -113,6 +113,7 @@ export interface BallSettings {
   opacity: number
   x: number
   y: number
+  positioned: boolean
 }
 
 export interface BubbleSettings {

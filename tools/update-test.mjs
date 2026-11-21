@@ -210,6 +210,11 @@ try {
 
   const status = await ui.eval('window.bwu.update.get()')
   ok('statusReady', status?.kind === 'ready' && status?.version === '9.9.9', status)
+  const hitCount = hits.length
+  const checkedAgain = await ui.eval('window.bwu.update.check()')
+  const restartButton = await ui.eval("document.querySelector('.upd-banner.is-ready')?.innerText || ''")
+  ok('checkingAgainKeepsInstallerReady', checkedAgain?.kind === 'ready' && checkedAgain.version === status.version &&
+    restartButton.includes('立即重启') && hits.length === hitCount, { checkedAgain, restartButton })
 
   admin.close()
   ball.close()

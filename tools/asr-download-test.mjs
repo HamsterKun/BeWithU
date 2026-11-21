@@ -20,7 +20,7 @@ import { after, test } from 'node:test'
 const ARCHIVE = process.env.BWU_ASR_ARCHIVE || 'D:\\coding\\bwu-asr-dl\\archive.tar.bz2'
 const ARCHIVE_SIZE = 163002883
 const ARCHIVE_SHA = '7d1efa2138a65b0b488df37f8b89e3d91a60676e416f515b952358d83dfd347e'
-const ROOT = 'D:\\coding\\BeWithU'
+const modelUrl = new URL('../src/main/services/asr-model.ts', import.meta.url).href
 
 if (!existsSync(ARCHIVE)) {
   console.log(`SKIP: 找不到已校验的官方归档 ${ARCHIVE}（先跑 D:\\coding\\bwu-asr-dl\\fetch-asr.ps1）`)
@@ -94,8 +94,8 @@ registerHooks({
   }
 })
 
-const asrModel = await import(`file:///${ROOT.replace(/\\/g, '/')}/src/main/services/asr-model.ts`)
-const localAsr = await import(`file:///${ROOT.replace(/\\/g, '/')}/src/main/services/local-asr.ts`)
+const asrModel = await import(modelUrl)
+const localAsr = await import('../src/main/services/local-asr.ts')
 
 const listModelDir = () => {
   const dir = localAsr.modelDir()
@@ -106,8 +106,7 @@ const stagingLeftovers = () => readdirSync(tmpdir()).filter((n) => n.startsWith(
 test('坏归档（大小不对）被拒绝，且不发布任何模型文件', async () => {
   // 换成本地 /short 的 URL，重新加载一份 asr-model 模块
   goodUrl = shortUrl
-  const url = `file:///${ROOT.replace(/\\/g, '/')}/src/main/services/asr-model.ts?v=short`
-  const shortModel = await import(url)
+  const shortModel = await import(`${modelUrl}?v=short`)
   const before = stagingLeftovers().length
   await assert.rejects(shortModel.downloadModel(() => {}), /大小|SHA-256/)
   assert.deepEqual(listModelDir(), [], '坏归档不该在 models 目录留下文件')
@@ -118,7 +117,8 @@ test('官方归档下载 → 校验 → 解包 → 发布，modelReady() 成立'
   const states = []
   await asrModel.downloadModel((p) => states.push(p.state))
   assert.ok(states.includes('downloading'), states.join(','))
-  assert.equal(asrModel.modelStatus().state, 'ready')
+  assert.equal(states.at(-1), 'ready')
+  assert.equal((await asrModel.modelStatus()).state, 'ready')
   assert.equal(localAsr.modelReady(), true)
   assert.deepEqual(listModelDir(), ['model.int8.onnx', 'tokens.txt'])
   const model = statSync(join(localAsr.modelDir(), 'model.int8.onnx'))

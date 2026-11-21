@@ -87,14 +87,10 @@ export function defaultBallPosition(): { x: number; y: number } {
 }
 
 function clampToDisplays(x: number, y: number): { x: number; y: number } {
-  const displays = screen.getAllDisplays()
-  const nearest = displays
-    .map((d) => ({
-      d,
-      dist: Math.hypot(d.workArea.x + d.workArea.width / 2 - x, d.workArea.y + d.workArea.height / 2 - y)
-    }))
-    .sort((a, b) => a.dist - b.dist)[0].d
-  const wa = nearest.workArea
+  const wa = screen.getDisplayNearestPoint({
+    x: Math.round(x + BALL_WIN_SIZE / 2),
+    y: Math.round(y + BALL_WIN_SIZE / 2)
+  }).workArea
   return {
     x: Math.min(Math.max(x, wa.x - BALL_WIN_SIZE / 2), wa.x + wa.width - BALL_WIN_SIZE / 2),
     y: Math.min(Math.max(y, wa.y - BALL_WIN_SIZE / 2), wa.y + wa.height - BALL_WIN_SIZE / 2)
@@ -104,9 +100,8 @@ function clampToDisplays(x: number, y: number): { x: number; y: number } {
 export function createBallWindow(): BrowserWindow {
   if (ballWin && !ballWin.isDestroyed()) return ballWin
   const s = settingsStore.get()
-  let pos = { x: s.ball.x, y: s.ball.y }
-  if (pos.x < -0.5 || pos.y < -0.5) pos = defaultBallPosition()
-  pos = clampToDisplays(pos.x, pos.y)
+  const saved = s.ball.positioned ? s.ball : defaultBallPosition()
+  const pos = clampToDisplays(saved.x, saved.y)
 
   ballWin = new BrowserWindow({
     width: BALL_WIN_SIZE,
@@ -146,9 +141,9 @@ export function createBallWindow(): BrowserWindow {
   ballWin.once('ready-to-show', () => {
     ballWin?.showInactive()
     if (ballWin) forceRelayout(ballWin)
-    if (settingsStore.get().ball.x < 0) {
+    if (!settingsStore.get().ball.positioned) {
       const b = ballWin!.getBounds()
-      settingsStore.update({ ball: { x: b.x, y: b.y } })
+      settingsStore.update({ ball: { x: b.x, y: b.y, positioned: true } })
     }
   })
   ballWin.on('closed', () => {

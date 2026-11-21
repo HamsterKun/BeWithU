@@ -6,7 +6,7 @@ import { join, resolve } from 'node:path'
 import { spawn } from 'node:child_process'
 import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
-import { modelDir, modelReady } from './local-asr'
+import { modelDir, verifyModel } from './local-asr'
 import { log } from '../logger'
 import { ASR_MODEL_ARCHIVE, ASR_MODEL_FILES } from './asr-model-manifest'
 
@@ -28,17 +28,21 @@ async function hashFile(path: string): Promise<string> {
   return hash.digest('hex')
 }
 
-export function modelStatus(): ModelProgress {
+export async function modelStatus(): Promise<ModelProgress> {
   if (downloading) return { ...progress, state: 'downloading' }
-  if (modelReady()) return { state: 'ready', file: '', bytes: 0, total: 0 }
-  return { ...progress, state: progress.state === 'error' ? 'error' : 'idle' }
+  if (progress.state === 'error') return { ...progress }
+  const ready = await verifyModel()
+  const latest = { ...progress }
+  if (downloading) return { ...latest, state: 'downloading' }
+  if (latest.state === 'error') return latest
+  return { state: ready ? 'ready' : 'idle', file: '', bytes: 0, total: 0 }
 }
 
 function emit(onProgress: (p: ModelProgress) => void, force = false): void {
   const now = Date.now()
   if (!force && now - lastEmit < 400) return
   lastEmit = now
-  onProgress(modelStatus())
+  onProgress({ ...progress })
 }
 
 async function downloadArchive(path: string, onProgress: (p: ModelProgress) => void): Promise<void> {
@@ -76,16 +80,18 @@ function extractArchive(archive: string, staging: string): Promise<void> {
 
 export async function downloadModel(onProgress: (p: ModelProgress) => void): Promise<void> {
   if (downloading) throw new Error('正在下载中，请稍候')
-  if (modelReady() && progress.state !== 'error') {
-    onProgress({ state: 'ready', file: '', bytes: 0, total: 0 })
-    return
-  }
   downloading = true
   const stage = join(tmpdir(), `bwu-asr-${process.pid}-${Date.now()}`)
   const archive = join(stage, ASR_MODEL_ARCHIVE.name)
-  let archiveStage = true
+  let stageCreated = false
   try {
-    mkdirSync(stage, { recursive: false })
+    if (progress.state !== 'error' && await verifyModel()) {
+      progress = { state: 'ready', file: '', bytes: 0, total: 0 }
+      emit(onProgress, true)
+      return
+    }
+    mkdirSync(stage)
+    stageCreated = true
     const staging = join(stage, 'extract')
     mkdirSync(staging)
     progress = { state: 'downloading', file: ASR_MODEL_ARCHIVE.name, bytes: 0, total: ASR_MODEL_ARCHIVE.size }
@@ -121,7 +127,7 @@ export async function downloadModel(onProgress: (p: ModelProgress) => void): Pro
       }
     }
     progress = { state: 'ready', file: '', bytes: 0, total: 0 }
-    onProgress(modelStatus())
+    emit(onProgress, true)
     log('model: 本地识别模型已就绪', ASR_MODEL_ARCHIVE.name)
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e)
@@ -129,8 +135,10 @@ export async function downloadModel(onProgress: (p: ModelProgress) => void): Pro
     emit(onProgress, true)
     throw e
   } finally {
-    if (archiveStage) rmSync(stage, { recursive: true, force: true })
     downloading = false
+    if (stageCreated) {
+      try { rmSync(stage, { recursive: true, force: true }) } catch (error) { log('model: 清理下载目录失败', error) }
+    }
   }
 }
 

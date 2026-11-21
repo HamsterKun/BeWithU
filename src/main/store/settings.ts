@@ -1,5 +1,6 @@
 import { app, safeStorage } from 'electron'
-import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { randomUUID } from 'node:crypto'
+import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { DEFAULT_SETTINGS } from '../../shared/defaults'
 import { BUILTIN_SKINS, DEFAULT_SKIN } from '../../shared/art'
@@ -68,7 +69,7 @@ class SettingsStore {
   private get settingsFile(): string {
     return join(this.dir, 'settings.json')
   }
-  private get secretsFile(): string {
+  private get legacySecretsFile(): string {
     return join(this.dir, 'secrets.bin')
   }
 
@@ -81,9 +82,14 @@ class SettingsStore {
   }
 
   private load(): void {
+    let embeddedSecrets: Record<string, unknown> | undefined
     try {
       if (existsSync(this.settingsFile)) {
         const raw = JSON.parse(readFileSync(this.settingsFile, 'utf8').replace(/^\uFEFF/, '')) as Record<string, any>
+        if (isPlainObject(raw) && Object.hasOwn(raw, 'encryptedSecrets')) {
+          embeddedSecrets = isPlainObject(raw.encryptedSecrets) ? raw.encryptedSecrets : {}
+          delete raw.encryptedSecrets
+        }
         // 老配置没有 authMode：如果已经填了 AppID，就沿用旧版控制台鉴权
         if (raw?.tts && raw.tts.authMode === undefined && raw.tts.appId) raw.tts.authMode = 'console'
         if (raw?.asr && raw.asr.authMode === undefined && raw.asr.appId) raw.asr.authMode = 'console'
@@ -95,6 +101,10 @@ class SettingsStore {
         if (raw?.tts && !raw?.meta?.ttsDefaultOffApplied) {
           raw.tts.enabled = false
           raw.meta = { ...(raw.meta || {}), ttsDefaultOffApplied: true }
+        }
+        if (isPlainObject(raw?.ball) && raw.ball.positioned === undefined) {
+          const { x, y } = raw.ball
+          raw.ball.positioned = Number.isFinite(x) && Number.isFinite(y) && !(x === -1 && y === -1)
         }
         this.data = this.normalize(deepMerge(clone(DEFAULT_SETTINGS), raw))
       }
@@ -109,23 +119,24 @@ class SettingsStore {
     }
 
     try {
-      if (existsSync(this.secretsFile)) {
-        const map = JSON.parse(readFileSync(this.secretsFile, 'utf8')) as Record<string, string>
-        for (const p of SECRET_PATHS) {
-          const enc = map[p]
-          if (!enc) continue
-          const value = this.decryptSecret(enc)
-          if (value) setPath(this.data as unknown as Record<string, unknown>, p, value)
-        }
-        for (const server of this.data.mcp.servers) {
-          const value = map[mcpHeadersPath(server.id)]
-          if (value) server.headers = this.decryptSecret(value)
-        }
+      const map = embeddedSecrets ?? (existsSync(this.legacySecretsFile)
+        ? JSON.parse(readFileSync(this.legacySecretsFile, 'utf8')) as Record<string, unknown>
+        : {})
+      for (const p of SECRET_PATHS) {
+        const enc = map[p]
+        if (typeof enc !== 'string' || !enc) continue
+        const value = this.decryptSecret(enc)
+        if (value) setPath(this.data as unknown as Record<string, unknown>, p, value)
+      }
+      for (const server of this.data.mcp.servers) {
+        const enc = map[mcpHeadersPath(server.id)]
+        if (typeof enc === 'string' && enc) server.headers = this.decryptSecret(enc)
       }
     } catch (e) {
       log('settings: 密钥读取失败', e)
+      return
     }
-    if (this.data.mcp.servers.some((server) => server.headers)) {
+    if (embeddedSecrets === undefined && this.data.mcp.servers.some((server) => server.headers)) {
       try {
         this.save()
       } catch (e) {
@@ -137,6 +148,7 @@ class SettingsStore {
   private normalize(s: Settings): Settings {
     s.ball.size = clamp(s.ball.size, 64, 152, 96)
     s.ball.opacity = clamp(s.ball.opacity, 20, 100, 84)
+    s.ball.positioned = s.ball.positioned === true && Number.isFinite(s.ball.x) && Number.isFinite(s.ball.y)
     s.ball.x = Number.isFinite(s.ball.x) ? Math.round(s.ball.x) : -1
     s.ball.y = Number.isFinite(s.ball.y) ? Math.round(s.ball.y) : -1
     // 旧的内置皮肤已被新皮肤替换：认不出的 builtin id 一律回落到默认皮肤
@@ -352,11 +364,21 @@ class SettingsStore {
       server.headersConfigured = Boolean(server.headers)
       server.headers = ''
     }
+    // 同一次原子替换发布脱敏设置与 DPAPI 密文，重启也只能读到同一代的地址和凭据。
+    const payload = JSON.stringify({ ...onDisk, encryptedSecrets: this.encryptSecrets() }, null, 2)
     mkdirSync(dirname(this.settingsFile), { recursive: true })
-    this.saveSecrets()
-    const tmp = `${this.settingsFile}.tmp`
-    writeFileSync(tmp, JSON.stringify(onDisk, null, 2), 'utf8')
-    renameSync(tmp, this.settingsFile)
+    const tmp = `${this.settingsFile}.${randomUUID()}.tmp`
+    try {
+      writeFileSync(tmp, payload, { encoding: 'utf8', flag: 'wx', flush: true })
+      renameSync(tmp, this.settingsFile)
+    } catch (error) {
+      try { unlinkSync(tmp) } catch { /* 保留原始保存错误 */ }
+      throw error
+    }
+    // 提交后才清理旧副本。即使删除失败，加载也优先使用新文件的密文（包括空对象）。
+    try { unlinkSync(this.legacySecretsFile) } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') log('settings: 清理旧密钥文件失败', error)
+    }
   }
 
   private encryptSecret(value: string): string {
@@ -375,7 +397,7 @@ class SettingsStore {
     return safeStorage.decryptString(Buffer.from(value, 'base64'))
   }
 
-  private saveSecrets(): void {
+  private encryptSecrets(): Record<string, string> {
     const map: Record<string, string> = {}
     for (const p of SECRET_PATHS) {
       const v = getPath(this.data, p)
@@ -384,9 +406,7 @@ class SettingsStore {
     for (const server of this.data.mcp.servers) {
       if (server.headers) map[mcpHeadersPath(server.id)] = this.encryptSecret(server.headers)
     }
-    const tmp = `${this.secretsFile}.tmp`
-    writeFileSync(tmp, JSON.stringify(map), 'utf8')
-    renameSync(tmp, this.secretsFile)
+    return map
   }
 
   dataDir(): string {

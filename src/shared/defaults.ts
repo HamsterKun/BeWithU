@@ -116,7 +116,8 @@ export const DEFAULT_SETTINGS: Settings = {
     size: 96,
     opacity: 100,
     x: -1,
-    y: -1
+    y: -1,
+    positioned: false
   },
   bubble: {
     holdMs: 6000,

@@ -14,6 +14,7 @@ import { checkDangerous } from './policy'
 import { resolvePendingByText } from './approval'
 import { planToolCalls } from './tool-budget'
 import { skillsPromptSection } from './skills'
+import { DELAY_TOOL_ID, parseDelayFollowUp, validDelaySeconds } from './tools/delay'
 import type { ToolDef, ToolResult } from './types'
 
 export interface AgentEvents {
@@ -24,7 +25,7 @@ export interface AgentEvents {
   /** 中间轮的过程叙述（带工具调用的那一轮说的话），不进最终回答 */
   onNarration?: (text: string) => void
   /** 一步工具开始 */
-  onStep: (info: { index: number; total: number; toolId: string; summary: string }) => void
+  onStep: (info: { index: number; total: number; toolId: string; summary: string; mode: 'working' | 'waiting' }) => void
   /** 一步工具结束 */
   onStepDone?: (info: { index: number; total: number; toolId: string; ok: boolean; summary: string }) => void
   /** 高风险工具需要用户确认（返回 true=允许） */
@@ -36,6 +37,8 @@ export interface AgentRunResult {
   steps: number
   stopped: boolean
 }
+
+type StepResult = ToolResult & { approvalDenied?: true }
 
 
 /** 两个字符串的最长公共前缀长度 */
@@ -137,6 +140,7 @@ export async function runAgentTask(
     // 关了技能开关就把 skill.read 一起藏起来，别让模型看见一个必然失败的入口
     .filter((t) => cfg.skillsEnabled || t.id !== 'skill.read')
   const tools = toOpenAiTools(enabled.map((t) => t.id))
+  const enabledById = new Map(enabled.map((t) => [t.id, t]))
   // 模型看到的是 input_type，回来要换回 input.type
   const wireToReal = buildWireMap(enabled.map((t) => t.id))
   // 和闲聊走同一套组装：摘要、时间戳、历史口径完全一致（以前这里是 recent(6) 且没有摘要）
@@ -164,6 +168,20 @@ export async function runAgentTask(
   let stopped = false
   /** 记下每一步做了什么，模型没给收尾时用它拼一句人话 */
   const stepLog: { name: string; ok: boolean; summary: string }[] = []
+
+  const runStep = async (toolId: string, args: Record<string, unknown>, error?: string): Promise<StepResult> => {
+    const def = enabledById.get(toolId)
+    const index = ++steps
+    const name = def?.name ?? toolId
+    const waiting = toolId === DELAY_TOOL_ID && !error && validDelaySeconds(args.seconds)
+    const info = { index, total: maxSteps, toolId }
+    opts.events.onStep({ ...info, summary: waiting ? `等待 ${args.seconds} 秒` : name, mode: waiting ? 'waiting' : 'working' })
+    const result = error ? { ok: false, summary: error } : await runOne(def, args, toolId, cfg, opts)
+    stepLog.push({ name, ok: result.ok, summary: result.summary })
+    opts.events.onStepDone?.({ ...info, ok: result.ok, summary: result.summary })
+    log('agent: 工具结果', `${toolId} ${result.ok ? 'ok' : 'fail'}`)
+    return result
+  }
 
   while (steps < maxSteps && !opts.signal.aborted) {
     let turn
@@ -209,7 +227,7 @@ export async function runAgentTask(
       }))
     })
 
-    const callPlan = planToolCalls(maxSteps - steps, turn.toolCalls)
+    let callPlan = planToolCalls(maxSteps - steps, turn.toolCalls)
     for (let callIndex = 0; callIndex < turn.toolCalls.length; callIndex++) {
       const call = turn.toolCalls[callIndex]
       if (opts.signal.aborted) {
@@ -226,35 +244,49 @@ export async function runAgentTask(
         stopped = true
         break
       }
-      steps += 1
       const realId = wireToReal.get(call.name)
       if (!realId) {
+        steps += 1
         opts.events.onNarration?.('模型返回了本轮未开放的工具名，已拒绝执行。')
         messages.push({ role: 'tool', tool_call_id: call.id, content: JSON.stringify({ ok: false, result: '工具未在本轮授权列表中' }) })
         continue
       }
-      const def = listTools().find((t) => t.id === realId)
       const args = parseArgs(call.args)
-      opts.events.onStep({
-        index: steps,
-        total: maxSteps,
-        toolId: realId,
-        summary: def?.name ?? realId
-      })
+      const isDelay = realId === DELAY_TOOL_ID
+      let after: { id: string; args: Record<string, unknown> } | undefined
+      let error: string | undefined
+      if (isDelay && Object.hasOwn(args, 'then')) {
+        const followUp = parseDelayFollowUp(args.then)
+        const id = followUp && wireToReal.get(followUp.name)
+        if (!followUp) error = '后续工具需提供工具名和参数对象'
+        else if (!id || id === DELAY_TOOL_ID) error = '后续工具必须来自本轮已开放的工具列表，且不能是延时工具'
+        else if (steps + 1 >= maxSteps) error = '剩余工具步数不足，延时和后续工具各需一步'
+        else after = { id, args: followUp.arguments }
+      }
 
-      const result = await runOne(def, args, { ...call, name: realId }, cfg, opts)
-      stepLog.push({ name: def?.name ?? realId, ok: result.ok, summary: result.summary })
+      let result = await runStep(realId, isDelay ? { seconds: args.seconds } : args, error)
+      if (result.ok && after && !opts.signal.aborted) {
+        const next = await runStep(after.id, after.args)
+        result = { ...next, summary: `${result.summary}。后续工具结果：${next.summary}` }
+        // 后续工具已计入预算。保留已处理的模型调用，重新划定本轮剩余边界。
+        callPlan = planToolCalls(callIndex + 1 + maxSteps - steps, turn.toolCalls)
+      }
       messages.push({
         role: 'tool',
         tool_call_id: call.id,
         content: JSON.stringify({ ok: result.ok, result: result.summary }).slice(0, 4000)
       })
-      opts.events.onStepDone?.({ index: steps, total: maxSteps, toolId: realId, ok: result.ok, summary: result.summary })
-      log('agent: 工具结果', `${realId} ${result.ok ? 'ok' : 'fail'}`)
+      if (result.approvalDenied) {
+        stopped = true
+        finalText = '操作未获确认，已停止这次任务。'
+        opts.events.onText(finalText)
+        break
+      }
     }
     if (stopped) break
   }
 
+  if (opts.signal.aborted) stopped = true
   if (!finalText) {
     // 模型跑完工具却没写收尾：单独再来一轮，禁用工具，逼它用人话汇报
     if (!stopped && stepLog.length) {
@@ -304,13 +336,18 @@ function fallbackText(stepLog: { name: string; ok: boolean; summary: string }[])
 async function runOne(
   def: ToolDef | undefined,
   args: Record<string, unknown>,
-  call: AgentToolCall,
+  toolId: string,
   cfg: ReturnType<typeof settingsStore.get>['agent'],
   opts: { signal: AbortSignal; events: AgentEvents }
-): Promise<ToolResult> {
+): Promise<StepResult> {
   if (opts.signal.aborted) return { ok: false, summary: '任务已取消，工具未执行' }
-  if (!def) return { ok: false, summary: `没有这个工具：${call.name}` }
+  if (!def) return { ok: false, summary: `没有这个工具：${toolId}` }
   if (cfg.disabledTools.includes(def.id)) return { ok: false, summary: `工具 ${def.id} 已被用户禁用` }
+  const agent = settingsStore.get().agent
+  if (!agent.enabled || agent.disabledTools.includes(def.id) || getTool(def.id) !== def ||
+    (!agent.skillsEnabled && def.id === 'skill.read')) {
+    return { ok: false, summary: '工具权限或配置已变更，本次操作未执行' }
+  }
 
   // shell 未开启：不执行，交给工具自己给出"去开启"的引导
   const dangerText = [String(args.script ?? ''), String(args.path ?? ''), String(args.content ?? '')].join('\n')
@@ -324,14 +361,17 @@ async function runOne(
       ? await opts.events.onApproval({ toolId: def.id, title: def.name, detail: summarizeArgs(def, args) })
       : false
     if (opts.signal.aborted) return { ok: false, summary: '任务已取消，工具未执行' }
-    if (!approved) return { ok: false, summary: '用户拒绝了这次操作，请停下来并向用户说明' }
+    if (!approved) return { ok: false, approvalDenied: true, summary: '用户拒绝或未确认，本次任务已停止' }
   }
 
   const currentAgent = settingsStore.get().agent
-  if (!currentAgent.enabled || currentAgent.disabledTools.includes(def.id) || getTool(def.id) !== def) {
+  if (!currentAgent.enabled || currentAgent.disabledTools.includes(def.id) || getTool(def.id) !== def ||
+    (!currentAgent.skillsEnabled && def.id === 'skill.read')) {
     return { ok: false, summary: '工具权限或配置已变更，本次操作未执行' }
   }
   if (opts.signal.aborted) return { ok: false, summary: '任务已取消，工具未执行' }
+  // 延时有自己的计时上限，仍随当前任务取消。普通工具的执行超时应用于后续工具本身。
+  if (toolId === DELAY_TOOL_ID) return await callTool(def.id, args, { signal: opts.signal })
   const operation = new AbortController()
   const signal = AbortSignal.any([opts.signal, operation.signal])
   let timer: NodeJS.Timeout | undefined

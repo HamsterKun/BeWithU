@@ -8,8 +8,10 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { log } from '../logger'
 import type { McpServerConfig, McpToolDef } from '../../shared/types'
+import { sseLines } from '../services/sse'
 
-const PROTOCOL_VERSION = '2024-11-05'
+const STDIO_PROTOCOL_VERSION = '2024-11-05'
+const HTTP_PROTOCOL_VERSION = '2025-11-25'
 const TIMEOUT_MS = 15000
 
 interface Pending {
@@ -112,78 +114,82 @@ class StdioConn {
 }
 
 class HttpConn {
+  private readonly url: string
+  private readonly headers: Headers
   private seq = 0
-  private lifetime = new AbortController()
-  constructor(
-    private url: string,
-    private headers: Record<string, string>
-  ) {}
+  private readonly lifetime = new AbortController()
+  private sessionId: string | null = null
+  private protocolVersion: string | null = null
+
+  constructor(url: string, headers: Record<string, string>) {
+    this.url = url
+    this.headers = new Headers({
+      'Content-Type': 'application/json',
+      Accept: 'application/json, text/event-stream',
+      ...headers
+    })
+  }
+
+  get closed(): boolean {
+    return this.lifetime.signal.aborted
+  }
+
+  private async post(method: string, params: unknown, id?: number): Promise<Response> {
+    const headers = new Headers(this.headers)
+    if (this.sessionId) headers.set('Mcp-Session-Id', this.sessionId)
+    if (this.protocolVersion) headers.set('MCP-Protocol-Version', this.protocolVersion)
+    const res = await fetch(this.url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ jsonrpc: '2.0', id, method, params }),
+      signal: AbortSignal.any([AbortSignal.timeout(TIMEOUT_MS), this.lifetime.signal])
+    })
+    if (!res.ok) {
+      void res.body?.cancel().catch(() => {})
+      if (res.status === 404 && this.sessionId) this.close()
+      throw new Error(`HTTP ${res.status}`)
+    }
+    return res
+  }
 
   async request(method: string, params: unknown): Promise<any> {
     const id = ++this.seq
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
-    try {
-      const res = await fetch(this.url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Accept: 'application/json, text/event-stream',
-          ...this.headers
-        },
-        body: JSON.stringify({ jsonrpc: '2.0', id, method, params }),
-        signal: AbortSignal.any([controller.signal, this.lifetime.signal])
-      })
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const type = res.headers.get('content-type') ?? ''
-      if (type.includes('text/event-stream') && res.body) {
-        // 逐行读 SSE，找到 id 匹配的响应
-        const reader = res.body.getReader()
-        const decoder = new TextDecoder()
-        let buf = ''
-        let found: any = null
-        while (!found) {
-          const { done, value } = await reader.read()
-          if (done) break
-          buf += decoder.decode(value, { stream: true })
-          let idx = buf.indexOf('\n\n')
-          while (idx >= 0) {
-            const chunk = buf.slice(0, idx)
-            buf = buf.slice(idx + 2)
-            idx = buf.indexOf('\n\n')
-            for (const line of chunk.split('\n')) {
-              if (!line.startsWith('data:')) continue
-              const data = line.slice(5).trim()
-              if (!data) continue
-              try {
-                const msg = JSON.parse(data)
-                if (msg.id === id) found = msg
-              } catch {
-                /* ignore */
-              }
-            }
-            if (found) break
-          }
-        }
-        try {
-          reader.cancel()
-        } catch {
-          /* ignore */
-        }
-        if (!found) throw new Error('SSE 没有返回结果')
-        if (found.error) throw new Error(found.error.message ?? 'MCP 调用失败')
-        return found.result
-      }
-      const json = (await res.json()) as any
-      if (json.error) throw new Error(json.error.message ?? 'MCP 调用失败')
-      return json.result
-    } finally {
-      clearTimeout(timer)
+    const res = await this.post(method, params, id)
+    const type = res.headers.get('content-type') ?? ''
+    const json = type.includes('text/event-stream') && res.body
+      ? await this.readEventResponse(res.body, id)
+      : await res.json()
+    if (json.error) throw new Error(json.error.message ?? 'MCP 调用失败')
+    if (method === 'initialize') {
+      this.sessionId = res.headers.get('Mcp-Session-Id')
+      const version = json.result?.protocolVersion
+      this.protocolVersion = typeof version === 'string' && version !== STDIO_PROTOCOL_VERSION ? version : null
     }
+    return json.result
   }
 
-  notify(): void {
-    /* HTTP 传输不需要 initialized 通知 */
+  private async readEventResponse(body: ReadableStream<Uint8Array>, id: number): Promise<any> {
+    let data: string[] = []
+    for await (const line of sseLines(body as unknown as AsyncIterable<Uint8Array>)) {
+      if (line.startsWith('data:')) data.push(line.slice(5).replace(/^ /, ''))
+      if (line !== '' || !data.length) continue
+      const event = data.join('\n')
+      data = []
+      try {
+        const msg = JSON.parse(event)
+        if (msg?.id === id) return msg
+      } catch {
+        /* 不是有效的 JSON-RPC 事件，继续读后续行 */
+      }
+    }
+    throw new Error('SSE 没有返回结果')
+  }
+
+  async notify(method: string, params: unknown): Promise<void> {
+    // 兼容既不声明协议版本也不分配会话的旧 HTTP 服务。
+    if (!this.sessionId && !this.protocolVersion) return
+    const res = await this.post(method, params)
+    await res.body?.cancel()
   }
 
   close(): void {
@@ -221,7 +227,7 @@ function parseHeaders(raw: string): Record<string, string> {
 async function connect(server: McpServerConfig): Promise<Conn> {
   const key = mcpConfigKey(server)
   const cached = conns.get(server.id)
-  if (cached?.key === key) return cached.ready
+  if (cached?.key === key && !(cached.conn instanceof HttpConn && cached.conn.closed)) return cached.ready
   if (cached) disconnectMcp(server.id)
   let conn: Conn
   if (server.transport === 'http') {
@@ -234,12 +240,12 @@ async function connect(server: McpServerConfig): Promise<Conn> {
   const ready = (async () => {
     try {
       await conn.request('initialize', {
-        protocolVersion: PROTOCOL_VERSION,
+        protocolVersion: conn instanceof HttpConn ? HTTP_PROTOCOL_VERSION : STDIO_PROTOCOL_VERSION,
         capabilities: {},
         clientInfo: { name: 'BeWithU', version: '0.1.0' }
       })
       if (conns.get(server.id)?.conn !== conn) throw new Error('MCP 连接已撤销')
-      conn.notify('notifications/initialized', {})
+      await conn.notify('notifications/initialized', {})
       return conn
     } catch (error) {
       if (conns.get(server.id)?.conn === conn) disconnectMcp(server.id)

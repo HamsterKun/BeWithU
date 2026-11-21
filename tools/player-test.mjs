@@ -158,18 +158,55 @@ try {
     assert.equal(n, 1, '守护应在约 2.5s 后收尾')
   })
 
-  // 3. 长音频：播放期间绝不能被守护提前打断
-  await test('长音频播放期间不误触发', async () => {
+  // 手动推进两个时钟，覆盖一分钟以上的播报和设备停滞，无需等待真实音频。
+  const withPlaybackClock = async (run) => {
+    const savedWindow = globalThis.window
+    const realNow = Date.now
+    let now = 1000
+    let tick
+    let ctx
+    let src
+    globalThis.window = { setInterval: (callback) => { tick = callback; return 1 }, clearInterval: () => {} }
+    globalThis.AudioContext = class extends FakeCtx {
+      constructor() { super(); ctx = this }
+      createBufferSource() { src = new FakeSource(); src.start = () => {}; return src }
+    }
+    Date.now = () => now
     const p = new Player()
-    let n = 0
-    p.onDrained = () => n++
-    p.push(0, pcm(24000 * 2), 24000, true) // 2 秒
-    p.endStream()
-    await sleep(1200)
-    assert.equal(n, 0, '播放中不该收尾')
-    await sleep(1400)
-    assert.equal(n, 1, '播完应收尾')
-  })
+    let drained = 0
+    p.onDrained = () => drained++
+    try {
+      p.push(0, pcm(24000 * 75), 24000, true)
+      p.endStream()
+      await run({
+        player: p,
+        source: src,
+        count: () => drained,
+        step: (wallMs, audioSeconds) => { now += wallMs; ctx.currentTime = audioSeconds; tick() }
+      })
+    } finally {
+      p.stop()
+      Date.now = realNow
+      globalThis.window = savedWindow
+      globalThis.AudioContext = FakeCtx
+    }
+  }
+
+  await test('75 秒播报超过原兜底时限仍播放到末尾', () => withPlaybackClock(({ player, source, step, count }) => {
+    step(61000, 61)
+    assert.equal(count(), 0)
+    assert.equal(player.playing, true)
+    step(13000, 74)
+    source.onended()
+    assert.equal(count(), 1)
+    assert.equal(player.playing, false)
+  }))
+
+  await test('音频设备的时钟持续停滞时仍能释放播放状态', () => withPlaybackClock(({ player, step, count }) => {
+    step(61000, 0)
+    assert.equal(count(), 1)
+    assert.equal(player.playing, false)
+  }))
 
   // 4. 完全没音频（TTS 全失败）：立即收尾
   await test('无音频时立即收尾', async () => {

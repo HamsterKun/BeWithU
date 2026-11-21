@@ -8,10 +8,10 @@ import type { LlmSettings } from '../../shared/types'
 import { log } from '../logger'
 import { listModelInfo } from './llm'
 
-let cache: { key: string; windows: Record<string, number>; at: number } = {
+let cache: { key: string; windows: Map<string, number>; ready: boolean } = {
   key: '',
-  windows: {},
-  at: 0
+  windows: new Map(),
+  ready: false
 }
 
 /** 只认 baseUrl + 模型名，不把 apiKey 拼进 key（避免密钥被写进内存日志） */
@@ -23,8 +23,7 @@ function cacheKey(llm: LlmSettings): string {
 export function providerWindow(model: string): number {
   const name = String(model ?? '').trim()
   if (!name) return 0
-  const n = cache.windows[name]
-  return Number.isFinite(n) && n > 0 ? n : 0
+  return cache.windows.get(name) ?? 0
 }
 
 /**
@@ -32,19 +31,21 @@ export function providerWindow(model: string): number {
  * 拿不到就用内置表，不影响任何功能。
  */
 export async function refreshModelInfo(llm: LlmSettings, force = false): Promise<void> {
+  const key = cacheKey(llm)
+  if (!force && cache.key === key && cache.ready) return
+  // 配置变化时立即清空旧值，只有本次请求可以填充自己的缓存。
+  const current = { key, windows: new Map<string, number>(), ready: false }
+  cache = current
   if (!llm.baseUrl.trim()) return
   // 没填 Key 又不是本地服务，必然 401：不用去打一次，也别在日志里刷红
   const local = /^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])/i.test(llm.baseUrl)
   if (!llm.apiKey.trim() && !local) return
-  const key = cacheKey(llm)
-  // 同一个服务商+模型已经拉过就不再打接口（除非配置变了 / 显式 force）
-  if (!force && cache.key === key && cache.at > 0) return
   try {
     const list = await listModelInfo(llm)
-    const windows: Record<string, number> = {}
-    for (const item of list) if (item.window > 0) windows[item.id] = item.window
-    cache = { key, windows, at: Date.now() }
-    const count = Object.keys(windows).length
+    if (cache !== current) return
+    for (const item of list) if (Number.isFinite(item.window) && item.window > 0) current.windows.set(item.id, item.window)
+    current.ready = true
+    const count = current.windows.size
     log('model-info: 已刷新', count ? `${count} 个模型带上下文长度` : '供应商没有提供上下文长度')
   } catch (e) {
     log('model-info: 获取失败', e instanceof Error ? e.message : e)

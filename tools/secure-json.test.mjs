@@ -116,4 +116,38 @@ test('context 存储：加密写盘、重载能读回', async () => {
   assert.equal(m2.contextStore.archivedUpTo(), 2)
 })
 
+const historyMessages = Array.from({ length: 200 }, (_, i) => ({ role: 'user', content: `消息 ${i + 1}`, at: i + 1 }))
+
+test('历史滚动后仍从归档游标读取未归档消息，重启后位置不变', async () => {
+  const file = join(userData, 'history.json')
+  writeFileSync(file, secure.encodeSecureJson({ firstIndex: 0, messages: historyMessages }))
+  const { historyStore } = await import(`${historyUrl}?v=rolling`)
+  const { contextStore } = await import(`${contextUrl}?v=rolling`)
+  contextStore.setSummary({ summary: '前 190 条', archivedUpTo: 190, before: 1000, after: 100 })
+  for (let i = 201; i <= 212; i++) historyStore.add('assistant', `消息 ${i}`)
+
+  const { historyStore: reopened } = await import(`${historyUrl}?v=rolling-reopened`)
+  assert.equal(reopened.startIndex(), 12)
+  assert.equal(reopened.endIndex(), 212)
+  contextStore.clampArchived(reopened.endIndex())
+  assert.deepEqual(
+    reopened.since(contextStore.archivedUpTo()).map((m) => m.content),
+    Array.from({ length: 22 }, (_, i) => `消息 ${191 + i}`)
+  )
+})
+
+test('已满的旧历史保留全部现存消息供重新归档，保存后可重启继续使用游标', async () => {
+  const file = join(userData, 'history.json')
+  writeFileSync(file, secure.encodeSecureJson(historyMessages))
+  const { historyStore } = await import(`${historyUrl}?v=legacy-full`)
+  assert.deepEqual(historyStore.since(190), historyMessages)
+  historyStore.add('assistant', '消息 201')
+
+  const { historyStore: reopened } = await import(`${historyUrl}?v=legacy-upgraded`)
+  assert.equal(reopened.startIndex(), 201)
+  assert.equal(reopened.endIndex(), 401)
+  assert.equal(reopened.since(190)[0].content, '消息 2')
+  assert.equal(reopened.since(400)[0].content, '消息 201')
+})
+
 process.on('exit', () => rmSync(userData, { recursive: true, force: true }))

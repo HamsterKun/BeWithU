@@ -152,8 +152,8 @@ function renameToVacant(from: string, to: string): void {
 
 let restartPending = false
 
-/** 复制完成后仅提交下次启动的路径。旧目录保留，便于回退或找回重启前新增的数据。 */
-export async function migrateDataDir(target: string): Promise<{ moved: string[]; bytes: number }> {
+/** 复制完成后提交下次启动的路径，保留旧目录以便回退。 */
+export function migrateDataDir(target: string): { moved: string[]; bytes: number } {
   return migrate(target, false)
 }
 
@@ -295,7 +295,7 @@ function migrate(target: string, returningToDefault: boolean): { moved: string[]
 }
 
 /** 将当前应用数据复制回默认目录，旧默认数据另存为备份。 */
-export async function moveBackToDefault(): Promise<void> {
+export function moveBackToDefault(): void {
   if (restartPending) throw new Error('数据目录已切换，请先重启应用')
   if (!isCustomDataDir()) {
     commitPointer(checkedPointerFile(), null)
@@ -303,6 +303,14 @@ export async function moveBackToDefault(): Promise<void> {
     return
   }
   migrate(defaultDataDir(), true)
+}
+
+export function switchDataDirAndRestart(target?: string): void {
+  if (target === undefined) moveBackToDefault()
+  else migrateDataDir(target)
+  // 和复制、提交指针处于同一个事件循环回合，避免旧目录在重启前收到后续写入。
+  app.relaunch()
+  app.exit(0)
 }
 
 export async function pickDataDir(parent: Electron.BrowserWindow | null): Promise<string | null> {

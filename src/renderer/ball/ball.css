@@ -315,6 +315,22 @@ body {
 .work-badge.is-think .work-badge__text {
   color: rgba(110, 231, 183, 0.98);
 }
+
+.work-badge.is-wait {
+  background: rgba(24, 19, 43, 0.88);
+  border-color: rgba(167, 139, 250, 0.48);
+}
+
+.work-badge.is-wait .work-badge__dot {
+  background: #a78bfa;
+  box-shadow: 0 0 7px rgba(167, 139, 250, 0.8);
+  animation-duration: 2.4s;
+}
+
+.work-badge.is-wait .work-badge__text {
+  color: #ddd6fe;
+}
+
 .work-badge__text {
   font-size: 10.5px;
   color: rgba(253, 230, 138, 0.95);

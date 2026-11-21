@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url'
 import { openSettingsWindow } from './lib/settings-window.mjs'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
+const useAgent = process.argv.includes('--agent')
 const PORT = Number(process.env.CDP_PORT || 9279)
 const LLM_PORT = Number(process.env.FAKE_LLM_PORT || 18787)
 const BASE = `http://127.0.0.1:${PORT}`
@@ -86,6 +87,11 @@ const server = createServer((req, res) => {
       ? '他在测试上下文压缩。他说了四句话，助手回了四句。正在做的是验证压缩能否自动触发。【关键事实】测试用户 4 轮对话；结论：压缩已生效。'
       : '好'.repeat(600)
     const promptTokens = Math.max(1, Math.round(text.length / 3))
+    if (parsed.stream === false) {
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ choices: [{ message: { content: reply } }], usage: { prompt_tokens: promptTokens } }))
+      return
+    }
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
@@ -136,7 +142,8 @@ try {
   await admin.update({
     llm: { baseUrl: `http://127.0.0.1:${LLM_PORT}/v1`, apiKey: 'sk-fake', model: 'fake-chat', temperature: 0.2 },
     context: { level: 'low', modelWindow: 9000, keepRecentTurns: 1, timeAwareness: 'current' },
-    tts: { enabled: false }
+    tts: { enabled: false },
+    agent: { enabled: useAgent }
   })
   await sleep(500)
 
@@ -180,7 +187,10 @@ try {
   ok('summaryInjected', withSummary.length > 0, { requests: requests.length, withSummary: withSummary.length })
 
   // current 模式：历史消息不带时间戳（只有本轮那条带"[现在 …]"），避免每轮重算前缀
-  const last = requests[requests.length - 1]
+  const last = requests.findLast((request) => {
+    const text = JSON.stringify(request.messages ?? [])
+    return text.includes('压缩之后我再说一句') && !text.includes('【新增对话】')
+  })
   const historyText = JSON.stringify(last?.messages ?? [])
   const stamps = (historyText.match(/\[\d\d-\d\d \d\d:\d\d\]/g) ?? []).length
   ok('historyHasNoPerTurnStamp', stamps === 0 && historyText.includes('[现在 '), { stamps, sample: historyText.slice(0, 100) })
