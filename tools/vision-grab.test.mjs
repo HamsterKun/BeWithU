@@ -29,3 +29,22 @@ test('capture keeps its display and ignores unrelated responses', async () => {
   assert.equal((await waiting).requestId, request.requestId)
   assert.equal(permission.isActive(), false)
 })
+
+test('an aborted capture revokes access and its late frame cannot satisfy a new request', async () => {
+  const controller = new AbortController()
+  const stopped = grabViaWgc('42', 300, controller.signal)
+  const first = sent
+  const allowed = getPendingWgcPermission()
+  controller.abort()
+  assert.equal(await stopped, null)
+  assert.equal(allowed.isActive(), false)
+  assert.equal(getPendingWgcPermission(), null)
+  assert.equal(await grabViaWgc('7'), null)
+  resolveGrab({ requestId: first.requestId, ok: false })
+  const active = grabViaWgc('7', 300)
+  assert.equal(getPendingWgcPermission().displayId, '7')
+  resolveGrab({ requestId: first.requestId, ok: false })
+  assert.equal(getPendingWgcPermission().displayId, '7')
+  resolveGrab({ requestId: sent.requestId, ok: false })
+  await active
+})

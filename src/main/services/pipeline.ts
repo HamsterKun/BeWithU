@@ -657,10 +657,10 @@ class Conversation {
     sendBubble({ type: 'reasoning-reset' })
     // 不在这里收：等模型真的开始调工具再收（纯聊天不该把窗口藏起来）
     let hiddenForTask = false
-    sendAgentProgress({ active: true, step: 0, total: s.agent.maxSteps, mode: 'thinking' })
+    sendAgentProgress({ active: true, step: 0, mode: 'thinking' })
     const controller = new AbortController()
     this.abortLlm = controller
-    const clearProgress = (): void => sendAgentProgress({ active: false, step: 0, total: s.agent.maxSteps })
+    const clearProgress = (): void => sendAgentProgress({ active: false, step: 0 })
     controller.signal.addEventListener('abort', clearProgress, { once: true })
     const splitter = new SentenceSplitter()
     const canSpeak = s.tts.enabled && !s.ui.muted
@@ -731,14 +731,12 @@ class Conversation {
             sendAgentProgress({
               active: true,
               step: info.index,
-              total: info.total,
               mode: info.mode,
               text: info.summary
             })
             sendBubble({
               type: 'agent-step',
               index: info.index,
-              total: info.total,
               text: info.summary,
               done: false
             })
@@ -749,14 +747,12 @@ class Conversation {
             sendAgentProgress({
               active: true,
               step: info.index,
-              total: info.total,
               mode: 'thinking',
               text: info.summary
             })
             sendBubble({
               type: 'agent-step',
               index: info.index,
-              total: info.total,
               text: info.summary,
               done: true,
               ok: info.ok

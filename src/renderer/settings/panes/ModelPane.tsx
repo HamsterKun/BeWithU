@@ -158,7 +158,7 @@ export default function ModelPane({ s, patch }: PaneProps): React.ReactElement {
         </div>
       </Section>
 
-      <Section title="屏幕理解" desc="可选功能，默认关闭。开启后，每次闲聊或 Agent 任务都会截取鼠标所在显示器，并将画面与问题发送给下方配置的 AI 服务。">
+      <Section title="屏幕理解" desc="默认关闭。开启后，开场截图和 Agent 在任务中用截屏工具取得的画面都会发送给所配置的 AI 服务。">
         <Field label="开启截屏" hint="看敏感内容时建议先关闭">
           <Toggle
             checked={s.llm.vision.enabled}

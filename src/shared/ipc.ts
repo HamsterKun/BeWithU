@@ -164,7 +164,6 @@ export const IPC = {
 export interface AgentProgress {
   active: boolean
   step: number
-  total: number
   /** thinking=模型思考，working=执行工具，waiting=延时工具计时 */
   mode?: 'thinking' | 'working' | 'waiting'
   text?: string
@@ -173,7 +172,7 @@ export interface AgentProgress {
 export type BubbleUpdate =
   | { type: 'reasoning-reset' }
   | { type: 'reasoning-delta'; text: string }
-  | { type: 'agent-step'; index: number; total: number; text: string; done: boolean; ok?: boolean }
+  | { type: 'agent-step'; index: number; text: string; done: boolean; ok?: boolean }
   | { type: 'approve'; req: { id: string; title: string; detail: string } | null }
   | { type: 'phase'; phase: Phase; note?: string }
   | { type: 'user'; text: string; final: boolean }

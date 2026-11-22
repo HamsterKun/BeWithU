@@ -21,11 +21,11 @@ let worker: UtilityProcess | null = null
 let seq = 0
 let ready = false
 let loadError = ''
-const pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void; timer: NodeJS.Timeout }>()
+const pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void; dispose: () => void }>()
 
 function failAll(message: string): void {
   for (const [, p] of pending) {
-    clearTimeout(p.timer)
+    p.dispose()
     p.reject(new Error(message))
   }
   pending.clear()
@@ -51,7 +51,7 @@ function ensureWorker(): UtilityProcess | null {
       const p = pending.get(msg.id)
       if (!p) return
       pending.delete(msg.id)
-      clearTimeout(p.timer)
+      p.dispose()
       if (msg.ok) p.resolve(msg.result)
       else p.reject(new Error(msg.error || '注入失败'))
     })
@@ -70,21 +70,33 @@ function ensureWorker(): UtilityProcess | null {
   }
 }
 
-function request<T = unknown>(cmd: string, args: Record<string, unknown> = {}, timeoutMs = 15000): Promise<T> {
+function request<T = unknown>(
+  cmd: string, args: Record<string, unknown> = {}, timeoutMs = 15000, signal?: AbortSignal
+): Promise<T> {
+  if (signal?.aborted) return Promise.reject(signal.reason)
   const w = ensureWorker()
   if (!w) return Promise.reject(new Error(loadError || '键鼠注入不可用'))
   const id = ++seq
   return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => {
+    const cancel = (error: Error): void => {
       pending.delete(id)
-      reject(new Error(`注入命令超时：${cmd}`))
-    }, timeoutMs)
-    pending.set(id, { resolve: resolve as (v: unknown) => void, reject, timer })
+      dispose()
+      try { w.postMessage({ cancelId: id }) } catch { /* 工作进程已退出 */ }
+      reject(error)
+    }
+    const abort = (): void => cancel(signal?.reason)
+    const timer = setTimeout(() => cancel(new Error(`注入命令超时：${cmd}`)), timeoutMs)
+    const dispose = (): void => {
+      clearTimeout(timer)
+      signal?.removeEventListener('abort', abort)
+    }
+    signal?.addEventListener('abort', abort, { once: true })
+    pending.set(id, { resolve: resolve as (v: unknown) => void, reject, dispose })
     try {
       w.postMessage({ id, cmd, args })
     } catch (e) {
       pending.delete(id)
-      clearTimeout(timer)
+      dispose()
       reject(e instanceof Error ? e : new Error(String(e)))
     }
   })
@@ -118,12 +130,12 @@ export async function workerPing(): Promise<boolean> {
 
 /* ------------------------------------------------------------------ 键盘 -- */
 
-export async function typeText(text: string): Promise<{ length: number; target: string }> {
-  return request('type', { text })
+export async function typeText(text: string, expectTitle?: string, signal?: AbortSignal): Promise<{ length: number; target: string }> {
+  return request('type', { text, expectTitle }, undefined, signal)
 }
 
-export async function sendKeys(combo: string): Promise<void> {
-  await request('key', { keys: combo })
+export async function sendKeys(combo: string, expectTitle?: string, signal?: AbortSignal): Promise<void> {
+  await request('key', { keys: combo, expectTitle }, undefined, signal)
 }
 
 /* ------------------------------------------------------------------ 鼠标 -- */
@@ -135,19 +147,19 @@ export interface ScreenMetrics {
   height: number
 }
 
-export async function screenMetrics(): Promise<ScreenMetrics> {
-  return request<ScreenMetrics>('metrics')
+export async function screenMetrics(signal?: AbortSignal): Promise<ScreenMetrics> {
+  return request<ScreenMetrics>('metrics', {}, undefined, signal)
 }
 
-export async function cursorPos(): Promise<{ x: number; y: number }> {
-  return request('cursor')
+export async function cursorPos(signal?: AbortSignal): Promise<{ x: number; y: number }> {
+  return request('cursor', {}, undefined, signal)
 }
 
-export async function moveMouse(x: number, y: number): Promise<void> {
+export async function moveMouse(x: number, y: number, signal?: AbortSignal): Promise<void> {
   const r = await request<{ sent: boolean; before: { x: number; y: number }; after: { x: number; y: number } }>('move', {
     x,
     y
-  })
+  }, undefined, signal)
   if (!r.sent) throw new Error('鼠标移动失败（SendInput 未生效）')
   log('input: move diag', JSON.stringify(r))
 }
@@ -157,33 +169,34 @@ export interface ClickOptions {
   y?: number
   button?: 'left' | 'right' | 'middle'
   count?: number
+  expectTitle?: string
 }
 
-export async function clickMouse(opts: ClickOptions = {}): Promise<void> {
-  await request('click', opts as Record<string, unknown>)
+export async function clickMouse(opts: ClickOptions = {}, signal?: AbortSignal): Promise<void> {
+  await request('click', opts as Record<string, unknown>, undefined, signal)
 }
 
-export async function scrollMouse(notches: number): Promise<void> {
-  await request('scroll', { notches })
+export async function scrollMouse(notches: number, signal?: AbortSignal): Promise<void> {
+  await request('scroll', { notches }, undefined, signal)
 }
 
-export async function dragMouse(from: { x: number; y: number }, to: { x: number; y: number }): Promise<void> {
-  await request('drag', { from, to }, 30000)
+export async function dragMouse(from: { x: number; y: number }, to: { x: number; y: number }, signal?: AbortSignal): Promise<void> {
+  await request('drag', { from, to }, 30000, signal)
 }
 
 /* ------------------------------------------------------------------ 窗口 -- */
 
-export async function foregroundWindowTitle(): Promise<string> {
-  const r = await request<{ title: string }>('foreground')
+export async function foregroundWindowTitle(signal?: AbortSignal): Promise<string> {
+  const r = await request<{ title: string }>('foreground', {}, undefined, signal)
   return r.title
 }
 
-export async function findWindowByTitle(title: string): Promise<boolean> {
-  return request<boolean>('findWindow', { title })
+export async function findWindowByTitle(title: string, signal?: AbortSignal): Promise<boolean> {
+  return request<boolean>('findWindow', { title }, undefined, signal)
 }
 
-export async function focusWindowByTitle(title: string): Promise<{ found: boolean; focused: boolean; foreground: string }> {
-  return request('focus', { title }, 20000)
+export async function focusWindowByTitle(title: string, signal?: AbortSignal): Promise<{ found: boolean; focused: boolean; foreground: string }> {
+  return request('focus', { title }, 20000, signal)
 }
 
 /** 目标窗口校验：前台标题必须包含 expectTitle，否则拒绝注入 */

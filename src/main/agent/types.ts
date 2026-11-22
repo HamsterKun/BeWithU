@@ -14,8 +14,12 @@ export interface ToolResult {
   ok: boolean
   /** 回给模型的一句话结论（会被播报/显示，尽量短） */
   summary: string
-  /** 结构化附加数据，序列化后给模型；过大时会被截断 */
+  /** 供工具调用方使用的结构化附加数据 */
   data?: unknown
+  /** 截屏工具返回给视觉模型的画面 */
+  screenshot?: { dataUrl: string }
+  /** 外部工具返回的图像 */
+  images?: { dataUrl: string }[]
 }
 
 export type JsonSchema = Record<string, unknown>

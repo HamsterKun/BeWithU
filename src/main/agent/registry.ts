@@ -1,4 +1,5 @@
 /** 工具注册表：内置工具 + （后续）用户导入的工具都注册到这里 */
+import { createHash } from 'node:crypto'
 import type { ToolDef } from './types'
 
 const registry = new Map<string, ToolDef>()
@@ -31,14 +32,17 @@ export function wireToolName(id: string): string {
 
 /** wire 名 → 内部 id（给工具调用结果用） */
 export function buildWireMap(ids: string[]): Map<string, string> {
+  const reserved = new Set(ids.map(wireToolName))
   const map = new Map<string, string>()
   for (const id of ids) {
-    const wire = wireToolName(id)
-    const prev = map.get(wire)
-    if (prev && prev !== id) {
-      // 撞名（a.b 与 a_b）：先注册的优先，另一个模型永远调不到——记日志方便排查
-      console.warn(`[agent] 工具名转换冲突：${prev} / ${id} → ${wire}`)
-      continue
+    const base = wireToolName(id) || 'tool'
+    let wire = base
+    if (wire.length > 64 || map.has(wire)) {
+      let attempt = 0
+      do {
+        const suffix = createHash('sha256').update(`${id}:${attempt++}`).digest('hex').slice(0, 12)
+        wire = `${base.slice(0, 51)}_${suffix}`
+      } while (reserved.has(wire) || map.has(wire))
     }
     map.set(wire, id)
   }
@@ -50,10 +54,12 @@ export function toOpenAiTools(onlyIds?: string[]): Array<{
   type: 'function'
   function: { name: string; description: string; parameters: Record<string, unknown> }
 }> {
-  return listTools()
-    .filter((t) => !onlyIds || onlyIds.includes(t.id))
-    .map((t) => ({
+  const ids = onlyIds ?? listTools().map((tool) => tool.id)
+  return Array.from(buildWireMap(ids)).flatMap(([name, id]) => {
+    const tool = getTool(id)
+    return tool ? [{
       type: 'function' as const,
-      function: { name: wireToolName(t.id), description: t.description, parameters: t.params }
-    }))
+      function: { name, description: tool.description, parameters: tool.params }
+    }] : []
+  })
 }

@@ -217,7 +217,10 @@ class SettingsStore {
     // 提示词兜底（老配置没有这些字段）
     const prompts = s.prompts ?? DEFAULT_SETTINGS.prompts
     s.prompts = {
-      agent: (prompts.agent ?? '').trim() || DEFAULT_SETTINGS.prompts.agent,
+      agent: (prompts.agent ?? '')
+        .replace(/(?:最多|至多|不超过)\s*\{\{max_steps\}\}\s*(?:步|次|轮)/g, '按任务需要调用工具')
+        .replaceAll('{{max_steps}}', '不限')
+        .trim() || DEFAULT_SETTINGS.prompts.agent,
       closing: (prompts.closing ?? '').trim() || DEFAULT_SETTINGS.prompts.closing,
       summary: (prompts.summary ?? '').trim() || DEFAULT_SETTINGS.prompts.summary,
       visionNote: (prompts.visionNote ?? '').trim() || DEFAULT_SETTINGS.prompts.visionNote
@@ -228,7 +231,6 @@ class SettingsStore {
     s.agent = {
       enabled: Boolean(agent.enabled),
       shellEnabled: Boolean(agent.shellEnabled),
-      maxSteps: clamp(Number(agent.maxSteps) || 30, 3, 200, 30),
       stepTimeoutMs: clamp(Number(agent.stepTimeoutMs) || 20000, 5000, 120000, 20000),
       audit: agent.audit !== false,
       auditDetail: agent.auditDetail === true,

@@ -1,6 +1,5 @@
 /** 键鼠 / 窗口类工具（注入实际在 utilityProcess 里执行） */
 import {
-  assertForeground,
   clickMouse,
   cursorPos,
   dragMouse,
@@ -11,33 +10,30 @@ import {
   inputUnavailableReason,
   moveMouse,
   screenMetrics,
-  sessionLocked,
   scrollMouse,
   sendKeys,
   typeText
 } from '../../services/input-inject'
+import { screen } from 'electron'
+import { displayPhysicalBounds } from '../../services/vision'
 import { registerTool } from '../registry'
+import { screenshotPoint } from '../screenshot-coordinates'
 import type { ToolResult } from '../types'
 
 function needInput(): void {
   if (!isInputAvailable()) throw new Error(inputUnavailableReason())
 }
 
-async function needUnlocked(): Promise<void> {
-  if (await sessionLocked()) throw new Error('屏幕已锁定，无法操作电脑')
-}
-
 function num(v: unknown, name: string): number {
-  const n = typeof v === 'number' ? v : Number(v)
-  if (!Number.isFinite(n)) throw new Error(`参数 ${name} 必须是数字`)
-  return Math.round(n)
+  if (typeof v !== 'number' || !Number.isFinite(v)) throw new Error(`参数 ${name} 必须是数字`)
+  return Math.round(v)
 }
 
 export function registerInputTools(): void {
   registerTool({
     id: 'input.type',
     name: '输入文字',
-    description: '把一段文字输入到当前活动窗口的光标处，支持中文/英文/符号。不要用于密码框。',
+    description: '在当前活动窗口输入文字，支持中文、符号和换行。换行会按 Enter，请先确认目标支持多行输入。',
     risk: 'high',
     params: {
       type: 'object',
@@ -51,23 +47,11 @@ export function registerInputTools(): void {
       required: ['text'],
       additionalProperties: false
     },
-    async run(args): Promise<ToolResult> {
+    async run(args, ctx): Promise<ToolResult> {
       needInput()
       const text = String(args.text ?? '')
       if (!text) return { ok: false, summary: '没有可输入的内容' }
-      await needUnlocked()
-      if (args.expectTitle) {
-        try {
-          await assertForeground(String(args.expectTitle))
-        } catch (e) {
-          const msg = e instanceof Error ? e.message : String(e)
-          return {
-            ok: false,
-            summary: `${msg}。可以先用 window.focus 切到目标窗口；切不过去就请用户手动点一下窗口，或者改用不依赖前台的 file/shell 工具。`
-          }
-        }
-      }
-      const res = await typeText(text)
+      const res = await typeText(text, String(args.expectTitle ?? ''), ctx.signal)
       return {
         ok: true,
         summary: `已在「${res.target || '当前窗口'}」输入 ${res.length} 个字符`
@@ -89,22 +73,10 @@ export function registerInputTools(): void {
       required: ['keys'],
       additionalProperties: false
     },
-    async run(args): Promise<ToolResult> {
+    async run(args, ctx): Promise<ToolResult> {
       needInput()
       const keys = String(args.keys ?? '')
-      await needUnlocked()
-      if (args.expectTitle) {
-        try {
-          await assertForeground(String(args.expectTitle))
-        } catch (e) {
-          const msg = e instanceof Error ? e.message : String(e)
-          return {
-            ok: false,
-            summary: `${msg}。可以先用 window.focus 切到目标窗口；切不过去就请用户手动点一下窗口。`
-          }
-        }
-      }
-      await sendKeys(keys)
+      await sendKeys(keys, String(args.expectTitle ?? ''), ctx.signal)
       return { ok: true, summary: `已发送按键 ${keys}` }
     }
   })
@@ -123,11 +95,11 @@ export function registerInputTools(): void {
       required: ['x', 'y'],
       additionalProperties: false
     },
-    async run(args): Promise<ToolResult> {
+    async run(args, ctx): Promise<ToolResult> {
       needInput()
       const x = num(args.x, 'x')
       const y = num(args.y, 'y')
-      await moveMouse(x, y)
+      await moveMouse(x, y, ctx.signal)
       return { ok: true, summary: `鼠标已移动到 (${x}, ${y})` }
     }
   })
@@ -135,34 +107,39 @@ export function registerInputTools(): void {
   registerTool({
     id: 'input.click',
     name: '鼠标点击',
-    description: '在指定位置（或当前位置）点击鼠标，支持左/右/中键与多击。',
+    description: '点击鼠标。看截图定位时，传 captureId 和图中像素 x、y，工具会换算到正确显示器。不传 captureId 时用桌面的物理坐标，省略 x、y 时点当前光标位置。',
     risk: 'high',
     params: {
       type: 'object',
       properties: {
-        x: { type: 'number', description: '可选，物理像素 X' },
-        y: { type: 'number', description: '可选，物理像素 Y' },
+        x: { type: 'number', description: '横坐标，与 y 一起提供' },
+        y: { type: 'number', description: '纵坐标，与 x 一起提供' },
+        captureId: { type: 'string', description: 'screen.capture 返回的截图 ID' },
+        expectTitle: { type: 'string', description: '可选，要求前台标题包含此文字' },
         button: { type: 'string', enum: ['left', 'right', 'middle'], description: '默认 left' },
         count: { type: 'number', description: '点击次数 1-3，默认 1' }
       },
       additionalProperties: false
     },
-    async run(args): Promise<ToolResult> {
+    async run(args, ctx): Promise<ToolResult> {
       needInput()
       const button = (args.button === 'right' || args.button === 'middle' ? args.button : 'left') as
         | 'left'
         | 'right'
         | 'middle'
       const count = Math.max(1, Math.min(3, num(args.count ?? 1, 'count')))
-      const hasPos = args.x !== undefined && args.y !== undefined
-      await needUnlocked()
-      await clickMouse({
-        x: hasPos ? num(args.x, 'x') : undefined,
-        y: hasPos ? num(args.y, 'y') : undefined,
-        button,
-        count
-      })
-      const where = hasPos ? `(${num(args.x, 'x')}, ${num(args.y, 'y')})` : '当前位置'
+      if ((args.x === undefined) !== (args.y === undefined) || (args.captureId !== undefined && args.x === undefined)) {
+        return { ok: false, summary: '必须同时提供 x 和 y；使用 captureId 时两项坐标均必填' }
+      }
+      let point = args.x === undefined ? undefined : { x: num(args.x, 'x'), y: num(args.y, 'y') }
+      if (point && args.captureId !== undefined) {
+        point = screenshotPoint(String(args.captureId), point.x, point.y, (id) => {
+          const display = screen.getAllDisplays().find((d) => String(d.id) === id)
+          return display && displayPhysicalBounds(display)
+        })
+      }
+      await clickMouse({ ...point, button, count, expectTitle: String(args.expectTitle ?? '') }, ctx.signal)
+      const where = point ? `(${point.x}, ${point.y})` : '当前位置'
       return { ok: true, summary: `已在${where}点击 ${count} 次（${button}）` }
     }
   })
@@ -178,10 +155,10 @@ export function registerInputTools(): void {
       required: ['amount'],
       additionalProperties: false
     },
-    async run(args): Promise<ToolResult> {
+    async run(args, ctx): Promise<ToolResult> {
       needInput()
       const amount = num(args.amount, 'amount')
-      await scrollMouse(amount)
+      await scrollMouse(amount, ctx.signal)
       return { ok: true, summary: `滚轮${amount > 0 ? '上滚' : '下滚'} ${Math.abs(amount)} 格` }
     }
   })
@@ -200,13 +177,13 @@ export function registerInputTools(): void {
       required: ['from', 'to'],
       additionalProperties: false
     },
-    async run(args): Promise<ToolResult> {
+    async run(args, ctx): Promise<ToolResult> {
       needInput()
       const f = (args.from ?? {}) as Record<string, unknown>
       const t = (args.to ?? {}) as Record<string, unknown>
       const from = { x: num(f.x, 'from.x'), y: num(f.y, 'from.y') }
       const to = { x: num(t.x, 'to.x'), y: num(t.y, 'to.y') }
-      await dragMouse(from, to)
+      await dragMouse(from, to, ctx.signal)
       return { ok: true, summary: `已从 (${from.x}, ${from.y}) 拖到 (${to.x}, ${to.y})` }
     }
   })
@@ -217,9 +194,9 @@ export function registerInputTools(): void {
     description: '获取当前前台窗口的标题，用于确认焦点在哪。',
     risk: 'low',
     params: { type: 'object', properties: {}, additionalProperties: false },
-    async run(): Promise<ToolResult> {
+    async run(_args, ctx): Promise<ToolResult> {
       needInput()
-      const title = await foregroundWindowTitle()
+      const title = await foregroundWindowTitle(ctx.signal)
       return { ok: true, summary: `当前前台窗口：${title || '未知'}`, data: { title } }
     }
   })
@@ -235,12 +212,12 @@ export function registerInputTools(): void {
       required: ['title'],
       additionalProperties: false
     },
-    async run(args): Promise<ToolResult> {
+    async run(args, ctx): Promise<ToolResult> {
       needInput()
       const title = String(args.title ?? '').trim()
       if (!title) return { ok: false, summary: '需要提供窗口标题' }
-      if (!(await findWindowByTitle(title))) return { ok: false, summary: `没有找到标题为「${title}」的窗口` }
-      const res = await focusWindowByTitle(title)
+      if (!(await findWindowByTitle(title, ctx.signal))) return { ok: false, summary: `没有找到标题为「${title}」的窗口` }
+      const res = await focusWindowByTitle(title, ctx.signal)
       if (res.focused) return { ok: true, summary: `已切换到「${title}」` }
       // 切不过去时别只说"失败"：告诉模型接下来还能怎么干
       return {
@@ -260,9 +237,9 @@ export function registerInputTools(): void {
     description: '获取当前鼠标的物理像素坐标。',
     risk: 'low',
     params: { type: 'object', properties: {}, additionalProperties: false },
-    async run(): Promise<ToolResult> {
+    async run(_args, ctx): Promise<ToolResult> {
       needInput()
-      const p = await cursorPos()
+      const p = await cursorPos(ctx.signal)
       return { ok: true, summary: `鼠标在 (${p.x}, ${p.y})`, data: p }
     }
   })
@@ -273,9 +250,9 @@ export function registerInputTools(): void {
     description: '获取虚拟桌面（所有显示器合并）的物理像素尺寸与原点，用于坐标换算。',
     risk: 'low',
     params: { type: 'object', properties: {}, additionalProperties: false },
-    async run(): Promise<ToolResult> {
+    async run(_args, ctx): Promise<ToolResult> {
       needInput()
-      const m = await screenMetrics()
+      const m = await screenMetrics(ctx.signal)
       return {
         ok: true,
         summary: `虚拟桌面 ${m.width}x${m.height}，原点 (${m.x}, ${m.y})`,

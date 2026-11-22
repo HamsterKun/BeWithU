@@ -5,7 +5,7 @@
  *  2. 高风险操作：拒绝时不执行
  *  3. 高风险操作：允许时执行
  *  4. Shell 未开启时，工具返回"没有权限"的引导语，而不是真的执行
- *  5. 步数上限来自设置（默认 10）
+ *  5. 任务可跨过旧版默认 30 步，并在模型结束时收尾
  */
 import { execFileSync, spawn } from 'node:child_process'
 import { mkdirSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs'
@@ -130,9 +130,10 @@ writeFileSync(
         { text: '需要执行命令。', toolCalls: [{ name: 'shell_ps', args: { script: 'Get-Date', purpose: '测试时间' } }] },
         { text: 'Shell 没有开启，我已经提醒你去设置里打开。' }
       ],
-      预算: [
-        { text: '执行多个安全工具。', toolCalls: Array.from({ length: 5 }, (_, i) => ({ name: 'notify', args: { title: `budget-${i}`, body: 'budget test' } })) },
-        { text: '预算结束。' }
+      多步: [
+        { toolCalls: Array.from({ length: 5 }, () => ({ name: 'file_read', args: { path: target } })) },
+        { toolCalls: Array.from({ length: 26 }, () => ({ name: 'file_read', args: { path: target } })) },
+        { text: '多步任务结束。' }
       ],
       未知: [
         { text: '执行未开放工具。', toolCalls: [{ name: 'not_in_this_turn', args: {} }] },
@@ -213,7 +214,7 @@ try {
     maxSteps: cfg?.agent?.maxSteps,
     shell: cfg?.agent?.shellEnabled
   })
-  ok('maxStepsCanBeConfigured', cfg?.agent?.maxSteps === 3, cfg?.agent?.maxSteps)
+  ok('legacyStepLimitIgnored', cfg?.agent && !Object.hasOwn(cfg.agent, 'maxSteps'), cfg?.agent)
   ok('shellOffByDefault', cfg?.agent?.shellEnabled === false, cfg?.agent?.shellEnabled)
 
   const call = (id, args) => ball.eval(`window.bwu.agentTest.call(${JSON.stringify(id)}, ${JSON.stringify(args ?? {})})`)
@@ -252,9 +253,9 @@ try {
     shellSummary.slice(0, 120)
   )
 
-  // One model response cannot exceed the configured tool-call budget.
-  const budget = await ball.eval("window.bwu.agentTest.run('执行预算检查', true)")
-  ok('toolCallBudget', budget?.steps === 3 && budget?.tools?.length === 3, budget)
+  const longTask = await ball.eval("window.bwu.agentTest.run('执行多步检查', true)")
+  ok('modelCanFinishMoreThanThirtySteps', longTask?.steps === 31 && longTask?.tools?.length === 31 &&
+    !longTask.stopped && longTask.text === '多步任务结束。', { steps: longTask?.steps, text: longTask?.text })
 
   // A model cannot invoke names outside the published tool list.
   const unknown = await ball.eval("window.bwu.agentTest.run('执行未知工具', true)")
@@ -271,8 +272,8 @@ try {
     delayDenied.tools[1].summary.includes('拒绝') && !existsSync(delayedTarget), delayDenied)
 
   const delayAllowed = await ball.eval("window.bwu.agentTest.run('delaySequence', true)")
-  ok('delayedToolExecutesAndConsumesBudget', delayAllowed?.steps === 3 &&
-    delayAllowed?.tools?.map((tool) => tool.toolId).join(',') === 'delay,file.write,file.read' &&
+  ok('delayedToolAndRemainingBatchExecute', delayAllowed?.steps === 4 &&
+    delayAllowed?.tools?.map((tool) => tool.toolId).join(',') === 'delay,file.write,file.read,file.read' &&
     delayAllowed.tools.every((tool) => tool.ok) && readFileSync(delayedTarget, 'utf8') === '延时后写入', delayAllowed?.tools)
 
   await settings.eval("window.bwu.settings.update({ agent: { disabledTools: ['file.write'] } })")

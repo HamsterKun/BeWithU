@@ -14,7 +14,7 @@ export const DEFAULT_AGENT_PROMPT = `【你现在可以使用工具直接操作�
 工作规则：
 1. 改文件、处理文档、批量操作时优先用文件工具或 shell，不要用模拟键鼠去打字编辑文本；键鼠只用来操作图形界面（点按钮、切窗口、拖拽）。
 2. 一步只做一件小事，看结果再决定下一步；不要重复同样的失败尝试。
-3. 本次任务最多 {{max_steps}} 步，做完用 1-3 句话汇报结果。
+3. 按任务需要调用工具，任务完成或遇到无法继续的障碍时，用 1-3 句话汇报结果。
 {{shell_rule}}
 5. 不要编造工具结果，只根据工具返回汇报。
 6. 调用工具之前不要写"我先把…打开"这类过程叙述；直接用工具，最后一次性汇报结果。
@@ -143,7 +143,6 @@ export const DEFAULT_SETTINGS: Settings = {
     enabled: false,
     // Shell 默认关闭；关闭时模型会被引导去提醒用户开权限
     shellEnabled: false,
-    maxSteps: 30,
     stepTimeoutMs: 20000,
     audit: true,
     auditDetail: false,

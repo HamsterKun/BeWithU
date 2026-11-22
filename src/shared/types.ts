@@ -186,8 +186,6 @@ export interface AgentSettings {
    * 开启后为完全信任模式（只拦截 rm -rf 这类极高危命令）。
    */
   shellEnabled: boolean
-  /** 单轮最多步数（默认 10） */
-  maxSteps: number
   /** 单步超时（毫秒） */
   stepTimeoutMs: number
   /** 审计日志 */
@@ -264,7 +262,7 @@ export interface SearchSettings {
 }
 
 export interface PromptSettings {
-  /** Agent 工具使用规则；支持 {{max_steps}} 与 {{shell_rule}} 占位符 */
+  /** Agent 工具使用规则，支持 {{shell_rule}} 占位符 */
   agent: string
   /** 模型跑完工具却没写收尾时的补问指令 */
   closing: string

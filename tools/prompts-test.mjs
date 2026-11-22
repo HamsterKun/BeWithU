@@ -114,7 +114,8 @@ try {
   const cfg0 = await ball.eval('window.bwu.settings.get()')
   ok(
     'promptDefaultsPresent',
-    Boolean(cfg0?.prompts?.agent?.includes('{{max_steps}}')) &&
+    Boolean(cfg0?.prompts?.agent?.includes('{{shell_rule}}')) &&
+      !cfg0.prompts.agent.includes('{{max_steps}}') &&
       Boolean(cfg0?.prompts?.closing) &&
       Boolean(cfg0?.prompts?.summary) &&
       Boolean(cfg0?.prompts?.visionNote),
@@ -126,7 +127,7 @@ try {
   const headings = await settings.eval(
     "Array.from(document.querySelectorAll('.section__head h3')).map(e => e.textContent).join('|')"
   )
-  ok('promptSectionsVisible', areas >= 5 && /Agent 提示词/.test(headings) && /记忆总结提示词/.test(headings), {
+  ok('promptSectionsVisible', areas >= 5 && /Agent 提示词/.test(headings) && /上下文压缩提示词/.test(headings), {
     areas,
     headings
   })
@@ -147,8 +148,10 @@ try {
 
   await admin.bubble.eval("window.bwu.bubble.submit('你好')")
   await sleep(2500)
-  const sys = String(seen[0]?.messages?.[0]?.content ?? '')
-  ok('agentPromptUsed', sys.includes(marker) && sys.includes('最多 30 步'), sys.slice(0, 120))
+  const taskRequest = seen.find((body) => body.stream === false && Array.isArray(body.messages))
+  const sys = String(taskRequest?.messages?.[0]?.content ?? '')
+  ok('agentPromptUsed', sys.includes(marker) && sys.includes('按任务需要调用工具') &&
+    !sys.includes('{{max_steps}}'), sys.slice(0, 120))
 } catch (e) {
   ok('fatal', false, String(e && e.message ? e.message : e))
 } finally {

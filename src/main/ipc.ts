@@ -863,8 +863,7 @@ export function registerIpc(getQuit: () => void): void {
       sendAgentProgress({
         active: Boolean(p.active),
         mode: p.mode === 'working' ? 'working' : 'thinking',
-        step: Number(p.step ?? 0),
-        total: Number(p.total ?? 30)
+        step: Number(p.step ?? 0)
       })
       return true
     })

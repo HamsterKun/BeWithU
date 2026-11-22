@@ -23,7 +23,9 @@ const TOOLS = join(ROOT, 'tools')
 
 /** 单元/安全：纯 node:test，不启动 Electron */
 const UNITS = [
-  'agent-tool-budget.test.mjs',
+  'agent-screenshot.test.mjs',
+  'agent-system.test.mjs',
+  'agent-tool-results.test.mjs',
   'approval.test.mjs',
   'archive-limits.test.mjs',
   'asr-generation.test.mjs',
@@ -38,6 +40,7 @@ const UNITS = [
   'file-boundary.test.mjs',
   'file-io.test.mjs',
   'format.test.mjs',
+  'input-worker.test.mjs',
   'log-tail.test.mjs',
   'mcp-http.test.mjs',
   'mcp-secrets.test.mjs',
@@ -63,7 +66,7 @@ const E2E = [
   { file: 'agent-llm-test.mjs', expect: 3 },
   { file: 'agent-settings-test.mjs', expect: 8 },
   { file: 'agent-ui-test.mjs', expect: 23 },
-  { file: 'agent-input-test.mjs', expect: 11 },
+  { file: 'agent-input-test.mjs', expect: 13 },
   { file: 'app-test.mjs', expect: 16 },
   { file: 'menu-test.mjs', expect: 6 },
   { file: 'prompts-test.mjs', expect: 4 },

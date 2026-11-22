@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { registerHooks } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -22,6 +22,7 @@ registerHooks({
   }
 })
 const { registerFileTools, readTextPrefix, listDirPage } = await import('../src/main/agent/tools/files.ts')
+const { serializeToolResult } = await import('../src/main/agent/tool-result.ts')
 registerFileTools()
 const tools = globalThis.__bwuTools
 
@@ -88,7 +89,8 @@ test('file.read/file.list 工具走分页与截断，不阻塞主进程', async 
   assert.equal(read.ok, true)
   assert.equal(read.data.text.length, 200)
   assert.equal(read.data.truncated, true)
-  assert.match(read.summary, /只读了前面部分/)
+  assert.equal(read.data.nextOffsetBytes, 200)
+  assert.match(read.summary, /nextOffsetBytes/)
 
   for (let i = 0; i < 260; i++) writeFileSync(join(root, `n${i}.txt`), 'x')
   const listed = await tools['file.list'].run({ dir: root, limit: 50, offset: 10 })
@@ -101,4 +103,37 @@ test('file.read/file.list 工具走分页与截断，不阻塞主进程', async 
   assert.equal(defaulted.data.entries.length, 200)
 
   await assert.rejects(tools['file.list'].run({ dir: join(root, 'missing') }))
+})
+
+test('file pages sent to the model reconstruct UTF-8 without skipping escaped or multibyte content', async (t) => {
+  const path = join(fixture(t), 'pages.txt')
+  const original = '\uFEFF' + '你好😀"\\\r\n\0\uFFFD'.repeat(4200) + '尾页'
+  writeFileSync(path, original)
+  const pages = []
+  let offsetBytes = 0
+  do {
+    const result = await tools['file.read'].run({ path, offsetBytes })
+    const envelope = JSON.parse(serializeToolResult(result))
+    assert.equal(envelope.truncated, undefined)
+    assert.equal(envelope.data.offsetBytes, offsetBytes)
+    assert.ok(envelope.data.nextOffsetBytes === null || envelope.data.nextOffsetBytes > offsetBytes)
+    pages.push(envelope.data.text)
+    offsetBytes = envelope.data.nextOffsetBytes
+  } while (offsetBytes !== null)
+  assert.ok(pages.length > 4)
+  assert.equal(pages.join(''), original)
+  await assert.rejects(tools['file.read'].run({ path, offsetBytes: 4 }), /UTF-8/)
+})
+
+test('file.write replaces only a unique exact match and saves the original backup', async (t) => {
+  const path = join(fixture(t), 'edit.txt')
+  const original = '第一行\r\n保留😀\r\n第三行\r\n'
+  writeFileSync(path, original)
+  const replace = (oldText, content) => tools['file.write'].run({ path, mode: 'replace', oldText, content })
+  assert.equal((await replace('\r\n', 'x')).ok, false)
+  assert.equal((await replace('缺失', 'x')).ok, false)
+  assert.equal(readFileSync(path, 'utf8'), original)
+  assert.equal((await replace('保留😀', '新内容')).ok, true)
+  assert.equal(readFileSync(path, 'utf8'), original.replace('保留😀', '新内容'))
+  assert.equal(readFileSync(path + '.bak', 'utf8'), original)
 })

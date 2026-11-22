@@ -11,15 +11,15 @@
  * - 但子进程本身是完整 Node，恶意代码理论上能绕过 api 自己 require('fs')。
  *   所以真正的闸门是「导入时的信任勾选」，UI 必须把这句话说给用户听。
  */
-import { app, Notification } from 'electron'
+import { app, utilityProcess } from 'electron'
 import { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { isAbsolute, join, relative, resolve, sep } from 'node:path'
-import { utilityProcess } from 'electron'
 import { registerTool, unregisterTool, getTool } from './registry'
 import { resolveAgentPath } from './tools/files'
 import { settingsStore } from '../store/settings'
 import { log } from '../logger'
 import { extractZip } from './import-archive'
+import { showNotification } from './reminders'
 import type { ToolResult, ToolRisk, JsonSchema } from './types'
 
 export interface CustomToolInfo {
@@ -181,7 +181,7 @@ export function registerCustomTools(): void {
       description: t.description,
       risk: t.risk,
       params: t.params,
-      run: (args) => runCustomTool(t, args)
+      run: (args, ctx) => runCustomTool(t, args, ctx.signal)
     })
     registeredIds.add(t.id)
   }
@@ -198,13 +198,18 @@ interface RunReply {
   message?: string
 }
 
-function runCustomTool(tool: CustomToolInfo, args: Record<string, unknown>): Promise<ToolResult> {
+function runCustomTool(tool: CustomToolInfo, args: Record<string, unknown>, signal: AbortSignal): Promise<ToolResult> {
+  signal.throwIfAborted()
   const entry = relative(realpathSync(tool.dir), validateToolEntry(tool.dir, tool.entry))
   return new Promise<ToolResult>((resolve) => {
     let settled = false
+    const lifetime = new AbortController()
     const finish = (r: ToolResult): void => {
       if (settled) return
       settled = true
+      clearTimeout(timer)
+      signal.removeEventListener('abort', abort)
+      lifetime.abort()
       try {
         child.kill()
       } catch {
@@ -224,11 +229,14 @@ function runCustomTool(tool: CustomToolInfo, args: Record<string, unknown>): Pro
     }
 
     const timer = setTimeout(() => finish({ ok: false, summary: '工具执行超时' }), 25000)
+    const abort = (): void => finish({ ok: false, summary: '任务已取消，自定义工具已停止' })
+    signal.addEventListener('abort', abort, { once: true })
 
     child.on('message', (msg: any) => {
-      if (!msg || typeof msg !== 'object') return
+      if (settled || !msg || typeof msg !== 'object') return
       if (msg.type === 'api') {
-        void handleApiCall(msg.method, msg.params, tool, child).then((res) => {
+        void handleApiCall(msg.method, msg.params ?? {}, tool, lifetime.signal).then((res) => {
+          if (settled) return
           try {
             child.postMessage({ type: 'api-result', reqId: msg.reqId, ...res })
           } catch {
@@ -238,7 +246,6 @@ function runCustomTool(tool: CustomToolInfo, args: Record<string, unknown>): Pro
         return
       }
       if (msg.type === 'result') {
-        clearTimeout(timer)
         const r = msg as RunReply
         finish({
           ok: r.ok !== false,
@@ -248,22 +255,18 @@ function runCustomTool(tool: CustomToolInfo, args: Record<string, unknown>): Pro
         return
       }
       if (msg.type === 'error') {
-        clearTimeout(timer)
         finish({ ok: false, summary: String(msg.message ?? '工具执行失败') })
       }
     })
     child.on('exit', () => {
-      clearTimeout(timer)
       finish({ ok: false, summary: '工具进程意外退出（可能是代码报错，详见日志）' })
     })
 
-    child.postMessage({
-      type: 'run',
-      toolDir: tool.dir,
-      entry,
-      args,
-      permissions: tool.permissions
-    })
+    try {
+      child.postMessage({ type: 'run', toolDir: tool.dir, entry, args, permissions: tool.permissions })
+    } catch (e) {
+      finish({ ok: false, summary: e instanceof Error ? e.message : String(e) })
+    }
   })
 }
 
@@ -272,13 +275,14 @@ async function handleApiCall(
   method: string,
   params: Record<string, unknown>,
   tool: CustomToolInfo,
-  child: Electron.UtilityProcess
+  signal: AbortSignal
 ): Promise<{ ok: boolean; value?: unknown; error?: string }> {
   const deny = (perm: string): { ok: false; error: string } => ({
     ok: false,
     error: `工具没有声明 ${perm} 权限`
   })
   try {
+    signal.throwIfAborted()
     switch (method) {
       case 'log': {
         log(`custom[${tool.id}]`, String(params.message ?? ''))
@@ -287,38 +291,33 @@ async function handleApiCall(
       case 'fs.read': {
         if (!tool.permissions.includes('fs.read')) return deny('fs.read')
         const file = await resolveAgentPath(String(params.path ?? ''))
+        signal.throwIfAborted()
         return { ok: true, value: readFileSync(file, 'utf8').slice(0, 20000) }
       }
       case 'fs.write': {
         if (!tool.permissions.includes('fs.write')) return deny('fs.write')
         const file = await resolveAgentPath(String(params.path ?? ''), { allowMissing: true })
         const content = String(params.content ?? '')
+        signal.throwIfAborted()
         mkdirSync(join(file, '..'), { recursive: true })
         await resolveAgentPath(join(file, '..'))
         await resolveAgentPath(file, { allowMissing: true })
+        signal.throwIfAborted()
         writeFileSync(file, content, 'utf8')
         return { ok: true, value: file }
       }
       case 'notify': {
         if (!tool.permissions.includes('notify')) return deny('notify')
-        if (Notification.isSupported()) {
-          new Notification({ title: String(params.title ?? tool.name), body: String(params.body ?? '') }).show()
-        }
+        await showNotification(String(params.title ?? tool.name), String(params.body ?? ''), signal)
         return { ok: true, value: null }
       }
       case 'net': {
         if (!tool.permissions.includes('net')) return deny('net')
         const url = String(params.url ?? '')
         if (!/^https?:\/\//i.test(url)) return { ok: false, error: '只支持 http(s)' }
-        const c = new AbortController()
-        const t = setTimeout(() => c.abort(), 10000)
-        try {
-          const res = await fetch(url, { signal: c.signal })
-          const text = (await res.text()).slice(0, 100000)
-          return { ok: true, value: { status: res.status, text } }
-        } finally {
-          clearTimeout(t)
-        }
+        const res = await fetch(url, { signal: AbortSignal.any([signal, AbortSignal.timeout(10000)]) })
+        const text = (await res.text()).slice(0, 100000)
+        return { ok: true, value: { status: res.status, text } }
       }
       default:
         return { ok: false, error: `未知能力：${method}` }

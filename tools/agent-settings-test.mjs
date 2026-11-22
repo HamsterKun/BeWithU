@@ -116,18 +116,8 @@ try {
   const aria = await settings.eval("document.querySelectorAll('.pane .toggle')[1]?.getAttribute('aria-checked')")
   ok('enableShell', cfg?.agent?.shellEnabled === true && warn, { shell: cfg?.agent?.shellEnabled, warn, aria })
 
-  // 3) 最大步数改成 12
-  await settings.eval(`(() => {
-    const input = document.querySelector('.pane .input--num')
-    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
-    setter.call(input, '12')
-    input.dispatchEvent(new Event('input', { bubbles: true }))
-    input.dispatchEvent(new Event('change', { bubbles: true }))
-    input.blur()
-  })()`)
-  await sleep(600)
-  cfg = await ball.eval('window.bwu.settings.get()')
-  ok('maxStepsEditable', cfg?.agent?.maxSteps === 12, cfg?.agent?.maxSteps)
+  const stepLimitVisible = await settings.eval("document.querySelector('.pane').textContent.includes('最大步数')")
+  ok('noStepLimitSetting', !stepLimitVisible && cfg?.agent && !Object.hasOwn(cfg.agent, 'maxSteps'))
 
   // 4) 目录列表（走真实设置接口，选择器用系统对话框无法自动化）
   await admin.update({ agent: { files: { dirs: [extraDir] } } })

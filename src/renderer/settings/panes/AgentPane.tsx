@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { AgentCustomTool, AgentSkill, McpServerConfig } from '@shared/types'
-import { Btn, Field, NumberInput, Section, Select, TextInput, Toggle } from '../ui'
+import { Btn, Field, Section, Select, TextInput, Toggle } from '../ui'
 import type { PaneProps } from './types'
 
 interface ToolInfo {
@@ -214,15 +214,6 @@ export default function AgentPane({ s, patch }: PaneProps): React.ReactElement {
             不确定模型靠不靠谱时，建议用完就关掉。
           </p>
         ) : null}
-        <Field label="最大步数" hint="一次任务最多调用多少次工具（3–200，默认 30）">
-          <NumberInput
-            value={s.agent.maxSteps}
-            min={3}
-            max={200}
-            onChange={(v) => patch({ agent: { maxSteps: Math.max(3, Math.min(200, v)) } })}
-            suffix="步"
-          />
-        </Field>
       </Section>
 
       <Section title="文件访问" desc="默认只允许 桌面 / 文档 / 下载；需要别的位置就加到下面的列表里。">

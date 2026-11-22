@@ -219,30 +219,39 @@ function click(opts: { x?: number; y?: number; button?: 'left' | 'right' | 'midd
   const [down, up] = BUTTONS[opts.button ?? 'left']
   const count = Math.max(1, Math.min(3, Math.round(opts.count ?? 1)))
   if (typeof opts.x === 'number' && typeof opts.y === 'number') move(opts.x, opts.y)
-  for (let i = 0; i < count; i++) send([packMouse(0, 0, 0, down), packMouse(0, 0, 0, up)])
+  for (let i = 0; i < count; i++) {
+    if (!send([packMouse(0, 0, 0, down), packMouse(0, 0, 0, up)])) {
+      send([packMouse(0, 0, 0, up)])
+      throw new Error('点击注入失败')
+    }
+  }
 }
 
-async function typeText(text: string): Promise<{ length: number; target: string }> {
+async function typeText(text: string, expectTitle: string, signal: AbortSignal): Promise<{ length: number; target: string }> {
   const content = String(text ?? '')
   if (!content) throw new Error('没有可输入的内容')
   if (content.length > MAX_TYPE_CHARS) throw new Error(`一次最多输入 ${MAX_TYPE_CHARS} 个字符`)
-  assertUnlocked()
   assertSafe()
+  if (expectTitle) assertForeground(expectTitle)
+  const hwnd = GetForegroundWindow()
   const target = foregroundTitle()
+  const normalized = content.replace(/\r\n?/g, '\n')
   const units: number[] = []
-  for (let i = 0; i < content.length; i++) units.push(content.charCodeAt(i))
+  for (let i = 0; i < normalized.length; i++) units.push(normalized.charCodeAt(i))
   const BATCH = 32
   for (let i = 0; i < units.length; i += BATCH) {
+    signal.throwIfAborted()
+    if (GetForegroundWindow() !== hwnd) throw new Error('输入过程中窗口焦点已变化')
+    assertSafe()
     const events: Buffer[] = []
     for (const u of units.slice(i, i + BATCH)) {
-      if (u === 0x0a) continue
-      if (u === 0x0d) {
+      if (u === 0x0a) {
         events.push(packKey(0x0d, 0, 0), packKey(0x0d, 0, KEYEVENTF_KEYUP))
         continue
       }
       events.push(packKey(0, u, KEYEVENTF_UNICODE), packKey(0, u, KEYEVENTF_UNICODE | KEYEVENTF_KEYUP))
     }
-    if (events.length) send(events)
+    if (!send(events)) throw new Error('文字注入失败')
     await sleep(4)
   }
   return { length: content.length, target }
@@ -306,7 +315,7 @@ function focusByTitle(title: string): { found: boolean; focused: boolean; foregr
 
 /* ---------------------------------------------------------------- 命令分发 -- */
 
-type Handler = (args: Record<string, unknown>) => unknown | Promise<unknown>
+type Handler = (args: Record<string, unknown>, signal: AbortSignal) => unknown | Promise<unknown>
 
 const handlers: Record<string, Handler> = {
   ping: () => 'pong',
@@ -316,8 +325,9 @@ const handlers: Record<string, Handler> = {
   foreground: () => ({ title: foregroundTitle() }),
   findWindow: (a) => Number(FindWindowW(null, String(a.title ?? ''))) > 0,
   focus: (a) => focusByTitle(String(a.title ?? '')),
-  type: async (a) => typeText(String(a.text ?? '')),
+  type: (a, signal) => typeText(String(a.text ?? ''), String(a.expectTitle ?? ''), signal),
   key: (a) => {
+    if (a.expectTitle) assertForeground(String(a.expectTitle))
     pressKeys(String(a.keys ?? ''))
     return { ok: true }
   },
@@ -330,8 +340,8 @@ const handlers: Record<string, Handler> = {
     const after = cursorPos()
     return { ok: sent, sent, normalized: { nx, ny }, before, after, target: { x, y } }
   },
-  click: (a) =>
-    {
+  click: (a) => {
+      if (a.expectTitle) assertForeground(String(a.expectTitle))
       click({
         x: typeof a.x === 'number' ? a.x : undefined,
         y: typeof a.y === 'number' ? a.y : undefined,
@@ -343,18 +353,24 @@ const handlers: Record<string, Handler> = {
   scroll: (a) => {
     // 和其他注入操作一样要过锁屏/登录支付页检查：滚动同样能改变前台窗口状态
     assertSafe()
-    send([packMouse(0, 0, Math.round(Number(a.notches ?? 0) * 120), MOUSEEVENTF_WHEEL)])
+    if (!send([packMouse(0, 0, Math.round(Number(a.notches ?? 0) * 120), MOUSEEVENTF_WHEEL)])) {
+      throw new Error('滚轮注入失败')
+    }
     return { ok: true }
   },
-  drag: async (a) => {
+  drag: async (a, signal) => {
     assertSafe()
     const from = a.from as { x: number; y: number }
     const to = a.to as { x: number; y: number }
     move(from.x, from.y)
     await sleep(60)
-    send([packMouse(0, 0, 0, MOUSEEVENTF_LEFTDOWN)])
+    signal.throwIfAborted()
+    assertSafe()
+    if (!send([packMouse(0, 0, 0, MOUSEEVENTF_LEFTDOWN)])) throw new Error('拖拽注入失败')
     try {
       for (let i = 1; i <= 12; i++) {
+        signal.throwIfAborted()
+        assertSafe()
         move(Math.round(from.x + ((to.x - from.x) * i) / 12), Math.round(from.y + ((to.y - from.y) * i) / 12))
         await sleep(18)
       }
@@ -375,20 +391,32 @@ interface Request {
   args?: Record<string, unknown>
 }
 
+const active = new Map<number, AbortController>()
+let queue = Promise.resolve()
 process.parentPort.on('message', (e) => {
-  const req = e.data as Request
+  const req = e.data as Request & { cancelId?: number }
+  if (typeof req?.cancelId === 'number') {
+    active.get(req.cancelId)?.abort()
+    return
+  }
   if (!req || typeof req.id !== 'number') return
   const handler = handlers[req.cmd]
   if (!handler) {
     process.parentPort.postMessage({ id: req.id, ok: false, error: `未知命令：${req.cmd}` })
     return
   }
-  Promise.resolve()
-    .then(() => handler(req.args ?? {}))
+  const controller = new AbortController()
+  active.set(req.id, controller)
+  queue = queue
+    .then(() => {
+      controller.signal.throwIfAborted()
+      return handler(req.args ?? {}, controller.signal)
+    })
     .then((result) => process.parentPort.postMessage({ id: req.id, ok: true, result }))
     .catch((err: unknown) =>
       process.parentPort.postMessage({ id: req.id, ok: false, error: err instanceof Error ? err.message : String(err) })
     )
+    .finally(() => { active.delete(req.id) })
 })
 
 process.parentPort.postMessage({ id: 0, ok: true, result: 'ready' })

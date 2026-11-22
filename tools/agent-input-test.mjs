@@ -7,12 +7,13 @@
  * 用法：先 build，再 node tools/agent-input-test.mjs
  */
 import { execFileSync, spawn } from 'node:child_process'
-import { mkdirSync, rmSync, readFileSync, existsSync } from 'node:fs'
+import { mkdirSync, rmSync, readFileSync, existsSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const PORT = Number(process.env.CDP_PORT || 9267)
+const fixtureTitle = `BeWithU Input Fixture ${PORT}`
 const BASE = `http://127.0.0.1:${PORT}`
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
@@ -85,6 +86,7 @@ const tmp = join(ROOT, '.shots', '.tmp-agent-input')
 rmSync(tmp, { recursive: true, force: true })
 const ud = join(tmp, 'ud')
 mkdirSync(ud, { recursive: true })
+writeFileSync(join(ud, 'settings.json'), JSON.stringify({ ball: { x: 500, y: 430, positioned: true } }))
 const LOG = join(ud, 'logs', 'app.log')
 const logText = () => (existsSync(LOG) ? readFileSync(LOG, 'utf8') : '')
 const cnt = (n) => logText().split(n).length - 1
@@ -135,6 +137,15 @@ try {
   }
 
   const call = (id, args) => ball.eval(`window.bwu.agentTest.call(${JSON.stringify(id)}, ${JSON.stringify(args ?? {})})`)
+  const focusTestBubble = async () => {
+    await bubble.eval('window.bwu.bubble.requestFocus()')
+    const foreground = await call('window.foreground', {})
+    if (foreground?.data?.title !== fixtureTitle) {
+      return call('window.focus', { title: fixtureTitle })
+    }
+  }
+  const incomplete = await call('input.click', { x: 0 })
+  ok('partialCoordinatesRejected', incomplete?.ok === false && /x 和 y/.test(incomplete.summary), incomplete)
 
   // 1) 工具注册
   const tools = await ball.eval('window.bwu.agentTest.list()')
@@ -152,6 +163,7 @@ try {
   const bubbleTarget = l2.find((x) => x.type === 'page' && x.url.includes('/bubble/'))
   bubble = await Conn.open(bubbleTarget.webSocketDebuggerUrl)
   await sleep(400)
+  await bubble.eval(`document.title = ${JSON.stringify(fixtureTitle)}`)
   await setPlaceholderSettings()
   // 设置窗口抢焦点时气泡会被隐藏（Windows 最小化位置 x≈-32000），所以重开再量
   const measure = () =>
@@ -172,6 +184,8 @@ try {
     await sleep(500)
   }
   ok('bubbleGeometry', Boolean(geo?.input && geo?.pin && Math.abs(geo.input.x) < 20000), geo)
+  await focusTestBubble()
+  await sleep(350)
 
   // 预热一次工作进程
   await call('window.foreground', {})
@@ -190,7 +204,7 @@ try {
   let focused = ''
   let clickInput = null
   for (let i = 0; i < 3; i++) {
-    clickInput = await call('input.click', { x: geo.input.x, y: geo.input.y })
+    clickInput = await call('input.click', { x: geo.input.x, y: geo.input.y, expectTitle: fixtureTitle })
     await sleep(700)
     focused = await bubble.eval("document.activeElement?.className || ''")
     if (String(focused).includes('composer__input')) break
@@ -201,14 +215,14 @@ try {
   })
 
   // 4) 真实键盘输入中文/英文（气泡窗口由我们自己聚焦，避免前台锁）
-  await bubble.eval('window.bwu.bubble.requestFocus()')
+  await focusTestBubble()
   await sleep(400)
   let typed = null
   let value = ''
   for (let i = 0; i < 3; i++) {
     await bubble.eval("document.querySelector('.composer__input')?.focus()")
     await sleep(200)
-    typed = await call('input.type', { text: '你好 BeWithU 123' })
+    typed = await call('input.type', { text: '你好 BeWithU 123', expectTitle: fixtureTitle })
     await sleep(500)
     value = await bubble.eval("document.querySelector('.composer__input')?.value || ''")
     if (value.includes('你好 BeWithU 123')) break
@@ -221,8 +235,8 @@ try {
   })
 
   // 5) 组合键：ctrl+a 全选后输入 X
-  const sel = await call('input.key', { keys: 'ctrl+a', expectTitle: 'BeWithU Bubble' })
-  await call('input.type', { text: 'X', expectTitle: 'BeWithU Bubble' })
+  const sel = await call('input.key', { keys: 'ctrl+a', expectTitle: fixtureTitle })
+  await call('input.type', { text: 'X', expectTitle: fixtureTitle })
   await sleep(500)
   const value2 = await bubble.eval("document.querySelector('.composer__input')?.value || ''")
   ok('keyboardCombo', sel?.ok === true && value2 === 'X', { key: sel?.summary, value: value2 })
@@ -230,7 +244,22 @@ try {
   // 6) 鼠标点击固定按钮 → 状态变化
   const pinActive = () => bubble.eval('document.querySelectorAll(".card__actions .icon-btn")[0].className.includes("active")')
   const before = await pinActive()
-  const clickPin = await call('input.click', { x: geo.pin.x, y: geo.pin.y })
+  const capture = await ball.eval("window.bwu.agentTest.call('screen.capture', {}).then(({ok,summary,data}) => ({ok,summary,data}))")
+  const shot = capture?.data
+  ok('captureGeometry', capture?.ok === true && shot?.captureId && shot.physicalBounds?.width > 0 && shot.width > 0, {
+    summary: capture?.summary, display: shot?.displayId, bounds: shot?.physicalBounds
+  })
+  let clickPin = null
+  if (shot?.captureId) {
+    const bounds = shot.physicalBounds
+    const x = Math.floor((geo.pin.x - bounds.x) * shot.width / bounds.width)
+    const y = Math.floor((geo.pin.y - bounds.y) * shot.height / bounds.height)
+    try {
+      clickPin = await call('input.click', { x, y, captureId: shot.captureId, expectTitle: fixtureTitle })
+    } finally {
+      rmSync(shot.path, { force: true })
+    }
+  }
   await sleep(800)
   const after = await pinActive()
   ok('mouseClickButton', clickPin?.ok === true && before !== after, { before, after, click: clickPin?.summary })
@@ -240,13 +269,13 @@ try {
   ok('expectTitleGuard', guard?.ok === false, guard?.summary)
 
   // 7.5) 登录/支付类窗口下，滚动滚轮也必须被拒绝（REVIEW C2：滚动曾绕过 assertSafe）
-  await bubble.eval('window.bwu.bubble.requestFocus()')
+  await focusTestBubble()
   await sleep(300)
   await bubble.eval("document.title = '登录确认'")
   await sleep(400)
   const blockedFg = (await call('window.foreground', {}))?.data?.title || ''
-  const scrollBlocked = await call('input.scroll', { amount: 3 })
-  await bubble.eval("document.title = 'BeWithU Bubble'")
+  const scrollBlocked = blockedFg.includes('登录') ? await call('input.scroll', { amount: 3 }) : null
+  await bubble.eval(`document.title = ${JSON.stringify(fixtureTitle)}`)
   await sleep(200)
   ok(
     'scrollGateOnBlockedTitle',

@@ -22,7 +22,7 @@ export function registerWebTools(): void {
       required: ['query'],
       additionalProperties: false
     },
-    async run(args): Promise<ToolResult> {
+    async run(args, ctx): Promise<ToolResult> {
       const cfg = settingsStore.get().search
       const query = String(args.query ?? '').trim()
       if (!query) return { ok: false, summary: '搜索词是空的' }
@@ -35,7 +35,7 @@ export function registerWebTools(): void {
         }
       }
       try {
-        const { provider, hits } = await webSearch(query)
+        const { provider, hits } = await webSearch(query, ctx.signal)
         if (!hits.length) {
           return { ok: false, summary: `（${provider}）没搜到「${query}」的结果，可以换个说法再试` }
         }

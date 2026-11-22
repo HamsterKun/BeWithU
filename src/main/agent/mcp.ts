@@ -9,6 +9,8 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { log } from '../logger'
 import type { McpServerConfig, McpToolDef } from '../../shared/types'
 import { sseLines } from '../services/sse'
+import { withSignal } from './cancellation'
+import type { ToolResult } from './types'
 
 const STDIO_PROTOCOL_VERSION = '2024-11-05'
 const HTTP_PROTOCOL_VERSION = '2025-11-25'
@@ -17,7 +19,7 @@ const TIMEOUT_MS = 15000
 interface Pending {
   resolve: (v: any) => void
   reject: (e: Error) => void
-  timer: NodeJS.Timeout
+  dispose: () => void
 }
 
 class StdioConn {
@@ -31,6 +33,7 @@ class StdioConn {
     this.proc = spawn(command, args, { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true })
     this.proc.stdout.setEncoding('utf8')
     this.proc.stdout.on('data', (chunk: string) => this.onData(chunk))
+    this.proc.stdin.on('error', (error) => this.failAll(`MCP 写入失败：${error.message}`))
     this.proc.stderr.on('data', (d) => log('mcp: stderr', String(d).slice(0, 200)))
     this.proc.on('exit', () => this.failAll('MCP 进程已退出'))
     this.proc.on('error', (e) => this.failAll(`启动失败：${e.message}`))
@@ -39,7 +42,7 @@ class StdioConn {
   private failAll(msg: string): void {
     this.closed = true
     for (const [, p] of this.pending) {
-      clearTimeout(p.timer)
+      p.dispose()
       p.reject(new Error(msg))
     }
     this.pending.clear()
@@ -66,7 +69,7 @@ class StdioConn {
       const p = this.pending.get(msg.id)
       if (!p) return
       this.pending.delete(msg.id)
-      clearTimeout(p.timer)
+      p.dispose()
       if (msg.error) p.reject(new Error(msg.error.message ?? 'MCP 调用失败'))
       else p.resolve(msg.result)
       return
@@ -86,15 +89,27 @@ class StdioConn {
     }
   }
 
-  request(method: string, params: unknown): Promise<any> {
+  request(method: string, params: unknown, signal?: AbortSignal): Promise<any> {
+    if (signal?.aborted) return Promise.reject(signal.reason)
     if (this.closed) return Promise.reject(new Error('MCP 连接已关闭'))
     const id = ++this.seq
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
+      const cancel = (reason: unknown): void => {
         this.pending.delete(id)
-        reject(new Error(`${method} 超时`))
-      }, TIMEOUT_MS)
-      this.pending.set(id, { resolve, reject, timer })
+        dispose()
+        if (method !== 'initialize') {
+          this.notify('notifications/cancelled', { requestId: id, reason: String(reason) })
+        }
+        reject(reason)
+      }
+      const abort = (): void => cancel(signal?.reason)
+      const timer = setTimeout(() => cancel(new Error(`${method} 超时`)), TIMEOUT_MS)
+      const dispose = (): void => {
+        clearTimeout(timer)
+        signal?.removeEventListener('abort', abort)
+      }
+      signal?.addEventListener('abort', abort, { once: true })
+      this.pending.set(id, { resolve, reject, dispose })
       this.write({ jsonrpc: '2.0', id, method, params })
     })
   }
@@ -110,6 +125,10 @@ class StdioConn {
     } catch {
       /* ignore */
     }
+  }
+
+  get isClosed(): boolean {
+    return this.closed
   }
 }
 
@@ -130,11 +149,11 @@ class HttpConn {
     })
   }
 
-  get closed(): boolean {
+  get isClosed(): boolean {
     return this.lifetime.signal.aborted
   }
 
-  private async post(method: string, params: unknown, id?: number): Promise<Response> {
+  private async post(method: string, params: unknown, id?: number, signal?: AbortSignal): Promise<Response> {
     const headers = new Headers(this.headers)
     if (this.sessionId) headers.set('Mcp-Session-Id', this.sessionId)
     if (this.protocolVersion) headers.set('MCP-Protocol-Version', this.protocolVersion)
@@ -142,7 +161,7 @@ class HttpConn {
       method: 'POST',
       headers,
       body: JSON.stringify({ jsonrpc: '2.0', id, method, params }),
-      signal: AbortSignal.any([AbortSignal.timeout(TIMEOUT_MS), this.lifetime.signal])
+      signal: AbortSignal.any([this.lifetime.signal, signal ?? AbortSignal.timeout(TIMEOUT_MS)])
     })
     if (!res.ok) {
       void res.body?.cancel().catch(() => {})
@@ -152,20 +171,32 @@ class HttpConn {
     return res
   }
 
-  async request(method: string, params: unknown): Promise<any> {
+  async request(method: string, params: unknown, signal?: AbortSignal): Promise<any> {
+    signal?.throwIfAborted()
     const id = ++this.seq
-    const res = await this.post(method, params, id)
-    const type = res.headers.get('content-type') ?? ''
-    const json = type.includes('text/event-stream') && res.body
-      ? await this.readEventResponse(res.body, id)
-      : await res.json()
-    if (json.error) throw new Error(json.error.message ?? 'MCP 调用失败')
-    if (method === 'initialize') {
-      this.sessionId = res.headers.get('Mcp-Session-Id')
-      const version = json.result?.protocolVersion
-      this.protocolVersion = typeof version === 'string' && version !== STDIO_PROTOCOL_VERSION ? version : null
+    const timeout = AbortSignal.timeout(TIMEOUT_MS)
+    const execution = signal ? AbortSignal.any([signal, timeout]) : timeout
+    try {
+      const res = await this.post(method, params, id, execution)
+      const type = res.headers.get('content-type') ?? ''
+      const json = type.includes('text/event-stream') && res.body
+        ? await this.readEventResponse(res.body, id)
+        : await res.json()
+      execution.throwIfAborted()
+      if (json?.id !== id) throw new Error('MCP 响应 ID 与请求不匹配')
+      if (json.error) throw new Error(json.error.message ?? 'MCP 调用失败')
+      if (method === 'initialize') {
+        this.sessionId = res.headers.get('Mcp-Session-Id')
+        const version = json.result?.protocolVersion
+        this.protocolVersion = typeof version === 'string' && version !== STDIO_PROTOCOL_VERSION ? version : null
+      }
+      return json.result
+    } catch (error) {
+      if (execution.aborted && method !== 'initialize') {
+        void this.notify('notifications/cancelled', { requestId: id, reason: String(execution.reason) }).catch(() => {})
+      }
+      throw error
     }
-    return json.result
   }
 
   private async readEventResponse(body: ReadableStream<Uint8Array>, id: number): Promise<any> {
@@ -227,7 +258,7 @@ function parseHeaders(raw: string): Record<string, string> {
 async function connect(server: McpServerConfig): Promise<Conn> {
   const key = mcpConfigKey(server)
   const cached = conns.get(server.id)
-  if (cached?.key === key && !(cached.conn instanceof HttpConn && cached.conn.closed)) return cached.ready
+  if (cached?.key === key && !cached.conn.isClosed) return cached.ready
   if (cached) disconnectMcp(server.id)
   let conn: Conn
   if (server.transport === 'http') {
@@ -268,31 +299,76 @@ export function disconnectAllMcp(): void {
   for (const id of [...conns.keys()]) disconnectMcp(id)
 }
 
-export async function mcpListTools(server: McpServerConfig): Promise<McpToolDef[]> {
-  const conn = await connect(server)
-  const res = await conn.request('tools/list', {})
-  const tools: any[] = Array.isArray(res?.tools) ? res.tools : []
-  return tools.map((t) => ({
-    name: String(t.name ?? ''),
-    description: String(t.description ?? ''),
-    inputSchema:
-      t.inputSchema && typeof t.inputSchema === 'object'
-        ? (t.inputSchema as Record<string, unknown>)
-        : { type: 'object', properties: {} }
-  }))
+export async function mcpListTools(server: McpServerConfig, signal?: AbortSignal): Promise<McpToolDef[]> {
+  signal?.throwIfAborted()
+  const conn = await withSignal(connect(server), signal)
+  const seen = new Set<string>()
+  const tools = new Map<string, McpToolDef>()
+  let cursor: string | undefined
+  do {
+    const res = await conn.request('tools/list', cursor === undefined ? {} : { cursor }, signal)
+    if (!Array.isArray(res?.tools)) throw new Error('MCP 返回了无效的工具清单')
+    for (const t of res.tools) {
+      if (typeof t?.name !== 'string' || !t.name || tools.has(t.name)) continue
+      tools.set(t.name, {
+        name: t.name,
+        description: String(t.description ?? ''),
+        inputSchema: t.inputSchema && typeof t.inputSchema === 'object' && !Array.isArray(t.inputSchema)
+          ? t.inputSchema as Record<string, unknown>
+          : { type: 'object', properties: {} }
+      })
+    }
+    cursor = typeof res.nextCursor === 'string' && res.nextCursor ? res.nextCursor : undefined
+    if (cursor) {
+      if (seen.has(cursor) || seen.size >= 1000) throw new Error('MCP 工具清单的分页游标异常')
+      seen.add(cursor)
+    }
+  } while (cursor !== undefined)
+  return [...tools.values()]
 }
 
 export async function mcpCallTool(
   server: McpServerConfig,
   toolName: string,
-  args: Record<string, unknown>
-): Promise<{ ok: boolean; summary: string }> {
-  const conn = await connect(server)
-  const res = await conn.request('tools/call', { name: toolName, arguments: args })
+  args: Record<string, unknown>,
+  signal?: AbortSignal
+): Promise<ToolResult> {
+  signal?.throwIfAborted()
+  const conn = await withSignal(connect(server), signal)
+  const res = await conn.request('tools/call', { name: toolName, arguments: args }, signal)
+  signal?.throwIfAborted()
   const content: any[] = Array.isArray(res?.content) ? res.content : []
-  const text = content
-    .map((c) => (typeof c?.text === 'string' ? c.text : c?.type ? `[${c.type}]` : ''))
-    .filter(Boolean)
-    .join('\n')
-  return { ok: res?.isError !== true, summary: text.slice(0, 4000) || '（没有文本结果）' }
+  const images: NonNullable<ToolResult['images']> = []
+  const resources: unknown[] = []
+  const notes: string[] = []
+  const text: string[] = []
+  for (const c of content) {
+    if (typeof c?.text === 'string') {
+      text.push(c.text)
+    } else if (c?.type === 'image') {
+      if (images.length < 4 && typeof c.data === 'string' && c.data.length > 0 &&
+          c.data.length <= 2_800_000 && /^image\/(png|jpeg|webp|gif)$/.test(c.mimeType) &&
+          /^[A-Za-z0-9+/]+={0,2}$/.test(c.data)) {
+        images.push({ dataUrl: `data:${c.mimeType};base64,${c.data}` })
+      } else if (!notes.includes('部分图片因格式、大小或数量限制未返回')) {
+        notes.push('部分图片因格式、大小或数量限制未返回')
+      }
+    } else if (c?.type === 'resource' || c?.type === 'resource_link') {
+      const item = c.type === 'resource' ? c.resource : c
+      if (typeof item?.uri === 'string') resources.push({ uri: item.uri, mimeType: item.mimeType, text: item.text })
+    } else if (typeof c?.type === 'string') {
+      notes.push(`[${c.type}]`)
+    }
+  }
+  if (images.length) notes.push(`返回 ${images.length} 张图片`)
+  if (res?.structuredContent !== undefined) notes.push('返回结构化数据')
+  const data = res?.structuredContent !== undefined || resources.length
+    ? { structuredContent: res.structuredContent, ...(resources.length && { resources }), ...(text.length && { text: text.join('\n') }) }
+    : undefined
+  return {
+    ok: res?.isError !== true,
+    summary: [...notes, ...text].join('\n') || '（没有文本结果）',
+    ...(data !== undefined && { data }),
+    ...(images.length && { images })
+  }
 }

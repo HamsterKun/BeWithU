@@ -727,7 +727,7 @@ export function broadcastSettings(s: PublicSettings): void {
 }
 
 export function sendAgentProgress(p: AgentProgress): void {
-  log('agent: progress', p.active ? `${p.mode ?? 'thinking'} ${p.step}/${p.total}` : 'idle')
+  log('agent: progress', p.active ? `${p.mode ?? 'thinking'} ${p.step}` : 'idle')
   getBallWindow()?.webContents.send(IPC.agentProgress, p)
 }
 

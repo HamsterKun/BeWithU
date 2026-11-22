@@ -1,4 +1,5 @@
 /** Agent 能力入口：注册内置工具、暴露统一调用接口 */
+import { createHash } from 'node:crypto'
 import { getTool, listTools } from './registry'
 import { registerInputTools } from './tools/input'
 import { registerShellTools } from './tools/shell'
@@ -86,7 +87,10 @@ export { listTools, toOpenAiTools } from './registry'
 
 /** MCP 工具 id：mcp.<server>.<tool>，wire 名会自动把点换成下划线 */
 export function mcpToolId(serverId: string, toolName: string): string {
-  return `mcp.${serverId}.${toolName}`.replace(/[^a-zA-Z0-9_.-]+/g, '_')
+  const name = `mcp.${serverId}.${toolName}`
+  if (/^[a-zA-Z0-9_-]+$/.test(serverId) && /^[a-zA-Z0-9_.-]+$/.test(toolName)) return name
+  const hash = createHash('sha256').update(JSON.stringify([serverId, toolName])).digest('hex').slice(0, 16)
+  return `mcp.~${hash}.${name.replace(/[^a-zA-Z0-9_.-]+/g, '_').slice(4, 100)}`
 }
 
 const mcpOwned = new Map<string, { configKey: string; ids: Set<string> }>()
@@ -107,7 +111,8 @@ export function unregisterMcpServer(serverId: string): void {
  * 把已启用的 MCP 服务器的工具注册进来（幂等）。
  * 连不上就跳过并在日志里留痕，不阻塞本次任务。
  */
-export async function ensureMcpTools(): Promise<void> {
+export async function ensureMcpTools(signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) return
   const refresh = ++mcpRefresh
   const configured = settingsStore.mcpServers()
   const enabled = configured.filter((s) => s.enabled)
@@ -124,8 +129,8 @@ export async function ensureMcpTools(): Promise<void> {
     if (previous && previous.configKey !== configKey) unregisterMcpServer(server.id)
   }
 
-  const results = await Promise.allSettled(enabled.map((s) => mcpListTools(s)))
-  if (refresh !== mcpRefresh) return
+  const results = await Promise.allSettled(enabled.map((s) => mcpListTools(s, signal)))
+  if (signal?.aborted || refresh !== mcpRefresh) return
   results.forEach((res, i) => {
     const server = enabled[i]
     const configKey = configKeys.get(server.id)!
@@ -152,17 +157,12 @@ export async function ensureMcpTools(): Promise<void> {
         description: t.description || `来自 MCP 服务「${server.name}」的工具`,
         risk: 'high',
         params: { ...t.inputSchema, type: 'object' },
-        run: async (args) => {
+        run: async (args, ctx) => {
           const current = settingsStore.mcpServers().find((s) => s.id === server.id && s.enabled)
           if (!current || mcpConfigKey(current) !== configKey) {
             return { ok: false, summary: 'MCP 服务器已禁用或配置已变更，请重新刷新工具' }
           }
-          try {
-            const r = await mcpCallTool(server, t.name, args)
-            return { ok: r.ok, summary: r.summary }
-          } catch (e) {
-            return { ok: false, summary: e instanceof Error ? e.message : String(e) }
-          }
+          return mcpCallTool(server, t.name, args, ctx.signal)
         }
       })
     }

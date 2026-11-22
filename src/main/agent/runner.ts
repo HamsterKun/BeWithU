@@ -1,9 +1,12 @@
-/** Agent 主循环：LLM ⇄ 工具，带步数上限、超时、确认与中断 */
+/** Agent 主循环：LLM ⇄ 工具，支持超时、确认与中断。 */
 import { settingsStore } from '../store/settings'
 import { DEFAULT_SETTINGS } from '../../shared/defaults'
 import { historyStore } from '../store/history'
 import { contextStore } from '../store/context'
-import { assembleMessages } from '../services/context'
+import { assembleMessages, budgetFor, estimateTokens } from '../services/context'
+import { providerWindow } from '../services/model-info'
+import { resolveModelWindow } from '../../shared/model-window'
+import type { ChatMessage, ContentPart } from '../services/llm'
 import type { HistoryMessage } from '../../shared/types'
 import { log } from '../logger'
 import { getTool, listTools, toOpenAiTools, buildWireMap } from './registry'
@@ -12,10 +15,12 @@ import { ensureMcpTools } from './index'
 import { chatWithTools, type AgentToolCall } from './llm-agent'
 import { checkDangerous } from './policy'
 import { resolvePendingByText } from './approval'
-import { planToolCalls } from './tool-budget'
 import { skillsPromptSection } from './skills'
 import { DELAY_TOOL_ID, parseDelayFollowUp, validDelaySeconds } from './tools/delay'
 import type { ToolDef, ToolResult } from './types'
+import { serializeToolResult } from './tool-result'
+import { AgentTaskContext, type AgentMessage } from './task-context'
+import { withSignal } from './cancellation'
 
 export interface AgentEvents {
   /** 模型说的话（用于气泡显示 + 播报） */
@@ -25,9 +30,9 @@ export interface AgentEvents {
   /** 中间轮的过程叙述（带工具调用的那一轮说的话），不进最终回答 */
   onNarration?: (text: string) => void
   /** 一步工具开始 */
-  onStep: (info: { index: number; total: number; toolId: string; summary: string; mode: 'working' | 'waiting' }) => void
+  onStep: (info: { index: number; toolId: string; summary: string; mode: 'working' | 'waiting' }) => void
   /** 一步工具结束 */
-  onStepDone?: (info: { index: number; total: number; toolId: string; ok: boolean; summary: string }) => void
+  onStepDone?: (info: { index: number; toolId: string; ok: boolean; summary: string }) => void
   /** 高风险工具需要用户确认（返回 true=允许） */
   onApproval?: (req: { toolId: string; title: string; detail: string }) => Promise<boolean>
 }
@@ -39,7 +44,6 @@ export interface AgentRunResult {
 }
 
 type StepResult = ToolResult & { approvalDenied?: true }
-
 
 /** 两个字符串的最长公共前缀长度 */
 function commonPrefixLen(a: string, b: string): number {
@@ -65,24 +69,23 @@ export function stripReasoningLeak(text: string, reasoning?: string): string {
   return t
 }
 
-function buildSystemPrompt(maxSteps: number, shellEnabled: boolean): string {
+function buildSystemPrompt(shellEnabled: boolean): string {
   const s = settingsStore.get()
   const skills = s.agent.skillsEnabled ? skillsPromptSection() : ''
   const shellRule = shellEnabled
     ? '4. 部分本地工具免确认；MCP 仍须确认。用户拒绝或任务停止后不得继续。'
     : '4. 高风险操作需要确认。用户拒绝或任务停止后不得继续。'
   const rules = (s.prompts?.agent || DEFAULT_SETTINGS.prompts.agent)
-    .replaceAll('{{max_steps}}', String(maxSteps))
     .replaceAll('{{shell_rule}}', shellRule)
   return [s.llm.systemPrompt, '', rules, skills ? `\n${skills}` : ''].filter(Boolean).join('\n')
 }
 
-function parseArgs(raw: string): Record<string, unknown> {
+function parseArgs(raw: string): Record<string, unknown> | null {
   try {
     const v = JSON.parse(raw || '{}')
-    return v && typeof v === 'object' ? (v as Record<string, unknown>) : {}
+    return v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : null
   } catch {
-    return {}
+    return null
   }
 }
 
@@ -132,36 +135,74 @@ export async function runAgentTask(
 ): Promise<AgentRunResult> {
   const s = settingsStore.get()
   const cfg = s.agent
-  const maxSteps = cfg.maxSteps
   // MCP 工具是动态的：每次任务开始前刷新一次（连不上就跳过）
-  await ensureMcpTools()
+  await ensureMcpTools(opts.signal)
+  if (opts.signal.aborted) return { text: '（已停止）', steps: 0, stopped: true }
   const enabled = listTools()
     .filter((t) => !cfg.disabledTools.includes(t.id))
     // 关了技能开关就把 skill.read 一起藏起来，别让模型看见一个必然失败的入口
     .filter((t) => cfg.skillsEnabled || t.id !== 'skill.read')
   const tools = toOpenAiTools(enabled.map((t) => t.id))
+  const window = resolveModelWindow(s.llm.model, s.context.modelWindow, providerWindow(s.llm.model)).window
+  const contextBudget = Math.max(1000, Math.floor(budgetFor(s.context.level, window) * 0.9) - estimateTokens(JSON.stringify(tools)))
+  const taskContext = new AgentTaskContext()
   const enabledById = new Map(enabled.map((t) => [t.id, t]))
   // 模型看到的是 input_type，回来要换回 input.type
   const wireToReal = buildWireMap(enabled.map((t) => t.id))
   // 和闲聊走同一套组装：摘要、时间戳、历史口径完全一致（以前这里是 recent(6) 且没有摘要）
-  const buildMessages = (withImage: boolean): unknown[] =>
-    assembleMessages({
-      systemPrompt: buildSystemPrompt(maxSteps, cfg.shellEnabled),
-      summary: contextStore.getSummary(),
-      history: opts.history ?? historyStore.since(contextStore.archivedUpTo()),
-      userText,
-      now: Date.now(),
-      timeAwareness: s.context.timeAwareness,
-      image:
-        withImage && opts.image
-          ? { dataUrl: opts.image.dataUrl, note: s.prompts?.visionNote || '（附上我此刻的屏幕截图）' }
-          : undefined
-    })
-  // 屏幕理解：首轮带上截图；模型不支持图片时自动降级为纯文字
-  let useImage = Boolean(opts.image?.dataUrl)
-  const messages: unknown[] = buildMessages(useImage)
-  const userIndex = messages.length - 1
-  let retriedNoImage = false
+  const initialMessages = assembleMessages({
+    systemPrompt: buildSystemPrompt(cfg.shellEnabled),
+    summary: contextStore.getSummary(),
+    history: opts.history ?? historyStore.since(contextStore.archivedUpTo()),
+    userText,
+    now: Date.now(),
+    timeAwareness: s.context.timeAwareness
+  })
+  const messages: AgentMessage[] = [...initialMessages]
+  const initialUser = initialMessages[initialMessages.length - 1]
+  const initialContent = initialUser.content
+  if (opts.image && typeof initialContent === 'string') {
+    const note = s.prompts?.visionNote || DEFAULT_SETTINGS.prompts.visionNote
+    initialUser.content = [
+      { type: 'text', text: `${initialContent}\n\n${note}` },
+      { type: 'image_url', image_url: { url: opts.image.dataUrl } }
+    ]
+  }
+  let latestScreenshots: ChatMessage | undefined
+  let imagesRejected = false
+
+  const askModel = async (closing?: string) => {
+    if (!settingsStore.get().llm.vision.enabled) {
+      initialUser.content = initialContent
+      if (latestScreenshots) latestScreenshots.content = '屏幕理解已关闭，截屏结果仅保存在本机。'
+      latestScreenshots = undefined
+    }
+    taskContext.fit(messages, initialUser, latestScreenshots, contextBudget)
+    const request: Parameters<typeof chatWithTools>[0] = {
+      messages: closing ? [...messages, { role: 'user', content: closing }] : messages,
+      tools: closing ? [] : tools,
+      toolChoice: closing ? 'none' : 'auto',
+      signal: opts.signal,
+      scenario: userText
+    }
+    try {
+      return await chatWithTools(request)
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error)
+      if (opts.signal.aborted || imagesRejected ||
+          !(latestScreenshots || Array.isArray(initialUser.content)) ||
+          !/image|vision|multi-?modal|content[ _-]?type|unsupported/i.test(msg)) throw error
+
+      imagesRejected = true
+      initialUser.content = initialContent
+      if (latestScreenshots) {
+        latestScreenshots.content = '截图工具已保存画面，但当前模型接口拒绝接收图片，无法查看截图。'
+        latestScreenshots = undefined
+      }
+      log('vision: Agent 模型拒绝图片，降级为纯文字')
+      return await chatWithTools(request)
+    }
+  }
 
   let steps = 0
   let finalText = ''
@@ -174,35 +215,30 @@ export async function runAgentTask(
     const index = ++steps
     const name = def?.name ?? toolId
     const waiting = toolId === DELAY_TOOL_ID && !error && validDelaySeconds(args.seconds)
-    const info = { index, total: maxSteps, toolId }
+    const info = { index, toolId }
     opts.events.onStep({ ...info, summary: waiting ? `等待 ${args.seconds} 秒` : name, mode: waiting ? 'waiting' : 'working' })
     const result = error ? { ok: false, summary: error } : await runOne(def, args, toolId, cfg, opts)
-    stepLog.push({ name, ok: result.ok, summary: result.summary })
+    stepLog.push({ name, ok: result.ok, summary: result.summary.slice(0, 160) })
+    if (stepLog.length > 30) stepLog.shift()
     opts.events.onStepDone?.({ ...info, ok: result.ok, summary: result.summary })
     log('agent: 工具结果', `${toolId} ${result.ok ? 'ok' : 'fail'}`)
     return result
   }
 
-  while (steps < maxSteps && !opts.signal.aborted) {
+  while (!opts.signal.aborted) {
     let turn
     try {
-      turn = await chatWithTools({ messages, tools, signal: opts.signal, scenario: userText })
+      turn = await askModel()
     } catch (e) {
+      if (opts.signal.aborted) break
       const msg = e instanceof Error ? e.message : String(e)
-      // 模型不支持图片：去掉图再试一次
-      if (useImage && !retriedNoImage && /image|vision|multi-?modal|content[ _-]?type|unsupported/i.test(msg)) {
-        retriedNoImage = true
-        useImage = false
-        messages[userIndex] = buildMessages(false)[userIndex]
-        log('vision: Agent 模型拒绝图片，降级为纯文字', msg)
-        continue
-      }
       log('agent: LLM 调用失败', msg)
       const text = friendlyAgentError(msg)
       // 必须走 onText，否则气泡里什么都不显示，用户以为"没反应"
       opts.events.onText(text)
       return { text, steps, stopped: false }
     }
+    if (opts.signal.aborted) break
     if (turn.reasoning?.trim()) opts.events.onReasoning?.(turn.reasoning)
     const hasTools = turn.toolCalls.length > 0
     if (turn.text.trim()) {
@@ -227,20 +263,10 @@ export async function runAgentTask(
       }))
     })
 
-    let callPlan = planToolCalls(maxSteps - steps, turn.toolCalls)
+    const captures: ContentPart[] = []
     for (let callIndex = 0; callIndex < turn.toolCalls.length; callIndex++) {
       const call = turn.toolCalls[callIndex]
       if (opts.signal.aborted) {
-        for (const skipped of turn.toolCalls.slice(callIndex)) {
-          messages.push({ role: 'tool', tool_call_id: skipped.id, content: JSON.stringify({ ok: false, result: '任务已取消，未执行' }) })
-        }
-        stopped = true
-        break
-      }
-      if (callIndex >= callPlan.allowed.length) {
-        for (const skipped of callPlan.skipped) {
-          messages.push({ role: 'tool', tool_call_id: skipped.id, content: JSON.stringify({ ok: false, result: '已达到本轮工具调用步数上限，未执行' }) })
-        }
         stopped = true
         break
       }
@@ -251,30 +277,47 @@ export async function runAgentTask(
         messages.push({ role: 'tool', tool_call_id: call.id, content: JSON.stringify({ ok: false, result: '工具未在本轮授权列表中' }) })
         continue
       }
-      const args = parseArgs(call.args)
+      const parsed = parseArgs(call.args)
+      const args = parsed ?? {}
       const isDelay = realId === DELAY_TOOL_ID
       let after: { id: string; args: Record<string, unknown> } | undefined
-      let error: string | undefined
-      if (isDelay && Object.hasOwn(args, 'then')) {
+      let error = parsed === null ? '工具参数不是有效的 JSON 对象，请修正后再调用' : undefined
+      if (isDelay && !error && Object.hasOwn(args, 'then')) {
         const followUp = parseDelayFollowUp(args.then)
         const id = followUp && wireToReal.get(followUp.name)
         if (!followUp) error = '后续工具需提供工具名和参数对象'
         else if (!id || id === DELAY_TOOL_ID) error = '后续工具必须来自本轮已开放的工具列表，且不能是延时工具'
-        else if (steps + 1 >= maxSteps) error = '剩余工具步数不足，延时和后续工具各需一步'
         else after = { id, args: followUp.arguments }
       }
 
       let result = await runStep(realId, isDelay ? { seconds: args.seconds } : args, error)
       if (result.ok && after && !opts.signal.aborted) {
         const next = await runStep(after.id, after.args)
-        result = { ...next, summary: `${result.summary}。后续工具结果：${next.summary}` }
-        // 后续工具已计入预算。保留已处理的模型调用，重新划定本轮剩余边界。
-        callPlan = planToolCalls(callIndex + 1 + maxSteps - steps, turn.toolCalls)
+        result = {
+          ...next,
+          summary: `${result.summary}。后续工具结果：${next.summary}`,
+          data: { wait: result.data, tool: after.id, result: next.data }
+        }
+      }
+      let summary = result.summary
+      const images = result.screenshot ? [result.screenshot] : result.images ?? []
+      if (images.length) {
+        const kind = result.screenshot ? '截图' : '图像'
+        if (imagesRejected) summary += `。当前模型接口拒绝图片，无法查看${kind}。`
+        else if (!settingsStore.get().llm.vision.enabled) summary += `。开启屏幕理解后才能查看${kind}。`
+        else {
+          const data = result.data as { captureId?: string; result?: { captureId?: string } } | undefined
+          const captureId = data?.captureId ?? data?.result?.captureId
+          captures.push(
+            { type: 'text', text: `以下为工具调用 ${call.id} 返回的${kind}。${captureId ? `captureId: ${captureId}` : ''}` },
+            ...images.map(({ dataUrl }) => ({ type: 'image_url' as const, image_url: { url: dataUrl } }))
+          )
+        }
       }
       messages.push({
         role: 'tool',
         tool_call_id: call.id,
-        content: JSON.stringify({ ok: result.ok, result: result.summary }).slice(0, 4000)
+        content: serializeToolResult(result, summary)
       })
       if (result.approvalDenied) {
         stopped = true
@@ -284,6 +327,13 @@ export async function runAgentTask(
       }
     }
     if (stopped) break
+    if (captures.length && !opts.signal.aborted) {
+      initialUser.content = initialContent
+      if (latestScreenshots) latestScreenshots.content = '本组工具截图已由后续的截图更新。'
+      // Chat Completions 的 tool 消息只支持文本。等这组工具回包齐全后，再用多模态 user 消息附图。
+      latestScreenshots = { role: 'user', content: captures }
+      messages.push(latestScreenshots)
+    }
   }
 
   if (opts.signal.aborted) stopped = true
@@ -291,19 +341,7 @@ export async function runAgentTask(
     // 模型跑完工具却没写收尾：单独再来一轮，禁用工具，逼它用人话汇报
     if (!stopped && stepLog.length) {
       try {
-        const closing = await chatWithTools({
-          messages: [
-            ...messages,
-            {
-              role: 'user',
-              content: settingsStore.get().prompts?.closing || DEFAULT_SETTINGS.prompts.closing
-            }
-          ],
-          tools: [],
-          toolChoice: 'none',
-          signal: opts.signal,
-          scenario: userText
-        })
+        const closing = await askModel(settingsStore.get().prompts?.closing || DEFAULT_SETTINGS.prompts.closing)
         if (closing.text.trim()) {
           finalText = closing.text.trim()
           opts.events.onText(finalText)
@@ -358,7 +396,13 @@ async function runOne(
   const requiresApproval = def.risk === 'high' && (!settingsStore.get().agent.shellEnabled || def.id.startsWith('mcp.'))
   if (requiresApproval) {
     const approved = opts.events.onApproval
-      ? await opts.events.onApproval({ toolId: def.id, title: def.name, detail: summarizeArgs(def, args) })
+      ? await withSignal(
+        opts.events.onApproval({ toolId: def.id, title: def.name, detail: summarizeArgs(def, args) }),
+        opts.signal
+      ).catch((error) => {
+        if (opts.signal.aborted) return false
+        throw error
+      })
       : false
     if (opts.signal.aborted) return { ok: false, summary: '任务已取消，工具未执行' }
     if (!approved) return { ok: false, approvalDenied: true, summary: '用户拒绝或未确认，本次任务已停止' }
@@ -384,7 +428,7 @@ async function runOne(
     }, cfg.stepTimeoutMs)
   })
   try {
-    return await Promise.race([callTool(def.id, args, { signal }), timeout])
+    return await withSignal(Promise.race([callTool(def.id, args, { signal }), timeout]), opts.signal)
   } catch (e) {
     return { ok: false, summary: timedOut ? '工具超时；外部副作用结果未知' : (e instanceof Error ? e.message : String(e)) }
   } finally {

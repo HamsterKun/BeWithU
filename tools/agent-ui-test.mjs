@@ -263,7 +263,7 @@ try {
   const badgeClass = await ball.eval("document.querySelector('.work-badge')?.className || ''")
   ok('badgeWorking', /work-badge/.test(badgeClass) && !/is-think/.test(badgeClass), badgeClass)
 
-  await ball.eval("window.bwu.agentTest.progress({ active: true, mode: 'thinking', step: 1, total: 10 })")
+  await ball.eval("window.bwu.agentTest.progress({ active: true, mode: 'thinking', step: 1 })")
   await sleep(400)
   const thinkInfo = await ball.eval(`(() => {
     const el = document.querySelector('.work-badge')
@@ -277,7 +277,7 @@ try {
     thinkInfo
   )
 
-  await ball.eval("window.bwu.agentTest.progress({ active: true, mode: 'working', step: 1, total: 10 })")
+  await ball.eval("window.bwu.agentTest.progress({ active: true, mode: 'working', step: 1 })")
   await sleep(400)
   const workInfo = await ball.eval(`(() => {
     const el = document.querySelector('.work-badge')
@@ -360,7 +360,7 @@ try {
   await sleep(2200)
   const afterStop = await ball.eval(`({ phase: document.querySelector('.stage')?.dataset.phase,
     badge: Boolean(document.querySelector('.work-badge')) })`)
-  const followUpStarted = /agent: progress working 2\//.test(readFileSync(LOG, 'utf8').slice(logText.length))
+  const followUpStarted = /agent: progress working 2\b/.test(readFileSync(LOG, 'utf8').slice(logText.length))
   ok('stopCancelsDelayAndClearsBadge', stoppedWait && afterStop.phase === 'idle' && !afterStop.badge &&
     !followUpStarted && !existsSync(cancelledTarget), { stoppedWait, afterStop, followUpStarted })
 
@@ -375,7 +375,7 @@ try {
   await ball.eval("window.bwu.agentTest.hotkey('up')")
   await sleep(2200)
   const stillWaiting = await ball.eval("Boolean(document.querySelector('.work-badge.is-wait'))")
-  const interruptedFollowUp = /agent: progress working 2\//.test(readFileSync(LOG, 'utf8').slice(interruptLogStart))
+  const interruptedFollowUp = /agent: progress working 2\b/.test(readFileSync(LOG, 'utf8').slice(interruptLogStart))
   ok('voiceHotkeyCancelsDelayAndFollowUp', wasWaiting && !stillWaiting && !interruptedFollowUp &&
     !existsSync(interruptedTarget), { wasWaiting, stillWaiting, interruptedFollowUp })
 

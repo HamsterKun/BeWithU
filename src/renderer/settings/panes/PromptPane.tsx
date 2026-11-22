@@ -68,7 +68,7 @@ export default function PromptPane({ s, patch }: PaneProps): React.ReactElement 
 
       <Section
         title="Agent 提示词"
-        desc="开启 Agent 后与上面的系统提示词拼在一起发给模型。支持两个占位符：{{max_steps}}（最大步数）、{{shell_rule}}（完全信任/需确认的说明）"
+        desc="开启 Agent 后与上面的系统提示词一起发送给模型。{{shell_rule}} 会替换为当前的工具确认规则。"
       >
         <TextArea
           value={s.prompts.agent}

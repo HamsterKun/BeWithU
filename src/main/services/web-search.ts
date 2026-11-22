@@ -38,27 +38,24 @@ function trimBase(url: string): string {
 }
 
 async function fetchJson(url: string, init: RequestInit): Promise<any> {
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
+  const timeout = AbortSignal.timeout(TIMEOUT_MS)
+  const signal = init.signal ? AbortSignal.any([init.signal, timeout]) : timeout
+  const res = await fetch(url, { ...init, signal })
+  const text = await res.text()
+  if (!res.ok) {
+    throw new Error(`搜索接口返回 ${res.status}：${clip(text, 200)}`)
+  }
   try {
-    const res = await fetch(url, { ...init, signal: controller.signal })
-    const text = await res.text()
-    if (!res.ok) {
-      throw new Error(`搜索接口返回 ${res.status}：${clip(text, 200)}`)
-    }
-    try {
-      return JSON.parse(text)
-    } catch {
-      throw new Error(`搜索接口返回的不是 JSON：${clip(text, 120)}`)
-    }
-  } finally {
-    clearTimeout(timer)
+    return JSON.parse(text)
+  } catch {
+    throw new Error(`搜索接口返回的不是 JSON：${clip(text, 120)}`)
   }
 }
 
-async function searchTavily(query: string, cfg: SearchSettings): Promise<SearchHit[]> {
+async function searchTavily(query: string, cfg: SearchSettings, signal?: AbortSignal): Promise<SearchHit[]> {
   const data = await fetchJson(`${trimBase(cfg.tavilyBaseUrl)}/search`, {
     method: 'POST',
+    signal,
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       api_key: cfg.tavilyApiKey,
@@ -79,9 +76,10 @@ async function searchTavily(query: string, cfg: SearchSettings): Promise<SearchH
   }))
 }
 
-async function searchDeepseek(query: string, cfg: SearchSettings): Promise<SearchHit[]> {
+async function searchDeepseek(query: string, cfg: SearchSettings, signal?: AbortSignal): Promise<SearchHit[]> {
   const data = await fetchJson(`${trimBase(cfg.deepseekBaseUrl)}/v1/tools/search`, {
     method: 'POST',
+    signal,
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${cfg.deepseekApiKey}`
@@ -105,7 +103,7 @@ async function searchDeepseek(query: string, cfg: SearchSettings): Promise<Searc
 }
 
 /** 按设置里的 provider 搜索；未开启或没配 Key 会抛出人话错误 */
-export async function webSearch(query: string): Promise<SearchOutcome> {
+export async function webSearch(query: string, signal?: AbortSignal): Promise<SearchOutcome> {
   const cfg = settingsStore.get().search
   const q = query.trim()
   if (!q) throw new Error('搜索词是空的')
@@ -114,12 +112,12 @@ export async function webSearch(query: string): Promise<SearchOutcome> {
   }
   if (cfg.provider === 'deepseek') {
     if (!cfg.deepseekApiKey.trim()) throw new Error('还没填 DeepSeek 的 API Key')
-    const hits = await searchDeepseek(q, cfg)
+    const hits = await searchDeepseek(q, cfg, signal)
     log('search: deepseek', `${q} -> ${hits.length}`)
     return { provider: 'deepseek', hits }
   }
   if (!cfg.tavilyApiKey.trim()) throw new Error('还没填 Tavily 的 API Key')
-  const hits = await searchTavily(q, cfg)
+  const hits = await searchTavily(q, cfg, signal)
   log('search: tavily', `${q} -> ${hits.length}`)
   return { provider: 'tavily', hits }
 }

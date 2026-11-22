@@ -12,6 +12,7 @@ export interface ScreenCapture {
   displayLabel: string
   /** thumbnail = 普通抓屏；wgc = 图形捕获兜底 */
   via: 'thumbnail' | 'wgc'
+  physicalBounds?: Electron.Rectangle
 }
 
 export type CaptureResult =
@@ -98,8 +99,8 @@ async function captureThumbnail(display: Electron.Display): Promise<CaptureResul
 }
 
 /** 兜底：让渲染进程走 Windows Graphics Capture 抓一帧（独占全屏通常只有它能出图） */
-async function captureWgc(displayId: string): Promise<CaptureResult> {
-  const res = await grabViaWgc(displayId)
+async function captureWgc(displayId: string, signal?: AbortSignal): Promise<CaptureResult> {
+  const res = await grabViaWgc(displayId, undefined, signal)
   if (!res || !res.ok || !res.dataUrl) {
     return { ok: false, reason: 'blank', message: res?.error ? `WGC 抓帧失败：${res.error}` : 'WGC 抓帧失败' }
   }
@@ -132,16 +133,24 @@ async function captureWgc(displayId: string): Promise<CaptureResult> {
  * 截取"用户当前正在看的那块屏"：以光标所在显示器为准。
  * 先走快的缩略图；黑屏（独占全屏）时自动用 WGC 再试一次。
  */
-export async function captureScreen(): Promise<CaptureResult> {
+export function displayPhysicalBounds(display: Electron.Display): Electron.Rectangle {
+  return process.platform === 'win32' ? screen.dipToScreenRect(null, display.bounds) : display.bounds
+}
+
+export async function captureScreen(signal?: AbortSignal): Promise<CaptureResult> {
+  signal?.throwIfAborted()
   const display = currentDisplay()
   const displayId = String(display.id)
+  const physicalBounds = displayPhysicalBounds(display)
   const first = await captureThumbnail(display)
-  if (first.ok) return first
+  signal?.throwIfAborted()
+  if (first.ok) return { ok: true, shot: { ...first.shot, physicalBounds } }
 
-  const wgc = await captureWgc(displayId)
+  const wgc = await captureWgc(displayId, signal)
+  signal?.throwIfAborted()
   if (wgc.ok) {
     log('vision: 缩略图不可用，已用 WGC 抓到画面')
-    return wgc
+    return { ok: true, shot: { ...wgc.shot, physicalBounds } }
   }
   log('vision: 两种抓屏都失败', first.message, wgc.message)
   return first
