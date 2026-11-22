@@ -1,6 +1,8 @@
 /** Agent 工具系统的公共类型 */
+import type { ScreenCapture } from '../services/vision'
 
 export type ToolRisk = 'low' | 'high'
+export type AgentScreenshot = Pick<ScreenCapture, 'dataUrl' | 'captureId' | 'width' | 'height'>
 
 export interface ToolContext {
   /** 本次调用的唯一 id，审计日志用它串起来 */
@@ -17,7 +19,7 @@ export interface ToolResult {
   /** 供工具调用方使用的结构化附加数据 */
   data?: unknown
   /** 截屏工具返回给视觉模型的画面 */
-  screenshot?: { dataUrl: string }
+  screenshot?: AgentScreenshot
   /** 外部工具返回的图像 */
   images?: { dataUrl: string }[]
 }

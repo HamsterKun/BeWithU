@@ -114,7 +114,7 @@ export function registerInputTools(): void {
       properties: {
         x: { type: 'number', description: '横坐标，与 y 一起提供' },
         y: { type: 'number', description: '纵坐标，与 x 一起提供' },
-        captureId: { type: 'string', description: 'screen.capture 返回的截图 ID' },
+        captureId: { type: 'string', description: '任务开场截图或 screen.capture 返回的截图 ID' },
         expectTitle: { type: 'string', description: '可选，要求前台标题包含此文字' },
         button: { type: 'string', enum: ['left', 'right', 'middle'], description: '默认 left' },
         count: { type: 'number', description: '点击次数 1-3，默认 1' }

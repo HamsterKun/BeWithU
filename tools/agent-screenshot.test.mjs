@@ -7,7 +7,9 @@ import { after, test } from 'node:test'
 
 const tmp = mkdtempSync(join(tmpdir(), 'bwu-agent-screenshot-'))
 after(() => rmSync(tmp, { recursive: true, force: true }))
-const fixture = globalThis.__bwuScreenshotTest = { tmp, settings: null, call: null, captures: [], displays: [], clicks: [] }
+const bounds = { x: -1920, y: 0, width: 1920, height: 1080 }
+const display = { id: 42, bounds, size: bounds, scaleFactor: 1 }
+const fixture = globalThis.__bwuScreenshotTest = { tmp, settings: null, call: null, captures: [], clicks: [], display, wgc: null }
 const stub = (source) => ({ shortCircuit: true, url: `data:text/javascript,${encodeURIComponent(source)}` })
 
 registerHooks({
@@ -15,7 +17,14 @@ registerHooks({
     const parent = context.parentURL ?? ''
     if (specifier === 'electron') return stub(`
       export const app = { getPath: () => globalThis.__bwuScreenshotTest.tmp };
-      export const screen = { getAllDisplays: () => globalThis.__bwuScreenshotTest.displays }
+      const fixture = globalThis.__bwuScreenshotTest;
+      export const screen = {
+        getAllDisplays: () => [fixture.display],
+        getCursorScreenPoint: () => ({ x: -1, y: 0 }),
+        getDisplayNearestPoint: () => fixture.display,
+        dipToScreenRect: (_window, rect) => rect
+      };
+      export const desktopCapturer = { getSources: async () => fixture.captureSources() }
     `)
     if (specifier === '../store/settings') return stub('export const settingsStore = { get: () => globalThis.__bwuScreenshotTest.settings }')
     if (specifier === '../store/history') return stub('export const historyStore = { since: () => [] }')
@@ -28,12 +37,7 @@ registerHooks({
         export const callTool = (...args) => globalThis.__bwuScreenshotTest.call(...args)`)
     }
     if (parent.endsWith('/runner.ts') && specifier === './skills') return stub('export const skillsPromptSection = () => ""')
-    if (specifier === '../../services/vision') {
-      return stub(`
-        export const captureScreen = async () => globalThis.__bwuScreenshotTest.captures.shift();
-        export const displayPhysicalBounds = (display) => display.bounds
-      `)
-    }
+    if (specifier === '../vision-grab') return stub('export const grabViaWgc = async () => globalThis.__bwuScreenshotTest.wgc')
     if (specifier === '../../services/input-inject') {
       return stub(`
         export const isInputAvailable = () => true;
@@ -53,6 +57,7 @@ const { registerInputTools } = await import('../src/main/agent/tools/input.ts')
 const { getTool, registerTool } = await import('../src/main/agent/registry.ts')
 const { registerDelayTool } = await import('../src/main/agent/tools/delay.ts')
 const { runAgentTask } = await import('../src/main/agent/runner.ts')
+const { captureScreen } = await import('../src/main/services/vision.ts')
 const { DEFAULT_SETTINGS } = await import('../src/shared/defaults.ts')
 
 registerScreenTools()
@@ -68,10 +73,16 @@ const makeImage = (label) => `data:image/jpeg;base64,${Buffer.from(label).toStri
 const opening = makeImage('opening')
 const older = makeImage('after-wait')
 const newest = makeImage('latest')
-const capture = (dataUrl) => ({
-  ok: true,
-  shot: { dataUrl, width: 1600, height: 900, bytes: 32, displayId: '42', physicalBounds: { x: -1920, y: 0, width: 1920, height: 1080 } }
-})
+fixture.captureSources = () => {
+  const dataUrl = fixture.captures.shift()
+  if (!dataUrl) return []
+  return [{ display_id: '42', name: 'fixture display', thumbnail: {
+    isEmpty: () => false,
+    resize: () => ({ getSize: () => ({ width: 2, height: 2 }), toBitmap: () => Buffer.alloc(16, 255) }),
+    getSize: () => ({ width: 1600, height: 900 }),
+    toJPEG: () => Buffer.from(dataUrl.split(',')[1], 'base64')
+  } }]
+}
 const tool = (id, name, args = {}) => ({ id, type: 'function', function: { name, arguments: JSON.stringify(args) } })
 const reply = (content, ...tool_calls) => Response.json({ choices: [{ message: { content, tool_calls } }] })
 const visibleImages = (messages) => messages.flatMap((m) => Array.isArray(m.content)
@@ -91,19 +102,53 @@ function setUp(t, { enabled = true, replies, captures }) {
   t.mock.method(globalThis, 'fetch', async (_url, init) => {
     requests.push(JSON.parse(init.body))
     assert.ok(replies.length, 'unexpected extra model request')
-    return replies.shift()
+    const response = replies.shift()
+    return typeof response === 'function' ? response(requests.at(-1)) : response
   })
   return requests
 }
 
-const run = (dataUrl) => runAgentTask('测试截图', {
-  signal: new AbortController().signal, image: dataUrl ? { dataUrl } : undefined,
-  events: { onText: () => {}, onStep: () => {} }
+const run = async (dataUrl) => {
+  const signal = new AbortController().signal
+  let image
+  if (dataUrl) {
+    fixture.captures.unshift(dataUrl)
+    const captured = await captureScreen(signal)
+    assert.ok(captured.ok)
+    image = captured.shot
+  }
+  return runAgentTask('测试截图', { signal, image, events: { onText: () => {}, onStep: () => {} } })
+}
+
+test('the model can click directly from the automatic opening screenshot in its first response', async (t) => {
+  const requests = setUp(t, {
+    captures: [],
+    replies: [
+      ({ messages }) => {
+        const [note, image] = messages.at(-1).content
+        assert.equal(image.image_url.url, opening)
+        assert.match(note.text, /自动截取的桌面画面.*1600×900/)
+        assert.match(note.text, /像素坐标 x、y 传给 input_click/)
+        const captureId = /captureId: ([\da-f-]{36})/.exec(note.text)?.[1]
+        assert.ok(captureId)
+        return reply(null, tool('first-click', 'input_click', { x: 800, y: 450, captureId }))
+      },
+      reply('clicked')
+    ]
+  })
+  fixture.settings.agent.shellEnabled = true
+  fixture.clicks.length = 0
+  // The provider replies without first requesting screen.capture.
+  const result = await run(opening)
+  assert.equal(result.steps, 1)
+  assert.equal(result.text, 'clicked')
+  assert.equal(requests.length, 2)
+  assert.deepEqual(fixture.clicks.map(({ point }) => ({ x: point.x, y: point.y })), [{ x: -960, y: 540 }])
 })
 
 test('a delayed screen capture reaches the model after the tool batch and a fresh image replaces it', async (t) => {
   const requests = setUp(t, {
-    captures: [capture(older), capture(newest)],
+    captures: [older, newest],
     replies: [
       reply(null, tool('wait', 'delay', { seconds: 0.001, then: { name: 'screen_capture', arguments: {} } }),
         tool('status', 'fixture_status')),
@@ -132,7 +177,7 @@ test('a delayed screen capture reaches the model after the tool batch and a fres
 
 test('an interface that rejects tool screenshot images is retried with a text explanation', async (t) => {
   const requests = setUp(t, {
-    captures: [capture(newest)],
+    captures: [newest],
     replies: [
       reply(null, tool('capture', 'screen_capture')),
       Response.json({ error: { message: 'model does not support image_url' } }, { status: 400 }),
@@ -146,7 +191,7 @@ test('an interface that rejects tool screenshot images is retried with a text ex
 
 test('turning screen understanding off keeps tool screenshots local', async (t) => {
   const requests = setUp(t, {
-    enabled: false, captures: [capture(newest)],
+    enabled: false, captures: [newest],
     replies: [reply(null, tool('capture', 'screen_capture')), reply('已保存截图')]
   })
   assert.equal((await run()).text, '已保存截图')
@@ -156,9 +201,8 @@ test('turning screen understanding off keeps tool screenshots local', async (t) 
 
 test('the screen.capture ID can drive input.click on the same scaled monitor', async () => {
   const signal = new AbortController().signal
-  const shot = capture(newest)
-  fixture.captures = [shot]
-  fixture.displays = [{ id: 42, bounds: shot.shot.physicalBounds }]
+  fixture.clicks.length = 0
+  fixture.captures = [newest]
   const result = await fixture.call('screen.capture', {}, { signal })
   const captureId = result.data.captureId
   const incomplete = await fixture.call('input.click', { x: 800, captureId }, { signal })
@@ -169,4 +213,22 @@ test('the screen.capture ID can drive input.click on the same scaled monitor', a
   assert.deepEqual(fixture.clicks, [{
     point: { x: -960, y: 540, button: 'left', count: 1, expectTitle: 'Fixture' }, signal
   }])
+})
+
+test('Windows Graphics Capture fallback registers its own usable captureId', async () => {
+  fixture.captures = []
+  fixture.clicks.length = 0
+  fixture.wgc = { ok: true, dataUrl: newest, width: 1600, height: 900 }
+  try {
+    const captured = await captureScreen()
+    assert.ok(captured.ok)
+    assert.equal(captured.shot.via, 'wgc')
+    const clicked = await fixture.call('input.click', {
+      x: 800, y: 450, captureId: captured.shot.captureId
+    }, { signal: new AbortController().signal })
+    assert.equal(clicked.ok, true)
+    assert.equal(fixture.clicks[0].point.x, -960)
+  } finally {
+    fixture.wgc = null
+  }
 })

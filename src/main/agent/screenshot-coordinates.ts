@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto'
+
 interface Bounds {
   x: number
   y: number
@@ -14,9 +16,11 @@ interface CaptureGeometry {
 
 const recent = new Map<string, CaptureGeometry>()
 
-export function rememberScreenshot(id: string, geometry: CaptureGeometry): void {
-  recent.set(id, geometry)
+export function registerScreenshot({ displayId, width, height, physicalBounds }: CaptureGeometry): string {
+  const id = randomUUID()
+  recent.set(id, { displayId, width, height, physicalBounds })
   if (recent.size > 32) recent.delete(recent.keys().next().value!)
+  return id
 }
 
 export function screenshotPoint(

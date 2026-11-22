@@ -1,8 +1,9 @@
 import { desktopCapturer, screen, type NativeImage } from 'electron'
 import { log } from '../logger'
 import { grabViaWgc } from '../vision-grab'
+import { registerScreenshot } from '../agent/screenshot-coordinates'
 
-export interface ScreenCapture {
+interface CapturedImage {
   dataUrl: string
   width: number
   height: number
@@ -12,11 +13,15 @@ export interface ScreenCapture {
   displayLabel: string
   /** thumbnail = 普通抓屏；wgc = 图形捕获兜底 */
   via: 'thumbnail' | 'wgc'
-  physicalBounds?: Electron.Rectangle
 }
 
-export type CaptureResult =
-  | { ok: true; shot: ScreenCapture }
+export interface ScreenCapture extends CapturedImage {
+  captureId: string
+  physicalBounds: Electron.Rectangle
+}
+
+type CaptureResult<Shot = ScreenCapture> =
+  | { ok: true; shot: Shot }
   | { ok: false; reason: 'blank' | 'empty' | 'error'; message: string }
 
 const MAX_WIDTH = 1600
@@ -49,7 +54,7 @@ function currentDisplay(): Electron.Display {
 }
 
 /** 第一选择：desktopCapturer 缩略图（快，一般 100ms 内） */
-async function captureThumbnail(display: Electron.Display): Promise<CaptureResult> {
+async function captureThumbnail(display: Electron.Display): Promise<CaptureResult<CapturedImage>> {
   try {
     const scale = display.scaleFactor || 1
     const width = Math.min(MAX_WIDTH, Math.round(display.size.width * scale))
@@ -99,7 +104,7 @@ async function captureThumbnail(display: Electron.Display): Promise<CaptureResul
 }
 
 /** 兜底：让渲染进程走 Windows Graphics Capture 抓一帧（独占全屏通常只有它能出图） */
-async function captureWgc(displayId: string, signal?: AbortSignal): Promise<CaptureResult> {
+async function captureWgc(displayId: string, signal?: AbortSignal): Promise<CaptureResult<CapturedImage>> {
   const res = await grabViaWgc(displayId, undefined, signal)
   if (!res || !res.ok || !res.dataUrl) {
     return { ok: false, reason: 'blank', message: res?.error ? `WGC 抓帧失败：${res.error}` : 'WGC 抓帧失败' }
@@ -137,6 +142,11 @@ export function displayPhysicalBounds(display: Electron.Display): Electron.Recta
   return process.platform === 'win32' ? screen.dipToScreenRect(null, display.bounds) : display.bounds
 }
 
+function withCaptureId(image: CapturedImage, physicalBounds: Electron.Rectangle): CaptureResult {
+  const shot = { ...image, physicalBounds }
+  return { ok: true, shot: { ...shot, captureId: registerScreenshot(shot) } }
+}
+
 export async function captureScreen(signal?: AbortSignal): Promise<CaptureResult> {
   signal?.throwIfAborted()
   const display = currentDisplay()
@@ -144,13 +154,13 @@ export async function captureScreen(signal?: AbortSignal): Promise<CaptureResult
   const physicalBounds = displayPhysicalBounds(display)
   const first = await captureThumbnail(display)
   signal?.throwIfAborted()
-  if (first.ok) return { ok: true, shot: { ...first.shot, physicalBounds } }
+  if (first.ok) return withCaptureId(first.shot, physicalBounds)
 
   const wgc = await captureWgc(displayId, signal)
   signal?.throwIfAborted()
   if (wgc.ok) {
     log('vision: 缩略图不可用，已用 WGC 抓到画面')
-    return { ok: true, shot: { ...wgc.shot, physicalBounds } }
+    return withCaptureId(wgc.shot, physicalBounds)
   }
   log('vision: 两种抓屏都失败', first.message, wgc.message)
   return first

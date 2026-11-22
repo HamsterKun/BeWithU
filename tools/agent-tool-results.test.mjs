@@ -10,7 +10,7 @@ registerHooks({
 const { serializeToolResult } = await import('../src/main/agent/tool-result.ts')
 const { AgentTaskContext } = await import('../src/main/agent/task-context.ts')
 const { registerTool, buildWireMap, toOpenAiTools } = await import('../src/main/agent/registry.ts')
-const { rememberScreenshot, screenshotPoint } = await import('../src/main/agent/screenshot-coordinates.ts')
+const { registerScreenshot, screenshotPoint } = await import('../src/main/agent/screenshot-coordinates.ts')
 
 test('large escaped tool results remain valid JSON with failure status, metadata and truncation', () => {
   const text = '"\\\n😃'.repeat(10000)
@@ -39,12 +39,12 @@ test('function aliases resolve collisions and length limits consistently for bot
 
 test('screenshot clicks use physical pixels on a scaled monitor left of the primary', () => {
   const physicalBounds = { x: -2560, y: -120, width: 2560, height: 1440 }
-  rememberScreenshot('left', { displayId: '2', width: 1600, height: 900, physicalBounds })
+  const captureId = registerScreenshot({ displayId: '2', width: 1600, height: 900, physicalBounds })
   const get = (id) => id === '2' ? physicalBounds : undefined
-  assert.deepEqual(screenshotPoint('left', 800, 450, get), { x: -1280, y: 600 })
-  assert.deepEqual(screenshotPoint('left', 1599, 899, get), { x: -1, y: 1319 })
-  assert.throws(() => screenshotPoint('left', 1600, 20, get), /超出截图范围/)
-  assert.throws(() => screenshotPoint('left', 0, 0, () => ({ ...physicalBounds, x: 0 })), /布局已变化/)
+  assert.deepEqual(screenshotPoint(captureId, 800, 450, get), { x: -1280, y: 600 })
+  assert.deepEqual(screenshotPoint(captureId, 1599, 899, get), { x: -1, y: 1319 })
+  assert.throws(() => screenshotPoint(captureId, 1600, 20, get), /超出截图范围/)
+  assert.throws(() => screenshotPoint(captureId, 0, 0, () => ({ ...physicalBounds, x: 0 })), /布局已变化/)
   assert.throws(() => screenshotPoint('missing', 0, 0, get), /截图已失效/)
 })
 

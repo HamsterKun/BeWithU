@@ -17,7 +17,7 @@ import { checkDangerous } from './policy'
 import { resolvePendingByText } from './approval'
 import { skillsPromptSection } from './skills'
 import { DELAY_TOOL_ID, parseDelayFollowUp, validDelaySeconds } from './tools/delay'
-import type { ToolDef, ToolResult } from './types'
+import type { AgentScreenshot, ToolDef, ToolResult } from './types'
 import { serializeToolResult } from './tool-result'
 import { AgentTaskContext, type AgentMessage } from './task-context'
 import { withSignal } from './cancellation'
@@ -123,12 +123,22 @@ function summarizeArgs(def: ToolDef, args: Record<string, unknown>): string {
   }
 }
 
+function screenshotParts(shot: AgentScreenshot, origin: string, clickTool?: string): ContentPart[] {
+  const hint = clickTool
+    ? `点击图中位置时，直接将 captureId 和以图像左上角为原点的像素坐标 x、y 传给 ${clickTool}，坐标会自动换算。`
+    : ''
+  return [
+    { type: 'text', text: `${origin}（图像 ${shot.width}×${shot.height}，captureId: ${shot.captureId}）。${hint}` },
+    { type: 'image_url', image_url: { url: shot.dataUrl } }
+  ]
+}
+
 export async function runAgentTask(
   userText: string,
   opts: {
     signal: AbortSignal
     events: AgentEvents
-    image?: { dataUrl: string }
+    image?: AgentScreenshot
     /** 未归档的历史快照（由调用方在写入本轮输入之前取） */
     history?: HistoryMessage[]
   }
@@ -149,6 +159,7 @@ export async function runAgentTask(
   const enabledById = new Map(enabled.map((t) => [t.id, t]))
   // 模型看到的是 input_type，回来要换回 input.type
   const wireToReal = buildWireMap(enabled.map((t) => t.id))
+  const clickTool = [...wireToReal].find(([, id]) => id === 'input.click')?.[0]
   // 和闲聊走同一套组装：摘要、时间戳、历史口径完全一致（以前这里是 recent(6) 且没有摘要）
   const initialMessages = assembleMessages({
     systemPrompt: buildSystemPrompt(cfg.shellEnabled),
@@ -163,10 +174,9 @@ export async function runAgentTask(
   const initialContent = initialUser.content
   if (opts.image && typeof initialContent === 'string') {
     const note = s.prompts?.visionNote || DEFAULT_SETTINGS.prompts.visionNote
-    initialUser.content = [
-      { type: 'text', text: `${initialContent}\n\n${note}` },
-      { type: 'image_url', image_url: { url: opts.image.dataUrl } }
-    ]
+    initialUser.content = screenshotParts(
+      opts.image, `${initialContent}\n\n${note}\n这是 BeWithU 在本轮开始时自动截取的桌面画面`, clickTool
+    )
   }
   let latestScreenshots: ChatMessage | undefined
   let imagesRejected = false
@@ -306,12 +316,14 @@ export async function runAgentTask(
         if (imagesRejected) summary += `。当前模型接口拒绝图片，无法查看${kind}。`
         else if (!settingsStore.get().llm.vision.enabled) summary += `。开启屏幕理解后才能查看${kind}。`
         else {
-          const data = result.data as { captureId?: string; result?: { captureId?: string } } | undefined
-          const captureId = data?.captureId ?? data?.result?.captureId
-          captures.push(
-            { type: 'text', text: `以下为工具调用 ${call.id} 返回的${kind}。${captureId ? `captureId: ${captureId}` : ''}` },
-            ...images.map(({ dataUrl }) => ({ type: 'image_url' as const, image_url: { url: dataUrl } }))
-          )
+          if (result.screenshot) {
+            captures.push(...screenshotParts(result.screenshot, `以下为工具调用 ${call.id} 返回的桌面截图`, clickTool))
+          } else {
+            captures.push(
+              { type: 'text', text: `以下为工具调用 ${call.id} 返回的图像。` },
+              ...images.map(({ dataUrl }) => ({ type: 'image_url' as const, image_url: { url: dataUrl } }))
+            )
+          }
         }
       }
       messages.push({

@@ -1,5 +1,6 @@
 import type { ContextInfo, Phase, Settings } from '../../shared/types'
 import { IPC } from '../../shared/ipc'
+import { DEFAULT_VISION_NOTE } from '../../shared/defaults'
 import { historyStore } from '../store/history'
 import { contextStore } from '../store/context'
 import { settingsStore } from '../store/settings'
@@ -518,7 +519,10 @@ class Conversation {
         timeAwareness: s.context.timeAwareness,
         image:
           withImage && shot
-            ? { dataUrl: shot.dataUrl, note: s.prompts?.visionNote || '（附上我此刻的屏幕截图）' }
+            ? {
+              dataUrl: shot.dataUrl,
+              note: `${s.prompts?.visionNote || DEFAULT_VISION_NOTE}\n桌面截图 ${shot.width}×${shot.height}，captureId: ${shot.captureId}`
+            }
             : undefined
       })
 
@@ -695,7 +699,7 @@ class Conversation {
       // 屏幕理解：Agent 模式同样附截图
       let agentShot: ScreenCapture | null = null
       if (s.llm.vision.enabled) {
-        const cap = await captureScreen()
+        const cap = await captureScreen(controller.signal)
         if (turn !== this.turnId) return
         if (cap.ok) {
           agentShot = cap.shot
@@ -706,7 +710,7 @@ class Conversation {
       const res = await runAgentTask(userText, {
         signal: controller.signal,
         history: historySnapshot,
-        image: agentShot ? { dataUrl: agentShot.dataUrl } : undefined,
+        image: agentShot ?? undefined,
         events: {
           onReasoning: (text) => {
             if (turn !== this.turnId) return
