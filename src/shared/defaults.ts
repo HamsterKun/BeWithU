@@ -66,6 +66,7 @@ export const DEFAULT_SETTINGS: Settings = {
       enabled: false
     }
   },
+  dsh: { enabled: false, sessionId: '' },
   context: {
     // 中档：约等于模型可用上限的 2/3，兼顾记忆深度与首字延迟
     level: 'mid',
@@ -92,6 +93,13 @@ export const DEFAULT_SETTINGS: Settings = {
       voiceId: '',
       modelId: 'breeze-tts-2',
       language: 'zh'
+    },
+    gptSovits: {
+      baseUrl: 'http://127.0.0.1:9880',
+      refAudioPath: '',
+      promptText: '',
+      promptLang: 'zh',
+      textLang: 'auto'
     }
   },
   asr: {

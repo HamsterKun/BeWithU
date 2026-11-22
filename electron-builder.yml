@@ -23,6 +23,8 @@ asarUnpack:
 extraResources:
   - from: resources/tray.png
     to: tray.png
+  - from: resources/dsh-bridge.mjs
+    to: dsh-bridge.mjs
 
 npmRebuild: false
 

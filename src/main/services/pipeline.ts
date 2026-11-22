@@ -27,6 +27,7 @@ import { captureScreen, type ScreenCapture } from './vision'
 import { LocalAsrSession } from './local-asr'
 import { modelReady } from './local-asr'
 import { runAgentTask } from '../agent/runner'
+import { runDsh } from './dsh'
 import { cancelApprovalsForTurn, pendingApproval, requestApproval, resolvePendingByText } from '../agent/approval'
 
 /** 云端 / 本地识别共用的会话接口 */
@@ -70,7 +71,7 @@ class SpeechQueue {
 
   constructor(
     private tts: Settings['tts'],
-    private onChunk: (seq: number, pcm: Buffer | null) => void,
+    private onChunk: (seq: number, pcm: Buffer | null, sampleRate?: number) => void,
     private onEnd: () => void,
     private concurrency = 2
   ) {}
@@ -111,7 +112,7 @@ class SpeechQueue {
       const signal = AbortSignal.any([this.controller.signal, AbortSignal.timeout(20000)])
       for await (const chunk of synthesize(this.tts, item.text, signal)) {
         if (this.aborted) break
-        this.onChunk(item.seq, chunk.pcm)
+        this.onChunk(item.seq, chunk.pcm, chunk.sampleRate)
         if (!this.firstStarted && item.seq === 0) {
           this.firstStarted = true
           void this.pump()
@@ -167,6 +168,7 @@ class Conversation {
   private previewSeq = 900000
   /** 正在进行的压缩：下一轮开始前必须等它，否则会带着旧摘要重复压缩 */
   private compacting: Promise<void> | null = null
+  private compactAbort: AbortController | null = null
   private ctxGen = 0
   private visionWarned = false
   /** 最近一次请求的真实/估算 token，用于校准与展示 */
@@ -459,6 +461,11 @@ class Conversation {
     sendBubble({ type: 'user', text: userText, final: true })
     sendBubble({ type: 'assistant-reset' })
 
+    if (s.dsh.enabled) {
+      await this.respondWithDsh(userText, turn, s)
+      return
+    }
+
     // 开了 Agent：所有话都交给模型，由它自己决定是回一句还是调工具
     if (s.agent.enabled) {
       await this.respondWithAgent(userText, turn, s)
@@ -543,14 +550,15 @@ class Conversation {
     if (canSpeak) {
       this.speech = new SpeechQueue(
         s.tts,
-        (seq, pcm) => {
+        (seq, pcm, sampleRate) => {
           if (turn !== this.turnId) return
           if (pcm) audioStarted = true
-          this.pushAudio(seq, pcm)
+          this.pushAudio(seq, pcm, sampleRate)
         },
         () => {
           if (turn === this.turnId) getBallWindow()?.webContents.send(IPC.audioEnd)
-        }
+        },
+        s.tts.provider === 'gpt-sovits' ? 1 : 2
       )
     } else {
       // 静音 / 关闭合成：清掉上一轮残留的队列，避免下面误判成"还有东西在播"
@@ -649,6 +657,63 @@ class Conversation {
   /* -------------------------------------------------------- agent mode ---- */
 
   /** Agent 模式：跑工具循环，边显示边播报，结束时收起 */
+  private async respondWithDsh(userText: string, turn: number, s: Settings): Promise<void> {
+    const controller = new AbortController()
+    this.abortLlm = controller
+    this.speech?.abort()
+    this.speech = null
+    sendBubble({ type: 'reasoning-reset' })
+    this.setPhase('acting', 'DSH 思考中')
+    sendAgentProgress({ active: true, step: 0, mode: 'thinking', text: 'DSH 正在连接' })
+    const clearProgress = (): void => sendAgentProgress({ active: false, step: 0 })
+    controller.signal.addEventListener('abort', clearProgress, { once: true })
+    let answer = ''
+    let index = 0
+    try {
+      answer = await runDsh(userText, s.dsh.sessionId, controller.signal, ({ mode, text }) => {
+        if (turn !== this.turnId) return
+        const step = ++index
+        sendAgentProgress({ active: true, step, mode, text })
+        sendBubble({ type: 'agent-step', index: step, text, done: false })
+      })
+    } catch (error) {
+      if (turn !== this.turnId || controller.signal.aborted) return
+      const message = error instanceof Error ? error.message : String(error)
+      this.notify('error', message)
+    } finally {
+      controller.signal.removeEventListener('abort', clearProgress)
+      if (turn === this.turnId) {
+        clearProgress()
+        sendBubble({ type: 'agent-step', index: Math.max(1, index), text: answer ? 'DSH 已完成' : 'DSH 未完成', done: true, ok: Boolean(answer) })
+        if (answer) sendBubble({ type: 'assistant-delta', text: answer })
+        sendBubble({ type: 'assistant-end' })
+      }
+    }
+    if (turn !== this.turnId || controller.signal.aborted) return
+    const tts = settingsStore.get()
+    if (!answer || !tts.tts.enabled || tts.ui.muted) {
+      this.setPhase('idle')
+      this.scheduleHide()
+      return
+    }
+    this.speech = new SpeechQueue(
+      tts.tts,
+      (seq, pcm, rate) => { if (turn === this.turnId) this.pushAudio(seq, pcm, rate) },
+      () => {
+        if (turn !== this.turnId) return
+        getBallWindow()?.webContents.send(IPC.audioEnd)
+        if (this.phase === 'acting') {
+          this.setPhase('idle')
+          this.scheduleHide()
+        }
+      },
+      tts.tts.provider === 'volc' ? 2 : 1
+    )
+    const splitter = new SentenceSplitter()
+    for (const sentence of [...splitter.push(answer), ...splitter.flush()]) this.speech.add(sentence)
+    this.speech.finish()
+  }
+
   private async respondWithAgent(userText: string, turn: number, s: Settings): Promise<void> {
     // 和闲聊一样：先等压缩落定，再取历史快照，最后才把本轮写入记录
     await this.settleContext()
@@ -674,10 +739,10 @@ class Conversation {
     if (canSpeak) {
       this.speech = new SpeechQueue(
         s.tts,
-        (seq, pcm) => {
+        (seq, pcm, sampleRate) => {
           if (turn !== this.turnId) return
           if (pcm) audioStarted = true
-          this.pushAudio(seq, pcm)
+          this.pushAudio(seq, pcm, sampleRate)
         },
         () => {
           if (turn !== this.turnId) return
@@ -688,7 +753,7 @@ class Conversation {
           }
         },
         // Breeze 的并发上限是 1，两条一起合成就 429，第二句会直接丢
-        s.tts.provider === 'breeze' ? 1 : 2
+        s.tts.provider === 'volc' ? 2 : 1
       )
     } else {
       this.speech?.abort()
@@ -816,14 +881,14 @@ class Conversation {
       this.scheduleHide()
     }, 5000)
   }
-  private pushAudio(seq: number, pcm: Buffer | null): void {
+  private pushAudio(seq: number, pcm: Buffer | null, sampleRate = 24000): void {
     const win = getBallWindow()
     if (!win) return
     if (pcm) {
       win.webContents.send(IPC.audioChunk, {
         seq,
         pcm: pcm.buffer.slice(pcm.byteOffset, pcm.byteOffset + pcm.byteLength),
-        sampleRate: 24000,
+        sampleRate,
         last: false
       })
       if (this.phase !== 'speaking') this.setPhase('speaking')
@@ -845,8 +910,8 @@ class Conversation {
   }
 
   /** 设置页试听：把音频块直接推给悬浮球渲染进程播放 */
-  previewChunk(seq: number, pcm: Buffer, last: boolean): void {
-    this.pushAudio(seq, last ? null : pcm)
+  previewChunk(seq: number, pcm: Buffer, last: boolean, sampleRate?: number): void {
+    this.pushAudio(seq, last ? null : pcm, sampleRate)
   }
 
   /**
@@ -858,6 +923,7 @@ class Conversation {
   private async compact(reason: 'auto' | 'manual'): Promise<{ ok: boolean; message: string }> {
     if (this.compacting) return { ok: false, message: '正在压缩中，稍等一下' }
     const s = settingsStore.get()
+    if (s.dsh.enabled) return { ok: false, message: 'DSH 模式下由 DSH 管理上下文' }
     const gen = this.ctxGen
     contextStore.clampArchived(historyStore.endIndex())
     const archived = Math.max(historyStore.startIndex(), contextStore.archivedUpTo())
@@ -878,12 +944,15 @@ class Conversation {
       })
     )
 
+    const controller = new AbortController()
+    this.compactAbort = controller
     this.compacting = (async () => {
       const text = await summarizeConversation({
         summary: contextStore.getSummary(),
         messages: cold,
         llm: s.llm,
-        maxChars: summaryCharsFor(s.context.level)
+        maxChars: summaryCharsFor(s.context.level),
+        signal: controller.signal
       })
       if (gen !== this.ctxGen) return
       if (!text.trim()) {
@@ -920,6 +989,7 @@ class Conversation {
       return { ok: false, message: msg }
     } finally {
       this.compacting = null
+      this.compactAbort = null
     }
   }
 
@@ -1003,6 +1073,12 @@ class Conversation {
 
   /* ----------------------------------------------------------- control ---- */
 
+  switchDshRoute(): void {
+    this.stopEverything()
+    this.ctxGen += 1
+    this.compactAbort?.abort()
+  }
+
   interrupt(): void {
     cancelApprovalsForTurn(this.turnId)
     this.turnId++
@@ -1030,6 +1106,13 @@ class Conversation {
 
   /** 清空多轮上下文：停掉当前播报，清历史与长期记忆，气泡回到空白状态 */
   clearContext(): void {
+    if (settingsStore.get().dsh.enabled) {
+      this.stopEverything()
+      sendBubble({ type: 'user', text: '', final: false })
+      sendBubble({ type: 'assistant-reset' })
+      this.notify('info', '要切换上下文，请在 DSH模式设置中选择其他对话')
+      return
+    }
     historyStore.clear()
     contextStore.clear()
     this.ctxGen += 1
@@ -1055,7 +1138,7 @@ class Conversation {
       let bytes = 0
       for await (const chunk of synthesize(s.tts, text, new AbortController().signal)) {
         bytes += chunk.pcm.length
-        this.pushAudio(seq, chunk.pcm)
+        this.pushAudio(seq, chunk.pcm, chunk.sampleRate)
       }
       this.pushAudio(seq, null)
       getBallWindow()?.webContents.send(IPC.audioEnd)

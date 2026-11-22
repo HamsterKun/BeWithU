@@ -26,6 +26,8 @@ const api = {
     onChanged: (cb: (s: PublicSettings) => void) => on<PublicSettings>(IPC.settingsChanged, cb),
     testLlm: () => invoke<TestResult>(IPC.settingsTestLlm),
     testTts: (text?: string) => invoke<TestResult>(IPC.settingsTestTts, text),
+    installDsh: () => invoke<TestResult>(IPC.dshInstall),
+    dshSessions: () => invoke<import('../shared/types').DshConnectionInfo>(IPC.dshSessions),
     previewVoice: (speaker: string, resourceId: string) =>
       invoke<TestResult>(IPC.settingsPreviewVoice, speaker, resourceId),
     testAsr: () => invoke<TestResult>(IPC.settingsTestAsr),

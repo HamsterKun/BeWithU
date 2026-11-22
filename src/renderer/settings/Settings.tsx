@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { PublicSettings, SettingsPatch } from '@shared/types'
 import ModelPane from './panes/ModelPane'
+import DshPane from './panes/DshPane'
 import VoicePane from './panes/VoicePane'
 import BallPane from './panes/BallPane'
 import PromptPane from './panes/PromptPane'
@@ -11,10 +12,11 @@ import ContextPane from './panes/ContextPane'
 import DataPane from './panes/DataPane'
 import UpdateBanner from './UpdateBanner'
 
-type Tab = 'model' | 'context' | 'voice' | 'ball' | 'prompt' | 'agent' | 'hotkey' | 'data' | 'about'
+type Tab = 'model' | 'dsh' | 'context' | 'voice' | 'ball' | 'prompt' | 'agent' | 'hotkey' | 'data' | 'about'
 
 const TABS: { id: Tab; label: string; title: string; icon: string }[] = [
   { id: 'model', label: '大模型', title: '大模型', icon: 'M8 1.4l1.7 4.6 4.6 1.7-4.6 1.7L8 14l-1.7-4.6L1.7 7.7l4.6-1.7z' },
+  { id: 'dsh', label: 'DSH模式', title: 'DSH模式', icon: 'M1 3h6v2H3v6h4v2H1zm8 0h6v10H9v-2h4V5H9zM5 7h6v2H5z' },
   { id: 'context', label: '上下文', title: '上下文管理', icon: 'M2 3.2h12v2.2H2zm0 3.7h12v2.2H2zm0 3.7h8v2.2H2z' },
   { id: 'voice', label: '语音', title: '语音合成与识别', icon: 'M8 1.6a2.4 2.4 0 0 1 2.4 2.4v3.4a2.4 2.4 0 1 1-4.8 0V4A2.4 2.4 0 0 1 8 1.6zM3.4 7.2v.4a4.6 4.6 0 0 0 9.2 0v-.4h1.2v.4a5.8 5.8 0 0 1-5.2 5.75V15H7.4v-1.65A5.8 5.8 0 0 1 2.2 7.6v-.4z' },
   { id: 'ball', label: '悬浮球', title: '悬浮球与气泡', icon: 'M8 1.6a6.4 6.4 0 1 0 0 12.8A6.4 6.4 0 0 0 8 1.6zm0 1.6a4.8 4.8 0 1 1 0 9.6 4.8 4.8 0 0 1 0-9.6z' },
@@ -173,13 +175,14 @@ export default function Settings(): React.ReactElement {
           </span>
         </header>
         <div className="main__body">
-          {tab === 'model' ? <ModelPane {...paneProps} /> : null}
+          {tab === 'model' ? (s.dsh.enabled ? <p>DSH 模式已开启，模型由 DSH 管理。</p> : <ModelPane {...paneProps} />) : null}
+          {tab === 'dsh' ? <DshPane {...paneProps} /> : null}
           {tab === 'context' ? <ContextPane {...paneProps} /> : null}
           {tab === 'voice' ? <VoicePane {...paneProps} /> : null}
           {tab === 'ball' ? <BallPane {...paneProps} /> : null}
           {tab === 'prompt' ? <PromptPane {...paneProps} /> : null}
           {tab === 'hotkey' ? <HotkeyPane {...paneProps} /> : null}
-          {tab === 'agent' ? <AgentPane {...paneProps} /> : null}
+          {tab === 'agent' ? (s.dsh.enabled ? <p>DSH 模式已开启，工具与权限由 DSH 管理。</p> : <AgentPane {...paneProps} />) : null}
           {tab === 'data' ? <DataPane {...paneProps} /> : null}
           {tab === 'about' ? <AboutPane {...paneProps} /> : null}
         </div>

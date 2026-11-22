@@ -15,6 +15,7 @@ import type {
   Phase,
   PublicSettings,
   ScreenCaptureInfo,
+  DshConnectionInfo,
   SecretPath,
   SettingsPatch,
   TestResult
@@ -30,6 +31,8 @@ export const IPC = {
   settingsClose: 'settings:close',
   settingsTestLlm: 'settings:test-llm',
   settingsTestTts: 'settings:test-tts',
+  dshInstall: 'settings:dsh-install',
+  dshSessions: 'settings:dsh-sessions',
   settingsPreviewVoice: 'settings:preview-voice',
   settingsTestAsr: 'settings:test-asr',
   settingsPickImage: 'settings:pick-image',
@@ -206,6 +209,8 @@ export interface BwuApi {
     onChanged(cb: (s: PublicSettings) => void): () => void
     testLlm(): Promise<TestResult>
     testTts(text?: string): Promise<TestResult>
+    installDsh(): Promise<TestResult>
+    dshSessions(): Promise<DshConnectionInfo>
     previewVoice(speaker: string, resourceId: string): Promise<TestResult>
     testAsr(): Promise<TestResult>
     pickImage(): Promise<string | null>

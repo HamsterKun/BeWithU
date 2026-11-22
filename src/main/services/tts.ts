@@ -4,6 +4,7 @@ import { log } from '../logger'
 import { recordTtsChars } from '../store/usage'
 import { HttpStatusError } from './http-error'
 import { sseLines } from './sse'
+import { synthesizeSovits } from './gpt-sovits'
 
 /** 豆包语音合成大模型 V3 · 单向流式（HTTP + SSE），2.0 音色可用 */
 const TTS_URL = 'https://openspeech.bytedance.com/api/v3/tts/unidirectional/sse'
@@ -135,6 +136,10 @@ export async function* synthesize(
   text: string,
   signal: AbortSignal
 ): AsyncGenerator<TtsChunk> {
+  if (tts.provider === 'gpt-sovits') {
+    if (text.trim()) yield await synthesizeSovits(tts, text.trim(), signal)
+    return
+  }
   // 语音合成按字数计费（火山/Breeze 都是按字符），这里记一笔
   recordTtsChars(text.length)
   if (tts.provider === 'breeze') {

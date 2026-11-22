@@ -7,6 +7,7 @@ import { historyStore } from './store/history'
 import { settingsStore } from './store/settings'
 import { conversation } from './services/pipeline'
 import { synthesize } from './services/tts'
+import { installDshBridge, listDshSessions } from './services/dsh'
 import { testLlm } from './services/llm'
 import { testAsr } from './services/asr'
 import { captureScreen } from './services/vision'
@@ -249,7 +250,7 @@ async function synthToBall(tts: Settings['tts'], text: string): Promise<TestResu
       if (controller.signal.aborted) break
       if (!firstAt) firstAt = Date.now() - t0
       bytes += chunk.pcm.length
-      conversation.previewChunk(seq, chunk.pcm, false)
+      conversation.previewChunk(seq, chunk.pcm, false, chunk.sampleRate)
     }
     if (controller.signal.aborted) {
       log('tts: 试听被打断')
@@ -274,11 +275,15 @@ export function registerIpc(getQuit: () => void): void {
   /* ---------------------------------------------------------- settings ---- */
 
   handle(IPC.settingsGet, () => settingsStore.public())
+  handle(IPC.dshInstall, () => installDshBridge())
+  handle(IPC.dshSessions, () => listDshSessions())
 
   handle(IPC.settingsUpdate, (_e, patch: SettingsPatch) => {
     const before = settingsStore.get()
     const next = settingsStore.update(patch)
     const saved = settingsStore.get()
+    if (before.dsh.enabled !== saved.dsh.enabled ||
+        (saved.dsh.enabled && before.dsh.sessionId !== saved.dsh.sessionId)) conversation.switchDshRoute()
     const configured = saved.mcp.servers
     for (const server of before.mcp.servers) {
       const current = configured.find((s) => s.id === server.id && s.enabled)
@@ -288,11 +293,11 @@ export function registerIpc(getQuit: () => void): void {
       reloadHotkey(next.voice.hotkey)
     }
     if (before.ui.autoLaunch !== next.ui.autoLaunch) applyAutoLaunch(next.ui.autoLaunch)
-    if (
-      before.llm.model !== saved.llm.model ||
+    if (!saved.dsh.enabled && (
+      before.dsh.enabled || before.llm.model !== saved.llm.model ||
       before.llm.baseUrl !== saved.llm.baseUrl ||
       before.llm.apiKey !== saved.llm.apiKey
-    ) {
+    )) {
       void refreshModelInfo(saved.llm, true)
     }
     broadcastSettings(next)
@@ -300,6 +305,7 @@ export function registerIpc(getQuit: () => void): void {
   })
 
   handle(IPC.settingsReset, () => {
+    if (settingsStore.get().dsh.enabled) conversation.switchDshRoute()
     const oldServers = settingsStore.get().mcp.servers
     const next = settingsStore.reset()
     void refreshModelInfo(settingsStore.get().llm, true)
@@ -459,6 +465,7 @@ export function registerIpc(getQuit: () => void): void {
 
   handle(IPC.settingsTestLlm, async () => {
     const s = settingsStore.get()
+    if (s.dsh.enabled) return { ok: false, message: 'DSH 模式下由 DSH 管理模型' }
     if (!s.llm.apiKey.trim()) return { ok: false, message: '还没填 API Key' }
     return testLlm(s.llm)
   })
@@ -717,6 +724,7 @@ export function registerIpc(getQuit: () => void): void {
   /* ------------------------------------------------------- 模型列表 / 用量 -- */
 
   handle(IPC.llmModels, async () => {
+    if (settingsStore.get().dsh.enabled) return { ok: false, error: 'DSH 模式下由 DSH 管理模型' }
     try {
       const models = await listModels(settingsStore.get().llm)
       return { ok: true, models }

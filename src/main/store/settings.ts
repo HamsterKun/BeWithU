@@ -173,7 +173,20 @@ class SettingsStore {
     s.tts.speed = clamp(s.tts.speed, -50, 100, 0)
     s.tts.loudness = clamp(s.tts.loudness, -50, 100, 0)
     s.tts.volume = clamp(s.tts.volume, 0, 1, 0.9)
-    if (s.tts.provider !== 'breeze') s.tts.provider = 'volc'
+    if (s.tts.provider !== 'breeze' && s.tts.provider !== 'gpt-sovits') s.tts.provider = 'volc'
+    s.dsh = {
+      enabled: s.dsh?.enabled === true,
+      sessionId: typeof s.dsh?.sessionId === 'string' ? s.dsh.sessionId.trim().slice(0, 256) : ''
+    }
+    const sovits = s.tts.gptSovits
+    const sovitsDefaults = DEFAULT_SETTINGS.tts.gptSovits
+    s.tts.gptSovits = {
+      baseUrl: typeof sovits?.baseUrl === 'string' ? sovits.baseUrl : sovitsDefaults.baseUrl,
+      refAudioPath: typeof sovits?.refAudioPath === 'string' ? sovits.refAudioPath : '',
+      promptText: typeof sovits?.promptText === 'string' ? sovits.promptText : '',
+      promptLang: typeof sovits?.promptLang === 'string' ? sovits.promptLang : sovitsDefaults.promptLang,
+      textLang: typeof sovits?.textLang === 'string' ? sovits.textLang : sovitsDefaults.textLang
+    }
     s.tts.breeze.modelId = (s.tts.breeze.modelId || '').trim() || 'breeze-tts-2'
     s.tts.breeze.voiceId = (s.tts.breeze.voiceId || '').trim()
     const lang = (s.tts.breeze.language || '').trim()

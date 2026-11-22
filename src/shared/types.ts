@@ -2,8 +2,7 @@
 
 export type LlmPreset = 'ark' | 'deepseek' | 'openai' | 'moonshot' | 'zhipu' | 'ollama' | 'custom'
 export type TtsAuthMode = 'console' | 'apikey'
-/** 语音合成服务商：火山引擎 / Breeze Blue */
-export type TtsProvider = 'volc' | 'breeze'
+export type TtsProvider = 'volc' | 'breeze' | 'gpt-sovits'
 export type VoiceMode = 'hold' | 'toggle'
 export type Phase = 'idle' | 'listening' | 'thinking' | 'speaking' | 'acting'
 
@@ -81,6 +80,13 @@ export interface TtsSettings {
   /** 播放增益 0~1 */
   volume: number
   breeze: BreezeTtsSettings
+  gptSovits: {
+    baseUrl: string
+    refAudioPath: string
+    promptText: string
+    promptLang: string
+    textLang: string
+  }
 }
 
 export interface AsrSettings {
@@ -274,6 +280,7 @@ export interface PromptSettings {
 
 export interface Settings {
   llm: LlmSettings
+  dsh: { enabled: boolean; sessionId: string }
   /** 上下文管理：永远开启，不再提供总开关 */
   context: ContextSettings
   tts: TtsSettings
@@ -315,6 +322,17 @@ export interface TestResult {
   message: string
   latencyMs?: number
   sample?: string
+}
+
+export interface DshSessionInfo {
+  id: string
+  title: string
+  cwd: string
+  running: boolean
+}
+
+export interface DshConnectionInfo extends TestResult {
+  sessions: DshSessionInfo[]
 }
 
 export interface BubbleNotice {

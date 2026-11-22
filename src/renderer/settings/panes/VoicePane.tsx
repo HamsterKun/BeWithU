@@ -30,6 +30,14 @@ const AUTH_OPTIONS = [
   { value: 'console' as const, label: 'AppID + Token（旧版）' }
 ]
 
+const SOVITS_LANGS = [
+  { value: 'zh', label: '中文' },
+  { value: 'en', label: '英语' },
+  { value: 'ja', label: '日语' },
+  { value: 'ko', label: '韩语' },
+  { value: 'yue', label: '粤语' }
+]
+
 function ModelStatusText(p: AsrModelProgress | null): string {
   if (!p) return '检查中…'
   if (p.state === 'ready') return '已就绪'
@@ -112,7 +120,8 @@ export default function VoicePane({ s, patch }: PaneProps): React.ReactElement {
               value={s.tts.provider}
               options={[
                 { value: 'volc' as const, label: '火山引擎' },
-                { value: 'breeze' as const, label: 'Breeze' }
+                { value: 'breeze' as const, label: 'Breeze' },
+                { value: 'gpt-sovits' as const, label: 'GPT-SoVITS' }
               ]}
               onChange={(v) => patch({ tts: { provider: v } }, true)}
             />
@@ -174,7 +183,7 @@ export default function VoicePane({ s, patch }: PaneProps): React.ReactElement {
                 />
               </Field>
             </>
-          ) : (
+          ) : s.tts.provider === 'breeze' ? (
             <>
               <Field label="API Key" hint="在 Breeze 控制台创建">
                 <SecretInput
@@ -217,6 +226,29 @@ export default function VoicePane({ s, patch }: PaneProps): React.ReactElement {
                   ]}
                   onChange={(v) => patch({ tts: { breeze: { language: v } } })}
                 />
+              </Field>
+            </>
+          ) : (
+            <>
+              <Field label="API 地址" hint="填写运行中的 GPT-SoVITS API v2 服务地址">
+                <TextInput mono value={s.tts.gptSovits.baseUrl} placeholder="http://127.0.0.1:9880"
+                  onChange={(baseUrl) => patch({ tts: { gptSovits: { baseUrl } } })} />
+              </Field>
+              <Field label="参考音频路径" hint="路径以 GPT-SoVITS 服务所在电脑为准">
+                <TextInput mono value={s.tts.gptSovits.refAudioPath}
+                  onChange={(refAudioPath) => patch({ tts: { gptSovits: { refAudioPath } } })} />
+              </Field>
+              <Field label="参考音频原文">
+                <TextInput value={s.tts.gptSovits.promptText}
+                  onChange={(promptText) => patch({ tts: { gptSovits: { promptText } } })} />
+              </Field>
+              <Field label="参考音频语种">
+                <Select value={s.tts.gptSovits.promptLang} options={SOVITS_LANGS}
+                  onChange={(promptLang) => patch({ tts: { gptSovits: { promptLang } } })} />
+              </Field>
+              <Field label="合成语种">
+                <Select value={s.tts.gptSovits.textLang} options={[{ value: 'auto', label: '自动' }, ...SOVITS_LANGS]}
+                  onChange={(textLang) => patch({ tts: { gptSovits: { textLang } } })} />
               </Field>
             </>
           )}
