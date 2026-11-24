@@ -55,13 +55,15 @@ test('the running bridge lists conversations, delivers to the selection and canc
   assert.match(await readFile(join(profile, 'cordis.patch.yml.before-bewithu'), 'utf8'), /keep-this/)
 
   const calls = []
-  const agents = new Map(['session-one', 'session-two'].map((id) => [id, {
+  const makeAgent = (id) => ({
     session: { id },
     status: 'idle',
     inbox: { nextTurn: [], nextStep: [] },
     cancel(cause, options) { calls.push(['cancel', id, cause.kind, options.keepInbox]); this.end.resolve() },
     async whenIdle() { await this.end.promise; this.status = 'idle' }
-  }]))
+  })
+  const agents = new Map(['session-one', 'session-two'].map((id) => [id, makeAgent(id)]))
+  let createdSessions = 0
   const clock = { accepted: Promise.withResolvers(), stopped: Promise.withResolvers() }
   const { apply } = await import(pathToFileURL(join(profile, 'bewithu-bridge.mjs')).href)
   apply({
@@ -74,6 +76,12 @@ test('the running bridge lists conversations, delivers to the selection and canc
         { sessionId: 'worker', origin: 'subagent' }
       ] }),
       resolveAgent: async (id) => agents.has(id) ? { agent: agents.get(id) } : { error: 'missing' },
+      async create() {
+        createdSessions += 1
+        const id = 'session-dedicated'
+        agents.set(id, makeAgent(id))
+        return { sessionId: id }
+      },
       async prompt(request) {
         calls.push(['prompt', request.sessionId, request.content[0].text])
         const agent = agents.get(request.sessionId)
@@ -113,4 +121,10 @@ test('the running bridge lists conversations, delivers to the selection and canc
   await Promise.race([clock.stopped.promise, sleep(1500).then(() => assert.fail('DSH did not receive cancellation'))])
   assert.deepEqual(calls.at(-1), ['cancel', 'session-two', 'user', true])
   await assert.rejects(runDsh('never rerouted', 'missing', AbortSignal.timeout(3500), () => {}), /所选 DSH 对话已不可用/)
+
+  assert.equal(await runDsh('第一次专用对话', '', AbortSignal.timeout(3500), () => {}), '结果')
+  assert.equal(createdSessions, 1)
+  assert.equal((await readFile(join(profile, 'bewithu-session.txt'), 'utf8')).trim(), 'session-dedicated')
+  assert.equal(await runDsh('第二次专用对话', '', AbortSignal.timeout(3500), () => {}), '结果')
+  assert.equal(createdSessions, 1)
 })
