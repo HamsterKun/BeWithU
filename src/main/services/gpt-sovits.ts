@@ -18,7 +18,13 @@ export function decodeSovitsWav(wav: Buffer): TtsChunk {
     const start = pos + 8
     if (start + size > wav.length) throw invalid()
     if (name === 'fmt ') {
-      if (size < 16 || wav.readUInt16LE(start) !== 1 || wav.readUInt16LE(start + 14) !== 16) throw invalid()
+      const format = wav.readUInt16LE(start)
+      const extensible = format === 0xfffe
+      if (size < (extensible ? 40 : 16) || wav.readUInt16LE(start + 14) !== 16) throw invalid()
+      if (extensible) {
+        // WAVE_FORMAT_EXTENSIBLE 的 SubFormat GUID 前 4 字节为 1 时才是 PCM。
+        if (wav.readUInt32LE(start + 24) !== 1) throw invalid()
+      } else if (format !== 1) throw invalid()
       channels = wav.readUInt16LE(start + 2)
       sampleRate = wav.readUInt32LE(start + 4)
     }

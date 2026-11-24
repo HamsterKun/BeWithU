@@ -35,6 +35,39 @@ function wav() {
   return output
 }
 
+function extensibleWav() {
+  const output = Buffer.alloc(72)
+  output.write('RIFF', 0)
+  output.writeUInt32LE(output.length - 8, 4)
+  output.write('WAVEfmt ', 8)
+  output.writeUInt32LE(40, 16)
+  output.writeUInt16LE(0xfffe, 20)
+  output.writeUInt16LE(2, 22)
+  output.writeUInt32LE(32000, 24)
+  output.writeUInt32LE(128000, 28)
+  output.writeUInt16LE(4, 32)
+  output.writeUInt16LE(16, 34)
+  output.writeUInt16LE(22, 36)
+  output.writeUInt16LE(16, 38)
+  output.writeUInt32LE(3, 40)
+  output.writeUInt32LE(1, 44)
+  output.writeUInt16LE(0, 48)
+  output.writeUInt16LE(0x0010, 50)
+  output.write('\x80\x00\x00\xaa\x00\x38\x9b\x71', 52, 'binary')
+  output.write('data', 60)
+  output.writeUInt32LE(4, 64)
+  output.writeInt16LE(1400, 68)
+  output.writeInt16LE(600, 70)
+  return output
+}
+
+test('GPT-SoVITS accepts WAVE_FORMAT_EXTENSIBLE PCM16', () => {
+  const audio = decodeSovitsWav(extensibleWav())
+  assert.equal(audio.sampleRate, 32000)
+  assert.equal(audio.pcm.length, 2)
+  assert.equal(audio.pcm.readInt16LE(), 1000)
+})
+
 test('GPT-SoVITS posts API v2 fields and decodes WAV at its actual sample rate', async (t) => {
   const settings = structuredClone(DEFAULT_SETTINGS.tts)
   settings.provider = 'gpt-sovits'
